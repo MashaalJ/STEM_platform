@@ -1,0 +1,11 @@
+# Render Blueprint: deploy Stemverse from GitHub
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: stemverse
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
