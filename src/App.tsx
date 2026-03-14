@@ -36,14 +36,18 @@ import {
   ClipboardList,
   Zap,
   X,
-  ChevronDown
+  ChevronDown,
+  Copy,
+  LogIn,
+  Layers
 } from 'lucide-react';
+import { ChallengeBuilder, ChallengeRenderer } from './challenges';
 
 // --- Types ---
 
 const safeFetch = async (url: string, options?: RequestInit) => {
   try {
-    const res = await fetch(url, options);
+    const res = await fetch(url, { ...options, credentials: options?.credentials ?? 'include' });
     if (!res.ok) {
       const text = await res.text();
       console.error(`Fetch error for ${url}: ${res.status} ${text}`);
@@ -86,6 +90,7 @@ interface Class {
   teacher_name?: string;
   description: string;
   student_count?: number;
+  join_code?: string;
 }
 
 interface StudentProgress {
@@ -206,98 +211,135 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
     { name: 'Admin Core', pass: 'admin123', role: 'Admin' }
   ];
 
-  return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950 overflow-y-auto">
-      <FuturisticBackground withParticles={true} />
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="relative w-full max-w-md p-10 glass-panel border-glow rounded-2xl box-glow-cyan scanlines"
-      >
-        <div className="flex flex-col items-center mb-8">
-          <div className="size-16 bg-cyan-500/10 rounded-2xl flex items-center justify-center mb-4 border border-cyan-500/30 box-glow-cyan">
-            <Rocket className="text-cyan-400 size-8" />
-          </div>
-          <h1 className="font-display text-3xl font-black text-slate-100 uppercase tracking-tight text-glow-cyan">STEM<span className="text-cyan-400">VERSE</span></h1>
-          <p className="text-cyan-400/80 text-[10px] uppercase font-bold tracking-[0.3em] mt-2 text-center">
-            {isSignup ? 'Create Access Profile' : 'Neural Link Authorization'}
-          </p>
-        </div>
-        <div className="flex mb-6 bg-slate-800/50 rounded-xl p-1 text-[10px] font-black uppercase tracking-widest border border-cyan-500/20">
-          <button
-            type="button"
-            onClick={() => setIsSignup(false)}
-            className={`flex-1 py-2 rounded-lg transition-all ${!isSignup ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'text-slate-400'}`}
-          >
-            Sign In
-          </button>
-          <button
-            type="button"
-            onClick={() => setIsSignup(true)}
-            className={`flex-1 py-2 rounded-lg transition-all ${isSignup ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'text-slate-400'}`}
-          >
-            Sign Up
-          </button>
-        </div>
+  const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } };
+  const item = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } };
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+  return (
+    <div className="fixed inset-0 z-[200] flex min-h-screen overflow-y-auto">
+      <FuturisticBackground withParticles={true} />
+      {/* Left: bold gradient hero - not boring dark */}
+      <motion.div
+        initial={{ opacity: 0, x: -20 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.5 }}
+        className="hidden lg:flex lg:w-[45%] flex-col justify-center px-12 xl:px-20 py-16 relative overflow-hidden"
+      >
+        <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/30 via-brand-blue/40 to-purple-600/40" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_20%,rgba(0,245,255,0.25),transparent)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_60%_at_80%_80%,rgba(168,85,247,0.2),transparent)]" />
+        <div className="relative z-10">
+          <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: 0.2 }} className="size-24 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center border border-white/30 shadow-2xl mb-8">
+            <Rocket className="text-cyan-300 size-12 drop-shadow-[0_0_20px_rgba(0,245,255,0.6)]" />
+          </motion.div>
+          <motion.h1 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="font-display text-5xl xl:text-6xl font-black text-white uppercase tracking-tighter mb-4">
+            STEM<span className="text-cyan-300">VERSE</span>
+          </motion.h1>
+          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.45 }} className="text-white/90 text-lg max-w-sm font-medium mb-2">
+            Learn STEM through games and quizzes. Track progress, level up, and compete with your class.
+          </motion.p>
+          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.55 }} className="text-cyan-300/90 text-sm font-bold uppercase tracking-widest">
+            Neural Link Portal
+          </motion.p>
+        </div>
+      </motion.div>
+
+      {/* Right: form card - lighter, clearer */}
+      <div className="flex-1 flex items-center justify-center p-6 lg:p-12">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.96, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ type: "spring", damping: 22, stiffness: 280, delay: 0.15 }}
+          className="w-full max-w-md"
+        >
+          <div className="bg-white/10 backdrop-blur-xl rounded-3xl border border-white/20 shadow-2xl p-8 lg:p-10">
+            {/* Show logo on small screens */}
+            <div className="lg:hidden flex flex-col items-center mb-8">
+              <div className="size-16 rounded-2xl bg-cyan-400/20 flex items-center justify-center border border-cyan-400/40 mb-4">
+                <Rocket className="text-cyan-400 size-8" />
+              </div>
+              <h1 className="font-display text-3xl font-black text-white uppercase tracking-tight">STEM<span className="text-cyan-400">VERSE</span></h1>
+            </div>
+            <p className="text-cyan-300 font-bold text-sm uppercase tracking-widest mb-6 text-center">
+              {isSignup ? 'Create Access Profile' : 'Neural Link Authorization'}
+            </p>
+
+            <motion.div variants={container} initial="hidden" animate="show" className="flex mb-6 bg-white/10 rounded-xl p-1.5 text-[10px] font-black uppercase tracking-widest border border-cyan-400/30">
+              <motion.button
+                variants={item}
+                type="button"
+                onClick={() => setIsSignup(false)}
+                className={`flex-1 py-2.5 rounded-lg transition-all duration-300 ${!isSignup ? 'bg-cyan-400/30 text-white border border-cyan-400/50 shadow-lg' : 'text-slate-300 hover:text-white'}`}
+              >
+                Sign In
+              </motion.button>
+              <motion.button
+                variants={item}
+                type="button"
+                onClick={() => setIsSignup(true)}
+                className={`flex-1 py-2.5 rounded-lg transition-all duration-300 ${isSignup ? 'bg-cyan-400/30 text-white border border-cyan-400/50 shadow-lg' : 'text-slate-300 hover:text-white'}`}
+              >
+                Sign Up
+              </motion.button>
+            </motion.div>
+
+            <form onSubmit={handleSubmit} className="space-y-6">
           {!isSignup ? (
-            <>
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase font-black text-cyan-400 tracking-widest">Operator Name</label>
+            <motion.div variants={container} initial="hidden" animate="show" className="space-y-6">
+              <motion.div variants={item} className="space-y-2">
+                <label className="text-[10px] uppercase font-black text-cyan-300 tracking-widest">Operator Name</label>
                 <input
                   type="text"
                   required
                   value={name}
                   onChange={e => setName(e.target.value)}
-                  className="w-full bg-slate-800/50 border border-cyan-500/30 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/30 transition-all font-mono text-sm"
+                  className="w-full bg-white/10 border-2 border-cyan-400/40 rounded-xl px-4 py-3.5 text-white placeholder:text-slate-400 focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30 transition-all font-mono text-sm"
                   placeholder="e.g. Alex Rivera"
                 />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase font-black text-cyan-400 tracking-widest">Access Key</label>
+              </motion.div>
+              <motion.div variants={item} className="space-y-2">
+                <label className="text-[10px] uppercase font-black text-cyan-300 tracking-widest">Access Key</label>
                 <input
                   type="password"
                   required
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  className="w-full bg-slate-800/50 border border-cyan-500/30 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/30 transition-all font-mono text-sm"
+                  className="w-full bg-white/10 border-2 border-cyan-400/40 rounded-xl px-4 py-3.5 text-white placeholder:text-slate-400 focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30 transition-all font-mono text-sm"
                   placeholder="••••••••"
                 />
-              </div>
-            </>
+              </motion.div>
+            </motion.div>
           ) : (
-            <>
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase font-black text-cyan-400 tracking-widest">Full Name</label>
+            <motion.div variants={container} initial="hidden" animate="show" className="space-y-4">
+              <motion.div variants={item} className="space-y-2">
+                <label className="text-[10px] uppercase font-black text-cyan-300 tracking-widest">Full Name</label>
                 <input
                   type="text"
                   required
                   value={signupData.name}
                   onChange={e => setSignupData({ ...signupData, name: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:border-brand-blue transition-all text-sm"
+                  className="w-full bg-white/10 border border-cyan-400/40 rounded-xl px-4 py-3 text-white placeholder:text-slate-400 focus:outline-none focus:border-cyan-400 text-sm"
                   placeholder="e.g. Sara Khan"
                 />
-              </div>
+              </motion.div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <label className="text-[10px] uppercase font-black text-cyan-400 tracking-widest">Role</label>
+                  <label className="text-[10px] uppercase font-black text-cyan-300 tracking-widest">Role</label>
                   <select
                     value={signupData.role}
                     onChange={e => setSignupData({ ...signupData, role: e.target.value })}
-                    className="w-full bg-slate-800/50 border border-cyan-500/30 rounded-xl px-3 py-3 text-[11px] text-slate-100 focus:outline-none focus:border-cyan-400 transition-all"
+                    className="w-full bg-white/10 border border-cyan-400/40 rounded-xl px-3 py-3 text-[11px] text-white focus:outline-none focus:border-cyan-400"
                   >
-                    <option value="student">Student</option>
-                    <option value="teacher">Teacher</option>
+                    <option value="student" className="bg-slate-800 text-white">Student</option>
+                    <option value="teacher" className="bg-slate-800 text-white">Teacher</option>
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] uppercase font-black text-cyan-400 tracking-widest">Age</label>
+                  <label className="text-[10px] uppercase font-black text-cyan-300 tracking-widest">Age</label>
                   <input
                     type="number"
                     value={signupData.age}
                     onChange={e => setSignupData({ ...signupData, age: e.target.value })}
-                    className="w-full bg-slate-800/50 border border-cyan-500/30 rounded-xl px-3 py-3 text-[11px] text-slate-100 focus:outline-none focus:border-cyan-400 transition-all"
+                    className="w-full bg-white/10 border border-cyan-400/40 rounded-xl px-3 py-3 text-[11px] text-white focus:outline-none focus:border-cyan-400"
                   />
                 </div>
               </div>
@@ -307,7 +349,7 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
                   <input
                     value={signupData.grade}
                     onChange={e => setSignupData({ ...signupData, grade: e.target.value })}
-                    className="w-full bg-slate-800/50 border border-cyan-500/30 rounded-xl px-3 py-3 text-[11px] text-slate-100 focus:outline-none focus:border-cyan-400 transition-all"
+                    className="w-full bg-white/10 border border-cyan-400/40 rounded-xl px-3 py-3 text-[11px] text-white focus:outline-none focus:border-cyan-400"
                   />
                 </div>
                 <div className="space-y-2">
@@ -315,7 +357,7 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
                   <input
                     value={signupData.school}
                     onChange={e => setSignupData({ ...signupData, school: e.target.value })}
-                    className="w-full bg-slate-800/50 border border-cyan-500/30 rounded-xl px-3 py-3 text-[11px] text-slate-100 focus:outline-none focus:border-cyan-400 transition-all"
+                    className="w-full bg-white/10 border border-cyan-400/40 rounded-xl px-3 py-3 text-[11px] text-white focus:outline-none focus:border-cyan-400"
                   />
                 </div>
               </div>
@@ -325,7 +367,7 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
                   <input
                     value={signupData.city}
                     onChange={e => setSignupData({ ...signupData, city: e.target.value })}
-                    className="w-full bg-slate-800/50 border border-cyan-500/30 rounded-xl px-3 py-3 text-[11px] text-slate-100 focus:outline-none focus:border-cyan-400 transition-all"
+                    className="w-full bg-white/10 border border-cyan-400/40 rounded-xl px-3 py-3 text-[11px] text-white focus:outline-none focus:border-cyan-400"
                   />
                 </div>
                 <div className="space-y-2">
@@ -333,7 +375,7 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
                   <input
                     value={signupData.contact_number}
                     onChange={e => setSignupData({ ...signupData, contact_number: e.target.value })}
-                    className="w-full bg-slate-800/50 border border-cyan-500/30 rounded-xl px-3 py-3 text-[11px] text-slate-100 focus:outline-none focus:border-cyan-400 transition-all"
+                    className="w-full bg-white/10 border border-cyan-400/40 rounded-xl px-3 py-3 text-[11px] text-white focus:outline-none focus:border-cyan-400"
                   />
                 </div>
               </div>
@@ -344,7 +386,7 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
                   required
                   value={signupData.email}
                   onChange={e => setSignupData({ ...signupData, email: e.target.value })}
-                  className="w-full bg-slate-800/50 border border-cyan-500/30 rounded-xl px-3 py-3 text-[11px] text-slate-100 focus:outline-none focus:border-cyan-400 transition-all"
+                  className="w-full bg-white/10 border border-cyan-400/40 rounded-xl px-3 py-3 text-[11px] text-white focus:outline-none focus:border-cyan-400"
                 />
               </div>
               <div className="space-y-2">
@@ -353,7 +395,7 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
                   type="email"
                   value={signupData.parent_email}
                   onChange={e => setSignupData({ ...signupData, parent_email: e.target.value })}
-                  className="w-full bg-slate-800/50 border border-cyan-500/30 rounded-xl px-3 py-3 text-[11px] text-slate-100 focus:outline-none focus:border-cyan-400 transition-all"
+                  className="w-full bg-white/10 border border-cyan-400/40 rounded-xl px-3 py-3 text-[11px] text-white focus:outline-none focus:border-cyan-400"
                 />
               </div>
               <div className="space-y-2">
@@ -363,331 +405,51 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
                   required
                   value={signupData.password}
                   onChange={e => setSignupData({ ...signupData, password: e.target.value })}
-                  className="w-full bg-slate-800/50 border border-cyan-500/30 rounded-xl px-3 py-3 text-[11px] text-slate-100 focus:outline-none focus:border-cyan-400 transition-all"
+                  className="w-full bg-white/10 border border-cyan-400/40 rounded-xl px-3 py-3 text-[11px] text-white focus:outline-none focus:border-cyan-400"
                   placeholder="••••••••"
                 />
               </div>
-            </>
+            </motion.div>
           )}
-          {error && <p className="text-red-400 text-[10px] font-bold uppercase text-center tracking-wider">{error}</p>}
-          <button 
-            type="submit" 
-            className="w-full bg-cyan-500/20 border border-cyan-400 text-cyan-400 font-black py-4 rounded-xl uppercase tracking-tighter hover:bg-cyan-500/30 hover:box-glow-cyan transition-all active:scale-[0.98]"
+          {error && <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-rose-300 text-sm font-bold text-center">{error}</motion.p>}
+          <motion.button
+            type="submit"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="w-full bg-cyan-400 hover:bg-cyan-300 text-slate-900 font-black py-4 rounded-xl uppercase tracking-tighter shadow-lg shadow-cyan-400/30 transition-all"
           >
             {isSignup ? 'Create Account' : 'Establish Link'}
-          </button>
-        </form>
+          </motion.button>
+            </form>
 
-        {import.meta.env.MODE !== 'production' && (
-          <div className="mt-8 pt-8 border-t border-cyan-500/20">
-            <p className="text-[9px] uppercase font-black text-cyan-400/80 tracking-widest mb-4 text-center">Quick Access Terminals</p>
-            <div className="grid grid-cols-1 gap-2">
-              {quickAccess.map(acc => (
-                <button 
-                  key={acc.name}
-                  onClick={() => handleQuickAccess(acc)}
-                  className="flex items-center justify-between p-3 bg-slate-800/50 border border-cyan-500/20 rounded-xl hover:border-cyan-400/50 transition-all group"
-                >
-                  <div className="text-left">
-                    <p className="text-xs font-bold text-slate-200 group-hover:text-cyan-400 transition-colors italic uppercase tracking-tight">{acc.name}</p>
-                    <p className="text-[8px] uppercase font-black text-slate-400 tracking-widest">{acc.role}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[8px] font-mono text-cyan-400/70">KEY: {acc.pass}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
+            {import.meta.env.MODE !== 'production' && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="mt-8 pt-8 border-t border-white/20">
+                <p className="text-[9px] uppercase font-black text-cyan-300/90 tracking-widest mb-4 text-center">Quick Access Terminals</p>
+                <div className="grid grid-cols-1 gap-3">
+                  {quickAccess.map((acc, i) => (
+                    <motion.button
+                      key={acc.name}
+                      initial={{ opacity: 0, x: -8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.5 + i * 0.08 }}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.99 }}
+                      onClick={() => handleQuickAccess(acc)}
+                      className="flex items-center justify-between p-3.5 bg-white/10 border border-cyan-400/30 rounded-xl transition-all group text-left hover:bg-white/15"
+                    >
+                      <div>
+                        <p className="text-xs font-bold text-white group-hover:text-cyan-300 transition-colors italic uppercase tracking-tight">{acc.name}</p>
+                        <p className="text-[8px] uppercase font-black text-slate-400 tracking-widest">{acc.role}</p>
+                      </div>
+                      <p className="text-[8px] font-mono text-cyan-300/80">KEY: {acc.pass}</p>
+                    </motion.button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
           </div>
-        )}
-      </motion.div>
-    </div>
-  );
-};
-
-const QuizTool = ({ student, completedQuizIds = [] }: { student?: Student, completedQuizIds?: number[] }) => {
-  const [quizzes, setQuizzes] = useState<any[]>([]);
-  const [showCreate, setShowCreate] = useState(false);
-  const [activeQuiz, setActiveQuiz] = useState<any | null>(null);
-  const [answers, setAnswers] = useState<any[]>([]);
-  const [newQuiz, setNewQuiz] = useState({
-    title: '',
-    questions: [{ type: 'mcq', q: '', a: '', options: ['', '', '', ''] }],
-  });
-
-  useEffect(() => {
-    if (student?.role === 'student') {
-      safeFetch(`/api/students/${student.id}/assigned-quizzes`).then(data => data && setQuizzes(data));
-    } else {
-      safeFetch('/api/quizzes').then(data => data && setQuizzes(data));
-    }
-  }, [student?.id, student?.role]);
-
-  const handleAddQuestion = () => {
-    setNewQuiz({
-      ...newQuiz,
-      questions: [...newQuiz.questions, { type: 'mcq', q: '', a: '', options: ['', '', '', ''] }],
-    });
-  };
-
-  const handleSave = async () => {
-    await fetch('/api/quizzes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newQuiz)
-    });
-    setShowCreate(false);
-    fetch('/api/quizzes').then(res => res.json()).then(setQuizzes);
-  };
-
-  const submitQuiz = async () => {
-    if (!activeQuiz || !student) return;
-    const questions = JSON.parse(activeQuiz.questions);
-    let score = 0;
-    questions.forEach((q: any, i: number) => {
-      const userAns = answers[i];
-      if (q.type === 'dnd') {
-        // Simple array equality for dnd
-        if (JSON.stringify(userAns) === JSON.stringify(q.a.split(','))) score++;
-      } else if (q.type === 'numeric') {
-        const correct = parseFloat(q.a);
-        const given = parseFloat(userAns);
-        if (!Number.isNaN(correct) && !Number.isNaN(given) && Math.abs(correct - given) < 1e-6) {
-          score++;
-        }
-      } else {
-        if (userAns?.toString().toLowerCase() === q.a.toLowerCase()) score++;
-      }
-    });
-
-    await fetch('/api/student-quizzes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        student_id: student.id,
-        quiz_id: activeQuiz.id,
-        score,
-        total_questions: questions.length
-      })
-    });
-
-    setActiveQuiz(null);
-    setAnswers([]);
-    alert(`Assessment Complete! Neural Sync Score: ${score}/${questions.length}`);
-  };
-
-  return (
-    <div className="glass-panel p-8 rounded-2xl border-glow card-hover-glow">
-      <div className="flex items-center justify-between mb-8">
-        <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter flex items-center gap-2">
-          <ClipboardList className="text-cyan-400" />
-          Neural Assessment Interface
-        </h3>
-        {student?.role !== 'student' && (
-          <button 
-            onClick={() => setShowCreate(true)}
-            className="bg-brand-blue text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-brand-blue/90 transition-all tracking-widest shadow-lg shadow-brand-blue/20"
-          >
-            Architect New Quiz
-          </button>
-        )}
+        </motion.div>
       </div>
-
-      {showCreate ? (
-        <div className="space-y-6">
-          <input 
-            type="text" 
-            placeholder="Quiz Designation" 
-            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 font-bold outline-none focus:border-brand-blue/50"
-            value={newQuiz.title}
-            onChange={e => setNewQuiz({...newQuiz, title: e.target.value})}
-          />
-          <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-            {newQuiz.questions.map((q, i) => (
-              <div key={i} className="space-y-4 p-6 bg-slate-50 rounded-2xl border border-slate-200 relative">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Question {i+1}</span>
-                  <select
-                    value={q.type}
-                    onChange={e => {
-                      const qs = [...newQuiz.questions];
-                      const newType = e.target.value;
-                      qs[i].type = newType;
-                      if (newType === 'mcq' && !qs[i].options) {
-                        qs[i].options = ['', '', '', ''];
-                      }
-                      if (newType === 'truefalse') {
-                        qs[i].options = ['True', 'False'];
-                      }
-                      setNewQuiz({...newQuiz, questions: qs});
-                    }}
-                    className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-[10px] font-black uppercase outline-none"
-                  >
-                    <option value="mcq">Multiple Choice</option>
-                    <option value="short">Short Answer</option>
-                    <option value="dnd">Drag & Drop (Sequence)</option>
-                    <option value="truefalse">True / False</option>
-                    <option value="numeric">Numeric</option>
-                  </select>
-                </div>
-                
-                <input 
-                  placeholder="The query..." 
-                  className="w-full bg-transparent border-b border-slate-200 py-2 text-sm font-bold text-slate-900 outline-none"
-                  value={q.q}
-                  onChange={e => {
-                    const qs = [...newQuiz.questions];
-                    qs[i].q = e.target.value;
-                    setNewQuiz({...newQuiz, questions: qs});
-                  }}
-                />
-
-                {q.type === 'mcq' && (
-                  <div className="grid grid-cols-2 gap-2">
-                    {q.options?.map((opt, optIdx) => (
-                      <input 
-                        key={optIdx}
-                        placeholder={`Option ${optIdx + 1}`}
-                        className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-medium"
-                        value={opt}
-                        onChange={e => {
-                          const qs = [...newQuiz.questions];
-                          if (qs[i].options) qs[i].options![optIdx] = e.target.value;
-                          setNewQuiz({...newQuiz, questions: qs});
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {q.type === 'dnd' && (
-                  <p className="text-[10px] text-slate-400 italic">Enter correct sequence in "Answer" separated by commas.</p>
-                )}
-
-                <input 
-                  placeholder="Correct Answer" 
-                  className="w-full bg-transparent py-2 text-sm text-brand-blue font-black outline-none border-t border-slate-100 mt-2"
-                  value={q.a}
-                  onChange={e => {
-                    const qs = [...newQuiz.questions];
-                    qs[i].a = e.target.value;
-                    setNewQuiz({...newQuiz, questions: qs});
-                  }}
-                />
-              </div>
-            ))}
-          </div>
-          <div className="flex gap-4 pt-4">
-            <button onClick={() => setShowCreate(false)} className="flex-1 bg-slate-100 py-3 rounded-xl text-[10px] font-black text-slate-400 uppercase tracking-widest hover:bg-slate-200">Abort</button>
-            <button onClick={handleAddQuestion} className="flex-1 bg-slate-100 py-3 rounded-xl text-[10px] font-black text-slate-900 uppercase tracking-widest hover:bg-slate-200">Add Module</button>
-            <button onClick={handleSave} className="flex-1 bg-brand-blue text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-blue/90 shadow-lg shadow-brand-blue/20">Deploy Quiz</button>
-          </div>
-        </div>
-      ) : activeQuiz ? (
-        <div className="space-y-6">
-          <div className="flex justify-between items-center mb-4">
-            <h4 className="text-lg font-black text-slate-900 uppercase tracking-tight">{activeQuiz.title}</h4>
-            <span className="text-[10px] font-black text-brand-blue uppercase tracking-widest">Neural Link Active</span>
-          </div>
-          
-          <div className="space-y-6">
-            {JSON.parse(activeQuiz.questions).map((q: any, i: number) => (
-              <div key={i} className="space-y-4 p-6 bg-slate-50 rounded-2xl border border-slate-200">
-                <p className="text-sm font-black text-slate-700 uppercase tracking-tight">{q.q}</p>
-                
-                {q.type === 'mcq' || q.type === 'truefalse' ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {q.options?.map((opt: string) => (
-                      <button
-                        key={opt}
-                        onClick={() => {
-                          const ans = [...answers];
-                          ans[i] = opt;
-                          setAnswers(ans);
-                        }}
-                        className={`p-4 rounded-xl border text-xs font-bold text-left transition-all ${
-                          answers[i] === opt ? 'bg-brand-blue text-white border-brand-blue' : 'bg-white border-slate-200 hover:border-brand-blue/30'
-                        }`}
-                      >
-                        {opt}
-                      </button>
-                    ))}
-                  </div>
-                ) : q.type === 'dnd' ? (
-                  <div className="space-y-2">
-                    <p className="text-[10px] text-slate-400 uppercase font-black">Arrange in correct sequence:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {(answers[i] || q.a.split(',').sort(() => Math.random() - 0.5)).map((item: string, idx: number) => (
-                        <div 
-                          key={idx}
-                          className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold cursor-move"
-                          draggable
-                          onDragStart={(e) => e.dataTransfer.setData('text/plain', idx.toString())}
-                          onDragOver={(e) => e.preventDefault()}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
-                            const toIdx = idx;
-                            const newSequence = [...(answers[i] || q.a.split(',').sort(() => Math.random() - 0.5))];
-                            const [movedItem] = newSequence.splice(fromIdx, 1);
-                            newSequence.splice(toIdx, 0, movedItem);
-                            const ans = [...answers];
-                            ans[i] = newSequence;
-                            setAnswers(ans);
-                          }}
-                        >
-                          {item}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <input 
-                    placeholder="Input neural response..." 
-                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-slate-900 text-sm outline-none focus:border-brand-blue/50 font-bold"
-                    value={answers[i] || ''}
-                    onChange={e => {
-                      const ans = [...answers];
-                      ans[i] = e.target.value;
-                      setAnswers(ans);
-                    }}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-          
-          <div className="flex gap-4 pt-4">
-            <button onClick={() => setActiveQuiz(null)} className="flex-1 bg-slate-100 py-3 rounded-xl text-[10px] font-black text-slate-400 uppercase tracking-widest hover:bg-slate-200">Disconnect</button>
-            <button onClick={submitQuiz} className="flex-1 bg-brand-blue text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-blue/90 shadow-lg shadow-brand-blue/20">Finalize Assessment</button>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {quizzes
-            .filter(q => !completedQuizIds.includes(q.id))
-            .map(q => (
-            <div key={q.id} className="p-6 bg-slate-50 rounded-2xl border border-slate-200 flex justify-between items-center group hover:border-brand-blue/30 transition-all shadow-sm">
-              <div className="flex items-center gap-4">
-                <div className="size-10 rounded-xl bg-brand-blue/10 flex items-center justify-center text-brand-blue">
-                  <Zap className="size-5" />
-                </div>
-                <div>
-                  <h4 className="font-black text-slate-900 text-sm uppercase tracking-tight">{q.title}</h4>
-                  <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest">{JSON.parse(q.questions).length} Assessment Modules</p>
-                </div>
-              </div>
-              <button 
-                onClick={() => setActiveQuiz(q)}
-                className="bg-white border border-slate-200 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-brand-blue group-hover:border-brand-blue/30 transition-all"
-              >
-                {student?.role === 'student' ? 'Initiate Link' : 'Review Data'}
-              </button>
-            </div>
-          ))}
-          {quizzes.length === 0 && <p className="text-slate-400 text-center py-10 italic text-sm">No neural assessments detected.</p>}
-        </div>
-      )}
     </div>
   );
 };
@@ -714,19 +476,19 @@ const AddStudentForm = ({ onStudentAdded }: { onStudentAdded: () => void }) => {
   };
 
   return (
-    <div className="bg-white/70 backdrop-blur-md p-8 rounded-3xl border border-slate-200 shadow-xl shadow-slate-200/50">
+    <div className="bg-slate-800/70 backdrop-blur-md p-8 rounded-3xl border border-slate-600/50 shadow-xl shadow-black/20">
       <div className="flex items-center gap-3 mb-8">
         <div className="size-10 rounded-xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center">
           <Plus className="text-brand-blue size-5" />
         </div>
-        <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">Register New Operator</h3>
+        <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter">Register New Operator</h3>
       </div>
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="space-y-2">
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
           <input 
             placeholder="e.g. Commander Shepard" 
-            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 placeholder:text-slate-300 focus:border-brand-blue/50 focus:ring-1 focus:ring-brand-blue/50 outline-none transition-all font-bold"
+            className="w-full bg-slate-800/50 border border-slate-600/50 rounded-xl px-4 py-3 text-slate-100 placeholder:text-slate-300 focus:border-brand-blue/50 focus:ring-1 focus:ring-brand-blue/50 outline-none transition-all font-bold"
             value={formData.name}
             onChange={e => setFormData({...formData, name: e.target.value})}
             required
@@ -736,7 +498,7 @@ const AddStudentForm = ({ onStudentAdded }: { onStudentAdded: () => void }) => {
           <div className="space-y-2">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Access Level</label>
             <select 
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 focus:border-brand-blue/50 outline-none appearance-none font-bold"
+              className="w-full bg-slate-800/50 border border-slate-600/50 rounded-xl px-4 py-3 text-slate-100 focus:border-brand-blue/50 outline-none appearance-none font-bold"
               value={formData.role}
               onChange={e => setFormData({...formData, role: e.target.value})}
             >
@@ -749,7 +511,7 @@ const AddStudentForm = ({ onStudentAdded }: { onStudentAdded: () => void }) => {
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Initial Level</label>
             <input 
               type="number" 
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 font-mono focus:border-brand-blue/50 outline-none font-bold"
+              className="w-full bg-slate-800/50 border border-slate-600/50 rounded-xl px-4 py-3 text-slate-100 font-mono focus:border-brand-blue/50 outline-none font-bold"
               value={formData.level}
               onChange={e => setFormData({...formData, level: parseInt(e.target.value)})}
             />
@@ -759,7 +521,7 @@ const AddStudentForm = ({ onStudentAdded }: { onStudentAdded: () => void }) => {
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Avatar Seed</label>
           <input 
             placeholder="e.g. neuro-link-01" 
-            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 text-xs focus:border-brand-blue/50 outline-none font-bold"
+            className="w-full bg-slate-800/50 border border-slate-600/50 rounded-xl px-4 py-3 text-slate-100 text-xs focus:border-brand-blue/50 outline-none font-bold"
             value={formData.avatar_url}
             onChange={e => setFormData({...formData, avatar_url: e.target.value})}
           />
@@ -774,24 +536,57 @@ const AddStudentForm = ({ onStudentAdded }: { onStudentAdded: () => void }) => {
 
 // --- Components ---
 
-const Navbar = ({ activeView, setActiveView, student, onOpenSettings }: { activeView: string, setActiveView: (v: string) => void, student: Student | null; onOpenSettings?: () => void }) => (
+type NotificationItem = {
+  id: number;
+  user_id: number;
+  type: string;
+  title: string;
+  message: string;
+  link?: string | null;
+  is_read: number;
+  created_at: string;
+};
+
+const Navbar = ({
+  activeView,
+  setActiveView,
+  student,
+  onOpenSettings,
+  notifications = [],
+  onMarkRead,
+  onMarkAllRead,
+  onOpenLink,
+}: {
+  activeView: string;
+  setActiveView: (v: string) => void;
+  student: Student | null;
+  onOpenSettings?: () => void;
+  notifications?: NotificationItem[];
+  onMarkRead?: (id: number) => void;
+  onMarkAllRead?: () => void;
+  onOpenLink?: (link: string | null | undefined) => void;
+}) => {
+  const [open, setOpen] = useState(false);
+  const unread = notifications.filter((n) => !n.is_read).length;
+  return (
   <header className="fixed top-0 left-0 right-0 z-50">
     <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xl border-b border-cyan-500/20 shadow-[0_4px_30px_rgba(0,0,0,0.3)]" />
     <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between gap-8 relative">
       <div className="absolute left-0 top-0 h-full w-1 bg-cyan-500/50" />
       
       <div className="flex items-center gap-6">
+        {/* All accounts: avatar opens profile */}
         <div className="relative group cursor-pointer" onClick={() => setActiveView('profile')}>
-          <div className={`absolute -inset-2 rounded-full blur-md opacity-20 group-hover:opacity-40 transition duration-300 ${activeView === 'profile' ? 'bg-cyan-500' : 'bg-slate-400'}`}></div>
-          <div className="relative size-14 p-1 rounded-full border-2 border-cyan-500/40 bg-slate-800/40 backdrop-blur-md overflow-hidden">
-            <img 
-              className="size-full rounded-full object-cover" 
-              src={student?.avatar_url || "https://picsum.photos/seed/avatar/100/100"} 
-              alt="Avatar"
-              referrerPolicy="no-referrer"
-            />
+            <div className={`absolute -inset-2 rounded-full blur-md opacity-20 group-hover:opacity-40 transition duration-300 ${activeView === 'profile' ? 'bg-cyan-500' : 'bg-slate-400'}`}></div>
+            <div className="relative size-14 p-1 rounded-full border-2 border-cyan-500/40 bg-slate-800/40 backdrop-blur-md overflow-hidden">
+              <img 
+                className="size-full rounded-full object-cover" 
+                src={student?.avatar_url || "https://picsum.photos/seed/avatar/100/100"} 
+                alt="Avatar"
+                referrerPolicy="no-referrer"
+              />
+            </div>
           </div>
-        </div>
         <div className="hidden sm:block cursor-pointer" onClick={() => setActiveView('galaxy')}>
           <h1 className="font-display text-2xl font-black tracking-tighter text-slate-100 flex items-center gap-2 uppercase text-glow-cyan">
             <Rocket className="size-7 text-cyan-400" />
@@ -801,30 +596,35 @@ const Navbar = ({ activeView, setActiveView, student, onOpenSettings }: { active
         </div>
       </div>
 
-      <div className="flex-1 max-w-xl hidden md:flex flex-col gap-1.5">
-        <div className="flex justify-between items-end text-[9px] uppercase tracking-widest font-black text-slate-400">
-          <span className="flex items-center gap-1"><Activity className="size-3 text-cyan-400/80" /> Sync Progress</span>
-          <span className="text-cyan-400 font-mono">{student?.xp || 0} / 1000 XP</span>
+      {/* XP progress only for students */}
+      {student?.role === 'student' && (
+        <div className="flex-1 max-w-xl hidden md:flex flex-col gap-1.5">
+          <div className="flex justify-between items-end text-[9px] uppercase tracking-widest font-black text-slate-400">
+            <span className="flex items-center gap-1"><Activity className="size-3 text-cyan-400/80" /> Sync Progress</span>
+            <span className="text-cyan-400 font-mono">{student?.xp || 0} / 1000 XP</span>
+          </div>
+          <div className="h-2 w-full bg-slate-700/50 rounded-full overflow-hidden border border-cyan-500/30 p-0.5">
+            <motion.div 
+              initial={{ width: 0 }}
+              animate={{ width: `${((student?.xp || 0) % 1000) / 10}%` }}
+              className="h-full bg-gradient-to-r from-cyan-500 to-cyan-400 rounded-full shadow-[0_0_15px_rgba(0,245,255,0.4)]"
+            />
+          </div>
         </div>
-        <div className="h-2 w-full bg-slate-700/50 rounded-full overflow-hidden border border-cyan-500/30 p-0.5">
-          <motion.div 
-            initial={{ width: 0 }}
-            animate={{ width: `${((student?.xp || 0) % 1000) / 10}%` }}
-            className="h-full bg-gradient-to-r from-cyan-500 to-cyan-400 rounded-full shadow-[0_0_15px_rgba(0,245,255,0.4)]"
-          />
-        </div>
-      </div>
+      )}
 
       <div className="flex items-center gap-3 lg:gap-6">
-        <div className="flex items-center gap-3 bg-slate-800/50 px-4 py-2 rounded-xl border border-cyan-500/20 backdrop-blur-md">
-          <div className="flex flex-col items-end">
-            <span className="text-[9px] text-slate-400 font-black uppercase tracking-tighter leading-none">Operator Rank</span>
-            <span className="text-cyan-400 font-black text-base leading-none italic">LVL {student?.level || 1}</span>
+        {student?.role === 'student' && (
+          <div className="flex items-center gap-3 bg-slate-800/50 px-4 py-2 rounded-xl border border-cyan-500/20 backdrop-blur-md">
+            <div className="flex flex-col items-end">
+              <span className="text-[9px] text-slate-400 font-black uppercase tracking-tighter leading-none">Operator Rank</span>
+              <span className="text-cyan-400 font-black text-base leading-none italic">LVL {student?.level || 1}</span>
+            </div>
+            <div className="size-10 rounded-lg bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 flex items-center justify-center">
+              <Award className="size-5" />
+            </div>
           </div>
-          <div className="size-10 rounded-lg bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 flex items-center justify-center">
-            <Award className="size-5" />
-          </div>
-        </div>
+        )}
         <button
           onClick={() => onOpenSettings?.()}
           className="p-3 rounded-xl bg-slate-800/50 hover:bg-slate-700/50 border border-cyan-500/20 transition-all text-slate-400 hover:text-cyan-400"
@@ -832,12 +632,73 @@ const Navbar = ({ activeView, setActiveView, student, onOpenSettings }: { active
         >
           <Settings className="size-5" />
         </button>
+
+        {student?.role === 'student' && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              className="p-3 rounded-xl bg-slate-800/50 hover:bg-slate-700/50 border border-cyan-500/20 transition-all text-slate-400 hover:text-cyan-400 relative"
+              title="Notifications"
+            >
+              <Bell className="size-5" />
+              {unread > 0 && (
+                <span className="absolute -top-1 -right-1 size-3 rounded-full bg-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.6)] border border-slate-900" />
+              )}
+            </button>
+
+            {open && (
+              <div className="absolute right-0 mt-3 w-[360px] max-w-[90vw] z-50 rounded-2xl border border-slate-600/50 bg-slate-900/80 backdrop-blur-xl shadow-2xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-600/40">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-300">Notifications</p>
+                  <button
+                    type="button"
+                    onClick={() => onMarkAllRead?.()}
+                    className="text-[10px] font-black uppercase tracking-widest text-cyan-400 hover:text-cyan-300"
+                  >
+                    Mark all read
+                  </button>
+                </div>
+                <div className="max-h-[420px] overflow-y-auto custom-scrollbar">
+                  {notifications.length === 0 ? (
+                    <div className="p-6 text-slate-400 text-sm">No notifications yet.</div>
+                  ) : (
+                    notifications.slice(0, 30).map((n) => (
+                      <button
+                        key={n.id}
+                        type="button"
+                        onClick={() => {
+                          onMarkRead?.(n.id);
+                          if (n.link) onOpenLink?.(n.link);
+                          setOpen(false);
+                        }}
+                        className={`w-full text-left px-4 py-3 border-b border-slate-700/40 hover:bg-slate-800/60 transition-all ${
+                          n.is_read ? 'opacity-80' : 'bg-cyan-500/5'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-black text-slate-100 truncate">{n.title}</p>
+                            <p className="text-xs text-slate-300 mt-0.5 line-clamp-2">{n.message}</p>
+                            <p className="text-[10px] text-slate-500 mt-1 font-mono">{new Date(n.created_at).toLocaleString()}</p>
+                          </div>
+                          {!n.is_read && <span className="mt-1 size-2 rounded-full bg-cyan-400 shrink-0" />}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="absolute right-0 top-0 h-full w-1 bg-cyan-500/50" />
     </div>
   </header>
-);
+  );
+};
 
 const GalaxyMap = ({ sectors, onSelectSector }: { sectors: Sector[], onSelectSector: (s: Sector) => void }) => {
   const SECTOR_POSITIONS = [
@@ -906,7 +767,7 @@ const GalaxyMap = ({ sectors, onSelectSector }: { sectors: Sector[], onSelectSec
                 onClick={() => !isLocked && onSelectSector(sector)}
                 className={`relative size-24 rounded-full border-4 flex flex-col items-center justify-center transition-all shadow-2xl ${
                   isLocked 
-                    ? 'bg-slate-100 border-slate-200 grayscale' 
+                    ? 'bg-slate-700/50 border-slate-600/50 grayscale' 
                     : 'bg-white border-brand-blue shadow-brand-blue/20 hover:shadow-brand-blue/40'
                 }`}
               >
@@ -925,7 +786,7 @@ const GalaxyMap = ({ sectors, onSelectSector }: { sectors: Sector[], onSelectSec
                 <p className={`text-[10px] font-black uppercase tracking-[0.2em] mb-0.5 ${isLocked ? 'text-slate-400' : 'text-brand-blue'}`}>
                   {isLocked ? `Lvl ${sector.required_level} Required` : `${sector.mastery_percent}% Sync`}
                 </p>
-                <h4 className={`text-sm font-black uppercase tracking-tighter ${isLocked ? 'text-slate-300' : 'text-slate-900'}`}>
+                <h4 className={`text-sm font-black uppercase tracking-tighter ${isLocked ? 'text-slate-300' : 'text-slate-100'}`}>
                   {sector.name}
                 </h4>
               </div>
@@ -941,19 +802,134 @@ const GalaxyMap = ({ sectors, onSelectSector }: { sectors: Sector[], onSelectSec
       </div>
       <div className="absolute bottom-8 right-8 text-right">
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Sector Coordinates</p>
-        <p className="text-xs font-mono text-slate-900">LAT: 42.091 / LON: -71.012</p>
+        <p className="text-xs font-mono text-slate-100">LAT: 42.091 / LON: -71.012</p>
       </div>
     </div>
   );
 };
 
-const SectorView = ({ sector, onBack, onPlayMission }: { sector: Sector, onBack: () => void, onPlayMission: (m: Mission) => void, key?: string }) => {
+/** Duolingo-style sequential journey: path with nodes. Completed → check; first or after completed → unlocked; else locked. */
+const JourneyMap = ({
+  missions,
+  completedMissionIds = [],
+  onSelectMission,
+  allUnlocked = false
+}: {
+  missions: Mission[];
+  completedMissionIds?: number[];
+  onSelectMission: (m: Mission) => void;
+  allUnlocked?: boolean;
+}) => {
+  if (missions.length === 0) return null;
+  const isUnlocked = (index: number) =>
+    allUnlocked || index === 0 || completedMissionIds.includes(missions[index - 1].id);
+  const isCompleted = (m: Mission) => completedMissionIds.includes(m.id);
+
+  const nodeWidth = 140;
+  const topY = 50;
+  const bottomY = 150;
+  const totalWidth = 80 + missions.length * nodeWidth;
+  const totalHeight = 200;
+  const points: { x: number; y: number }[] = missions.map((_, i) => ({
+    x: 70 + i * nodeWidth,
+    y: i % 2 === 0 ? topY : bottomY
+  }));
+  const pathD = points.length > 1
+    ? points.map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`)).join(" ")
+    : "";
+
+  return (
+    <div className="relative w-full overflow-x-auto overflow-y-visible pb-4 custom-scrollbar">
+      <div className="relative flex min-w-max items-stretch gap-0 px-4" style={{ minHeight: totalHeight, minWidth: totalWidth }}>
+        {/* Winding path background (SVG) */}
+        <svg className="absolute inset-0 h-full w-full pointer-events-none" viewBox={`0 0 ${totalWidth} ${totalHeight}`} preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <linearGradient id={`journey-path-grad-${missions.map(m => m.id).join("-")}`} x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="rgb(34 211 238 / 0.5)" />
+              <stop offset="100%" stopColor="rgb(0 60 113 / 0.7)" />
+            </linearGradient>
+          </defs>
+          {pathD && (
+            <path
+              d={pathD}
+              fill="none"
+              stroke={`url(#journey-path-grad-${missions.map(m => m.id).join("-")})`}
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeDasharray="6 5"
+              opacity={0.9}
+            />
+          )}
+        </svg>
+
+        {missions.map((mission, index) => {
+          const unlocked = isUnlocked(index);
+          const completed = isCompleted(mission);
+          const isCurrent = unlocked && !completed;
+          const isBottom = index % 2 === 1;
+          return (
+            <div
+              key={mission.id}
+              className="relative flex flex-col items-center flex-shrink-0 transition-all justify-center"
+              style={{ width: nodeWidth, alignSelf: isBottom ? "flex-end" : "flex-start" }}
+            >
+              {/* Connector dot on path (optional) */}
+              <div className="relative z-10 flex flex-col items-center">
+                <motion.button
+                  type="button"
+                  onClick={() => unlocked && onSelectMission(mission)}
+                  disabled={!unlocked}
+                  className={`relative flex flex-col items-center gap-2 rounded-2xl border-2 p-4 w-[120px] transition-all ${
+                    completed
+                      ? "border-brand-blue/60 bg-brand-blue/20 shadow-lg shadow-brand-blue/20"
+                      : isCurrent
+                        ? "border-brand-blue bg-brand-blue/10 hover:border-cyan-400 hover:bg-brand-blue/20 cursor-pointer shadow-lg shadow-brand-blue/20"
+                        : "border-slate-600/50 bg-slate-800/60 cursor-not-allowed opacity-70"
+                  }`}
+                  whileHover={unlocked ? { scale: 1.05 } : {}}
+                  whileTap={unlocked ? { scale: 0.98 } : {}}
+                >
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest absolute -top-1 left-2">
+                    {index + 1}
+                  </span>
+                  {completed ? (
+                    <CheckCircle2 className="size-10 text-brand-blue shrink-0" />
+                  ) : unlocked ? (
+                    <Play className="size-10 text-brand-blue shrink-0" />
+                  ) : (
+                    <Lock className="size-10 text-slate-500 shrink-0" />
+                  )}
+                  <span className="text-[10px] font-black text-slate-200 uppercase tracking-tight text-center line-clamp-2">
+                    {mission.title}
+                  </span>
+                  {unlocked && !completed && (
+                    <span className="text-[8px] text-brand-blue font-black uppercase tracking-widest">Play</span>
+                  )}
+                </motion.button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const SectorView = ({ sector, onBack, onPlayMission, allUnlocked = false }: { sector: Sector, onBack: () => void, onPlayMission: (m: Mission) => void, key?: string, allUnlocked?: boolean }) => {
   const [missions, setMissions] = useState<Mission[]>([]);
+  const [completedMissionIds, setCompletedMissionIds] = useState<number[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`/api/sectors/${sector.id}`)
-      .then(res => res.json())
-      .then(data => setMissions(data.missions));
+    setLoading(true);
+    safeFetch(`/api/sectors/${sector.id}/missions`)
+      .then(data => {
+        if (data && Array.isArray(data.missions)) setMissions(data.missions);
+        else setMissions([]);
+        setCompletedMissionIds(Array.isArray((data as any)?.completedMissionIds) ? (data as any).completedMissionIds : []);
+      })
+      .finally(() => setLoading(false));
   }, [sector.id]);
 
   return (
@@ -967,13 +943,13 @@ const SectorView = ({ sector, onBack, onPlayMission }: { sector: Sector, onBack:
           onClick={onBack}
           className="group flex items-center gap-3 text-slate-400 hover:text-brand-blue transition-all"
         >
-          <div className="size-10 rounded-full border border-slate-200 flex items-center justify-center group-hover:border-brand-blue/50 group-hover:bg-brand-blue/5">
+          <div className="size-10 rounded-full border border-slate-600/50 flex items-center justify-center group-hover:border-brand-blue/50 group-hover:bg-brand-blue/5">
             <ArrowLeft className="size-5" />
           </div>
           <span className="text-[10px] font-black uppercase tracking-[0.2em]">Exit Sector</span>
         </button>
 
-        <div className="flex items-center gap-4 bg-white/40 backdrop-blur-xl px-6 py-3 rounded-2xl border border-white/50 shadow-sm">
+        <div className="flex items-center gap-4 bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 px-6 py-3 rounded-2xl shadow-sm">
           <div className="text-right">
             <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Sector Status</p>
             <p className="text-xs font-black text-brand-blue uppercase">Operational</p>
@@ -984,7 +960,7 @@ const SectorView = ({ sector, onBack, onPlayMission }: { sector: Sector, onBack:
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
         <div className="lg:col-span-8 space-y-10">
-          <section className="relative aspect-[21/9] rounded-[40px] overflow-hidden border border-white/50 shadow-2xl group">
+          <section className="relative aspect-[21/9] rounded-2xl overflow-hidden border border-slate-600/40 shadow-2xl group">
             <div 
               className="absolute inset-0 bg-cover bg-center transition-transform duration-[2000ms] group-hover:scale-110"
               style={{ backgroundImage: `url(${sector.image_url})` }}
@@ -1003,33 +979,60 @@ const SectorView = ({ sector, onBack, onPlayMission }: { sector: Sector, onBack:
             </div>
 
             {/* Scanning HUD Effect */}
-            <div className="absolute inset-0 pointer-events-none border-[20px] border-white/5 opacity-20" />
+            <div className="absolute inset-0 pointer-events-none border-[20px] border-slate-600/10 opacity-30" />
             <div className="absolute top-10 right-10 flex flex-col items-end gap-2">
-              <div className="bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/20">
+              <div className="bg-slate-700/40 backdrop-blur-md p-4 rounded-2xl border border-slate-600/40">
                 <p className="text-[9px] text-white/60 uppercase font-black tracking-widest mb-1">Sync Rate</p>
                 <p className="text-3xl font-black text-white font-mono">{sector.mastery_percent}%</p>
               </div>
             </div>
           </section>
 
+          {/* Duolingo-style journey path: sequential missions */}
+          {!loading && missions.length > 0 && (
+            <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 rounded-2xl p-8 shadow-xl">
+              <h2 className="text-xl font-black text-slate-100 uppercase tracking-tighter mb-6 flex items-center gap-3 italic">
+                <MapIcon className="text-brand-blue size-5" />
+                Learning path
+              </h2>
+              <JourneyMap
+                missions={missions}
+                completedMissionIds={completedMissionIds}
+                onSelectMission={onPlayMission}
+                allUnlocked={allUnlocked}
+              />
+            </div>
+          )}
+
             <div className="space-y-8">
             <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3 uppercase tracking-tighter italic">
+              <h2 className="text-2xl font-black text-slate-100 flex items-center gap-3 uppercase tracking-tighter italic">
                 <Activity className="text-brand-blue size-6" />
-                Mission Parameters
+                Games in this sector
               </h2>
               <div className="h-px flex-1 bg-slate-200 mx-6 hidden md:block" />
             </div>
-            
+
+            {loading ? (
+              <div className="py-16 text-center">
+                <p className="text-slate-400 font-medium">Loading games…</p>
+              </div>
+            ) : missions.length === 0 ? (
+              <div className="glass-panel border-glow rounded-2xl p-10 text-center">
+                <Play className="size-12 text-cyan-400/60 mx-auto mb-4" />
+                <p className="text-slate-200 font-medium mb-1">No games assigned here yet</p>
+                <p className="text-slate-400 text-sm">Your teacher assigns games to your class. Check back later or try another sector.</p>
+              </div>
+            ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               {missions.map(mission => (
                 <motion.div 
                   key={mission.id} 
                   whileHover={{ y: -8 }}
-                  className="bg-white/40 backdrop-blur-xl rounded-[40px] overflow-hidden border border-white/50 group hover:border-brand-blue/30 transition-all flex flex-col shadow-xl"
+                  className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 rounded-2xl overflow-hidden border border-slate-600/40 group hover:border-brand-blue/30 transition-all flex flex-col shadow-xl"
                 >
                   <div className="h-48 overflow-hidden relative">
-                    <img src={mission.image_url} alt={mission.title} className="w-full h-full object-cover opacity-40 transition-transform duration-1000 group-hover:scale-110" referrerPolicy="no-referrer" />
+                    <img src={mission.image_url || 'https://picsum.photos/seed/mission/400/300'} alt={mission.title} className="w-full h-full object-cover opacity-40 transition-transform duration-1000 group-hover:scale-110" referrerPolicy="no-referrer" />
                     <div className="absolute inset-0 bg-gradient-to-t from-white/80 to-transparent" />
                     <div className={`absolute top-6 right-6 px-3 py-1 bg-white rounded-xl border text-[9px] font-black uppercase tracking-widest shadow-sm ${
                       mission.difficulty === 'Hard' ? 'border-red-500/50 text-red-600' : 'border-brand-blue/50 text-brand-blue'
@@ -1037,10 +1040,10 @@ const SectorView = ({ sector, onBack, onPlayMission }: { sector: Sector, onBack:
                       {mission.difficulty}
                     </div>
                   </div>
-                  <div className="p-8 flex flex-col flex-1 relative -mt-12 bg-white/40 backdrop-blur-md rounded-t-[40px]">
-                    <h3 className="text-xl font-black mb-3 text-slate-900 group-hover:text-brand-blue transition-colors uppercase tracking-tight italic">{mission.title}</h3>
+                  <div className="p-8 flex flex-col flex-1 relative -mt-12 bg-slate-800/70 backdrop-blur-md rounded-t-2xl">
+                    <h3 className="text-xl font-black mb-3 text-slate-100 group-hover:text-brand-blue transition-colors uppercase tracking-tight italic">{mission.title}</h3>
                     <p className="text-slate-500 text-sm leading-relaxed mb-8 font-medium">{mission.description}</p>
-                    <div className="mt-auto flex items-center justify-between pt-6 border-t border-slate-100">
+                    <div className="mt-auto flex items-center justify-between pt-6 border-t border-slate-600/50">
                       <div className="flex flex-col">
                         <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest">Neural Reward</span>
                         <span className="text-brand-blue font-black font-mono text-lg">+{mission.xp_reward} XP</span>
@@ -1056,21 +1059,22 @@ const SectorView = ({ sector, onBack, onPlayMission }: { sector: Sector, onBack:
                 </motion.div>
               ))}
             </div>
+            )}
           </div>
         </div>
 
         <aside className="lg:col-span-4 space-y-8">
-          <div className="bg-white/40 backdrop-blur-xl rounded-[40px] p-10 border border-white/50 shadow-xl relative overflow-hidden">
+          <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 rounded-2xl p-10 border border-slate-600/40 shadow-xl relative overflow-hidden">
             <div className="absolute top-0 right-0 p-4 opacity-5">
               <School className="size-32" />
             </div>
-            <h3 className="text-xl font-black text-slate-900 mb-8 uppercase tracking-tighter flex items-center gap-3 italic">
+            <h3 className="text-xl font-black text-slate-100 mb-8 uppercase tracking-tighter flex items-center gap-3 italic">
               <School className="text-brand-blue size-6" />
               Intel Database
             </h3>
             <div className="space-y-4">
               {['Genetic Sequencing', 'CRISPR Proficiency', 'Cellular Biology', 'Neural Mapping'].map(tag => (
-                <div key={tag} className="flex items-center gap-3 p-4 bg-white/60 rounded-2xl border border-white/50 shadow-sm group hover:border-brand-blue/30 transition-all">
+                <div key={tag} className="flex items-center gap-3 p-4 bg-slate-700/50 rounded-2xl shadow-sm group hover:border-brand-blue/30 transition-all">
                   <div className="size-2 bg-brand-blue rounded-full" />
                   <span className="text-xs font-black text-slate-600 uppercase tracking-widest">
                     {tag}
@@ -1080,8 +1084,8 @@ const SectorView = ({ sector, onBack, onPlayMission }: { sector: Sector, onBack:
             </div>
           </div>
 
-          <div className="bg-white/40 backdrop-blur-xl rounded-[40px] p-10 border border-white/50 shadow-xl">
-            <h3 className="text-xl font-black text-slate-900 mb-8 uppercase tracking-tighter flex items-center gap-3 italic">
+          <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 rounded-2xl p-10 border border-slate-600/40 shadow-xl">
+            <h3 className="text-xl font-black text-slate-100 mb-8 uppercase tracking-tighter flex items-center gap-3 italic">
               <TrendingUp className="text-brand-blue size-6" />
               Sector Leaderboard
             </h3>
@@ -1093,12 +1097,12 @@ const SectorView = ({ sector, onBack, onPlayMission }: { sector: Sector, onBack:
               ].map((entry, i) => (
                 <div key={i} className="flex items-center gap-4">
                   <div className={`size-10 rounded-xl flex items-center justify-center font-black text-sm ${
-                    i === 0 ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-400'
+                    i === 0 ? 'bg-amber-500 text-white' : 'bg-slate-700/50 text-slate-400'
                   }`}>
                     {entry.rank}
                   </div>
                   <div className="flex-1">
-                    <p className="text-sm font-black text-slate-900 uppercase tracking-tight">{entry.name}</p>
+                    <p className="text-sm font-black text-slate-100 uppercase tracking-tight">{entry.name}</p>
                     <p className="text-[10px] text-slate-400 font-mono">{entry.score} PTS</p>
                   </div>
                 </div>
@@ -1152,7 +1156,7 @@ const AdminDashboard = () => {
             className={`flex items-center gap-3 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border ${
               activeTab === tab.id 
                 ? 'bg-brand-blue text-white border-brand-blue shadow-xl shadow-brand-blue/20' 
-                : 'bg-white/40 backdrop-blur-xl text-slate-400 border-white/50 hover:text-slate-900 hover:bg-white'
+                : 'bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 text-slate-400 border-slate-600/40 hover:text-slate-200 hover:bg-slate-700/50'
             }`}
           >
             <tab.icon className="size-4" />
@@ -1171,78 +1175,74 @@ const AdminDashboard = () => {
         >
           {activeTab === 'overview' && (
             <div className="space-y-10">
-              {/* Real-Time Metrics */}
+              {/* Real-time metrics from API */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 {[
-                  { label: 'Total Students', value: students.filter(s => s.role === 'student').length, icon: Users, trend: '+12.5%', color: 'text-brand-blue' },
-                  { label: 'Total Teachers', value: students.filter(s => s.role === 'teacher').length, icon: School, trend: '+5.2%', color: 'text-brand-yellow' },
-                  { label: 'Active Users (7d)', value: '1,284', icon: Activity, trend: '+8.1%', color: 'text-brand-blue' },
-                  { label: 'Total XP Generated', value: '4.2M', icon: Zap, trend: '+15.4%', color: 'text-brand-yellow' },
-                  { label: 'Total Sectors', value: sectors.length, icon: MapIcon, trend: '0.0%', color: 'text-brand-blue' },
-                  { label: 'Total Games', value: missions.length, icon: Play, trend: '+4.2%', color: 'text-rose-500' },
-                  { label: 'Avg Session Time', value: '24m', icon: Terminal, trend: '+2.1%', color: 'text-slate-500' },
-                  { label: 'Retention Rate', value: '78%', icon: TrendingUp, trend: '+3.2%', color: 'text-cyan-500' },
+                  { label: 'Total Students', value: students.filter(s => s.role === 'student').length, icon: Users, color: 'text-brand-blue' },
+                  { label: 'Total Teachers', value: students.filter(s => s.role === 'teacher').length, icon: School, color: 'text-brand-yellow' },
+                  { label: 'Total XP (all users)', value: students.reduce((s, u) => s + (u.xp || 0), 0).toLocaleString(), icon: Zap, color: 'text-brand-yellow' },
+                  { label: 'Total Sectors', value: sectors.length, icon: MapIcon, color: 'text-brand-blue' },
+                  { label: 'Total Games', value: missions.length, icon: Play, color: 'text-rose-500' },
                 ].map((stat, i) => (
-                  <div key={i} className="bg-white/70 backdrop-blur-md p-8 rounded-[32px] border border-white/50 relative overflow-hidden group shadow-xl">
+                  <div key={i} className="bg-slate-800/70 backdrop-blur-md p-8 rounded-2xl border border-slate-600/40 relative overflow-hidden group shadow-xl">
                     <stat.icon className={`absolute -right-4 -bottom-4 size-24 ${stat.color} opacity-5 group-hover:opacity-10 transition-opacity`} />
                     <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-2">{stat.label}</p>
-                    <h3 className="text-4xl font-black text-slate-900 tracking-tighter italic">{stat.value}</h3>
-                    <div className="flex items-center gap-1 mt-3 text-brand-blue text-[10px] font-bold uppercase tracking-widest">
-                      <TrendingUp className="size-3" />
-                      <span>{stat.trend}</span>
-                    </div>
+                    <h3 className="text-4xl font-black text-slate-100 tracking-tighter italic">{stat.value}</h3>
                   </div>
                 ))}
               </div>
 
               {/* Engagement Metrics */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-                <div className="lg:col-span-2 bg-white/40 backdrop-blur-xl p-10 rounded-[40px] border border-white/50 shadow-xl">
-                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter italic mb-10 flex items-center gap-3">
+                <div className="lg:col-span-2 bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
+                  <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter italic mb-10 flex items-center gap-3">
                     <Activity className="text-brand-blue" />
-                    Engagement Heatmap
+                    Sectors & games
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="space-y-6">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Top Performing Sectors</p>
-                      {sectors.slice(0, 4).map((s, i) => (
-                        <div key={i} className="space-y-2">
-                          <div className="flex justify-between text-xs font-bold">
-                            <span>{s.name}</span>
-                            <span>{95 - i * 10}% Completion</span>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sectors (games per sector)</p>
+                      {sectors.slice(0, 6).map((s) => {
+                        const count = missions.filter((m: Mission) => m.sector_id === s.id).length;
+                        return (
+                          <div key={s.id} className="space-y-2">
+                            <div className="flex justify-between text-xs font-bold">
+                              <span>{s.name}</span>
+                              <span>{count} game{count !== 1 ? 's' : ''}</span>
+                            </div>
+                            <div className="h-2 bg-slate-700/50 rounded-full overflow-hidden">
+                              <div className="h-full bg-brand-blue" style={{ width: `${Math.min(100, count * 20)}%` }} />
+                            </div>
                           </div>
-                          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                            <div className="h-full bg-brand-blue" style={{ width: `${95 - i * 10}%` }} />
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                     <div className="space-y-6">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Critical Drop-off Points</p>
-                      {[
-                        { label: 'Neural Sync Tutorial', rate: '12%' },
-                        { label: 'Quantum Gate Quiz', rate: '8%' },
-                        { label: 'Sector 3 Transition', rate: '15%' },
-                      ].map((d, i) => (
-                        <div key={i} className="flex items-center justify-between p-4 bg-red-500/5 border border-red-500/10 rounded-2xl">
-                          <span className="text-xs font-bold text-slate-700">{d.label}</span>
-                          <span className="text-xs font-black text-red-500">{d.rate} Exit</span>
-                        </div>
-                      ))}
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Recent system logs</p>
+                      {logs.length === 0 ? (
+                        <p className="text-slate-400 text-xs">No logs yet.</p>
+                      ) : (
+                        logs.slice(0, 5).map((log) => (
+                          <div key={log.id} className="flex items-center justify-between p-4 bg-slate-800/50 border border-slate-100 rounded-2xl">
+                            <span className="text-xs font-medium text-slate-300 line-clamp-1">{log.message}</span>
+                            <span className="text-[10px] text-slate-400">{new Date(log.timestamp).toLocaleDateString()}</span>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-white/40 backdrop-blur-xl p-10 rounded-[40px] border border-white/50 shadow-xl">
-                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter italic mb-10 flex items-center gap-3">
+                <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
+                  <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter italic mb-10 flex items-center gap-3">
                     <Zap className="text-brand-yellow" />
                     Live Activity
                   </h3>
                   <div className="space-y-4 max-h-[400px] overflow-y-auto pr-4 custom-scrollbar">
                     {logs.slice(0, 10).map(log => (
-                      <div key={log.id} className="p-4 bg-white/60 rounded-2xl border border-white/50 text-[10px] font-medium">
+                      <div key={log.id} className="p-4 bg-slate-700/50 rounded-2xl border border-slate-600/40 text-[10px] font-medium">
                         <span className="text-slate-400">[{new Date(log.timestamp).toLocaleTimeString()}]</span>
-                        <p className="mt-1 text-slate-700">{log.message}</p>
+                        <p className="mt-1 text-slate-300">{log.message}</p>
                       </div>
                     ))}
                   </div>
@@ -1253,9 +1253,9 @@ const AdminDashboard = () => {
 
           {activeTab === 'users' && (
             <div className="space-y-10">
-              <div className="bg-white/40 backdrop-blur-xl p-10 rounded-[40px] border border-white/50 shadow-xl">
+              <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
                 <div className="flex items-center justify-between mb-10">
-                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter italic">User Management</h3>
+                  <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter italic">User Management</h3>
                   <div className="flex gap-4">
                     <button className="bg-brand-blue text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-blue/90 transition-all shadow-lg shadow-brand-blue/20">
                       Single Create
@@ -1270,7 +1270,7 @@ const AdminDashboard = () => {
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
                     <thead>
-                      <tr className="border-b border-slate-100 text-[10px] uppercase font-black text-slate-400 tracking-[0.2em]">
+                      <tr className="border-b border-slate-600/50 text-[10px] uppercase font-black text-slate-400 tracking-[0.2em]">
                         <th className="pb-6">Operator</th>
                         <th className="pb-6">Role</th>
                         <th className="pb-6">Status</th>
@@ -1280,12 +1280,12 @@ const AdminDashboard = () => {
                     </thead>
                     <tbody className="text-sm">
                       {students.map(s => (
-                        <tr key={s.id} className="border-b border-slate-50 last:border-0 group hover:bg-slate-50/50 transition-colors">
+                        <tr key={s.id} className="border-b border-slate-600/50 last:border-0 group hover:bg-slate-800/50/50 transition-colors">
                           <td className="py-6">
                             <div className="flex items-center gap-4">
-                              <img src={s.avatar_url} className="size-10 rounded-xl object-cover border border-white/50" alt="" referrerPolicy="no-referrer" />
+                              <img src={s.avatar_url} className="size-10 rounded-xl object-cover border border-slate-600/40" alt="" referrerPolicy="no-referrer" />
                               <div>
-                                <p className="font-black text-slate-900 uppercase tracking-tight italic">{s.name}</p>
+                                <p className="font-black text-slate-100 uppercase tracking-tight italic">{s.name}</p>
                                 <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">ID: {s.id.toString().padStart(4, '0')}</p>
                               </div>
                             </div>
@@ -1294,7 +1294,7 @@ const AdminDashboard = () => {
                             <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${
                               s.role === 'admin' ? 'bg-brand-yellow/10 text-brand-yellow border-brand-yellow/20' :
                               s.role === 'teacher' ? 'bg-brand-blue/10 text-brand-blue border-brand-blue/20' :
-                              'bg-slate-100 text-slate-500 border-slate-200'
+                              'bg-slate-700/50 text-slate-400 border-slate-600/50'
                             }`}>
                               {s.role}
                             </span>
@@ -1308,9 +1308,9 @@ const AdminDashboard = () => {
                           <td className="py-6 font-mono font-black text-brand-blue">{s.xp.toLocaleString()} XP</td>
                           <td className="py-6 text-right">
                             <div className="flex justify-end gap-2">
-                              <button className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-400 hover:text-brand-blue"><Settings className="size-4" /></button>
-                              <button className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-400 hover:text-brand-yellow"><Zap className="size-4" /></button>
-                              <button className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-400 hover:text-red-500"><Lock className="size-4" /></button>
+                              <button className="p-2 hover:bg-slate-700/50 rounded-lg transition-colors text-slate-400 hover:text-brand-blue"><Settings className="size-4" /></button>
+                              <button className="p-2 hover:bg-slate-700/50 rounded-lg transition-colors text-slate-400 hover:text-brand-yellow"><Zap className="size-4" /></button>
+                              <button className="p-2 hover:bg-slate-700/50 rounded-lg transition-colors text-slate-400 hover:text-red-500"><Lock className="size-4" /></button>
                             </div>
                           </td>
                         </tr>
@@ -1324,9 +1324,9 @@ const AdminDashboard = () => {
 
           {activeTab === 'sectors' && (
             <div className="space-y-10">
-              <div className="bg-white/40 backdrop-blur-xl p-10 rounded-[40px] border border-white/50 shadow-xl">
+              <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
                 <div className="flex items-center justify-between mb-10">
-                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter italic">Sector Engine</h3>
+                  <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter italic">Sector Engine</h3>
                   <button className="bg-brand-blue text-white px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-blue/90 transition-all shadow-xl shadow-brand-blue/20 flex items-center gap-3">
                     <Plus className="size-4" />
                     Initialize New Sector
@@ -1335,22 +1335,22 @@ const AdminDashboard = () => {
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   {sectors.map(s => (
-                    <div key={s.id} className="bg-white/60 border border-white/50 rounded-[32px] p-8 group hover:border-brand-blue/30 transition-all relative overflow-hidden">
+                    <div key={s.id} className="bg-slate-700/50 border border-slate-600/40 rounded-2xl p-8 group hover:border-brand-blue/30 transition-all relative overflow-hidden">
                       <div className="flex items-start justify-between mb-6">
-                        <div className="size-16 rounded-[24px] bg-slate-100 flex items-center justify-center border border-slate-200 group-hover:bg-brand-blue/10 group-hover:border-brand-blue/20 transition-all">
+                        <div className="size-16 rounded-2xl bg-slate-700/50 flex items-center justify-center border border-slate-600/50 group-hover:bg-brand-blue/10 group-hover:border-brand-blue/20 transition-all">
                           <MapIcon className="size-8 text-slate-400 group-hover:text-brand-blue transition-colors" />
                         </div>
                         <div className="flex gap-2">
-                          <button className="p-2 bg-white rounded-xl border border-white/50 shadow-sm hover:text-brand-blue transition-colors"><Settings className="size-4" /></button>
-                          <button className="p-2 bg-white rounded-xl border border-white/50 shadow-sm hover:text-brand-yellow transition-colors"><Lock className="size-4" /></button>
+                          <button className="p-2 bg-white rounded-xl shadow-sm hover:text-brand-blue transition-colors"><Settings className="size-4" /></button>
+                          <button className="p-2 bg-white rounded-xl shadow-sm hover:text-brand-yellow transition-colors"><Lock className="size-4" /></button>
                         </div>
                       </div>
                       <h4 className="text-2xl font-black uppercase tracking-tight italic mb-2">{s.name}</h4>
                       <p className="text-slate-500 text-xs font-medium mb-6 line-clamp-2">{s.description}</p>
-                      <div className="grid grid-cols-2 gap-4 pt-6 border-t border-slate-100">
+                      <div className="grid grid-cols-2 gap-4 pt-6 border-t border-slate-600/50">
                         <div>
                           <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Required Level</p>
-                          <p className="text-sm font-black text-slate-900">LVL {s.required_level}</p>
+                          <p className="text-sm font-black text-slate-100">LVL {s.required_level}</p>
                         </div>
                         <div>
                           <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">XP Reward Range</p>
@@ -1366,9 +1366,9 @@ const AdminDashboard = () => {
 
           {activeTab === 'games' && (
             <div className="space-y-10">
-              <div className="bg-white/40 backdrop-blur-xl p-10 rounded-[40px] border border-white/50 shadow-xl">
+              <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
                 <div className="flex items-center justify-between mb-10">
-                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter italic">Game Forge</h3>
+                  <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter italic">Game Forge</h3>
                   <button className="bg-brand-blue text-white px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-blue/90 transition-all shadow-xl shadow-brand-blue/20 flex items-center gap-3">
                     <Plus className="size-4" />
                     Upload Game Module
@@ -1377,21 +1377,21 @@ const AdminDashboard = () => {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                   {missions.map(m => (
-                    <div key={m.id} className="bg-white/60 border border-white/50 rounded-[32px] overflow-hidden group hover:border-brand-blue/30 transition-all shadow-sm">
-                      <div className="h-32 bg-slate-100 relative">
+                    <div key={m.id} className="bg-slate-700/50 border border-slate-600/40 rounded-2xl overflow-hidden group hover:border-brand-blue/30 transition-all shadow-sm">
+                      <div className="h-32 bg-slate-700/50 relative">
                         <img src={m.image_url} className="w-full h-full object-cover opacity-50" alt="" referrerPolicy="no-referrer" />
-                        <div className="absolute top-4 right-4 px-3 py-1 bg-white/80 backdrop-blur-md rounded-lg border border-white/50 text-[9px] font-black uppercase tracking-widest">
+                        <div className="absolute top-4 right-4 px-3 py-1 bg-slate-700/80 backdrop-blur-md rounded-lg border border-slate-600/40 text-[9px] font-black uppercase tracking-widest">
                           {m.difficulty}
                         </div>
                       </div>
                       <div className="p-6">
                         <h4 className="text-lg font-black uppercase tracking-tight italic mb-4">{m.title}</h4>
                         <div className="grid grid-cols-2 gap-4 mb-6">
-                          <div className="p-3 bg-slate-50 rounded-2xl">
+                          <div className="p-3 bg-slate-800/50 rounded-2xl">
                             <p className="text-[8px] font-black uppercase text-slate-400 tracking-widest mb-1">Plays</p>
-                            <p className="text-sm font-black text-slate-900">1.2k</p>
+                            <p className="text-sm font-black text-slate-100">1.2k</p>
                           </div>
-                          <div className="p-3 bg-slate-50 rounded-2xl">
+                          <div className="p-3 bg-slate-800/50 rounded-2xl">
                             <p className="text-[8px] font-black uppercase text-slate-400 tracking-widest mb-1">Completion</p>
                             <p className="text-sm font-black text-brand-blue">84%</p>
                           </div>
@@ -1411,9 +1411,9 @@ const AdminDashboard = () => {
           )}
 
           {activeTab === 'outcomes' && (
-            <div className="bg-white/40 backdrop-blur-xl p-10 rounded-[40px] border border-white/50 shadow-xl">
+            <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
               <div className="flex items-center justify-between mb-10">
-                <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter italic">Learning Outcome Engine</h3>
+                <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter italic">Learning Outcome Engine</h3>
                 <button className="bg-brand-blue text-white px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-blue/90 transition-all shadow-xl shadow-brand-blue/20">
                   Define Outcome
                 </button>
@@ -1424,13 +1424,13 @@ const AdminDashboard = () => {
                   { title: 'Orbital Trajectory Calculation', subject: 'Mathematics', grade: '11', bloom: 'Apply', frequency: '62%' },
                   { title: 'Neural Network Architecture', subject: 'Computer Science', grade: '12', bloom: 'Create', frequency: '45%' },
                 ].map((o, i) => (
-                  <div key={i} className="p-6 bg-white/60 border border-white/50 rounded-3xl flex items-center justify-between group hover:border-brand-blue/30 transition-all">
+                  <div key={i} className="p-6 bg-slate-700/50 border border-slate-600/40 rounded-3xl flex items-center justify-between group hover:border-brand-blue/30 transition-all">
                     <div className="flex items-center gap-6">
                       <div className="size-12 rounded-2xl bg-brand-blue/10 flex items-center justify-center text-brand-blue">
                         <Award className="size-6" />
                       </div>
                       <div>
-                        <h4 className="font-black uppercase tracking-tight italic text-slate-900">{o.title}</h4>
+                        <h4 className="font-black uppercase tracking-tight italic text-slate-100">{o.title}</h4>
                         <div className="flex gap-3 mt-1">
                           <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">{o.subject}</span>
                           <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">•</span>
@@ -1442,7 +1442,7 @@ const AdminDashboard = () => {
                     </div>
                     <div className="text-right">
                       <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Achievement Freq</p>
-                      <p className="text-lg font-black text-slate-900 italic">{o.frequency}</p>
+                      <p className="text-lg font-black text-slate-100 italic">{o.frequency}</p>
                     </div>
                   </div>
                 ))}
@@ -1452,8 +1452,8 @@ const AdminDashboard = () => {
 
           {activeTab === 'economy' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-              <div className="bg-white/40 backdrop-blur-xl p-10 rounded-[40px] border border-white/50 shadow-xl">
-                <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter italic mb-10">XP Scaling & Progression</h3>
+              <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
+                <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter italic mb-10">XP Scaling & Progression</h3>
                 <div className="space-y-8">
                   <div className="space-y-4">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Global XP Multiplier</label>
@@ -1464,7 +1464,7 @@ const AdminDashboard = () => {
                   </div>
                   <div className="space-y-4">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Level Threshold Scaling</label>
-                    <select className="w-full bg-white/60 border border-white/50 rounded-2xl px-6 py-4 text-sm font-bold outline-none focus:border-brand-blue/50">
+                    <select className="w-full bg-slate-700/50 border border-slate-600/40 rounded-2xl px-6 py-4 text-sm font-bold outline-none focus:border-brand-blue/50">
                       <option>Linear (1000 XP / Level)</option>
                       <option>Exponential (1.2x per Level)</option>
                       <option>Logarithmic</option>
@@ -1473,14 +1473,14 @@ const AdminDashboard = () => {
                   <button className="w-full bg-brand-blue text-white py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-blue/90 transition-all">Apply Economy Sync</button>
                 </div>
               </div>
-              <div className="bg-white/40 backdrop-blur-xl p-10 rounded-[40px] border border-white/50 shadow-xl">
-                <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter italic mb-10">Neural Override</h3>
+              <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
+                <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter italic mb-10">Neural Override</h3>
                 <p className="text-slate-500 text-xs mb-8">Manually adjust operator XP or reset progression streaks for specific users.</p>
                 <div className="space-y-6">
-                  <input placeholder="Search Operator Name or ID..." className="w-full bg-white/60 border border-white/50 rounded-2xl px-6 py-4 text-sm font-bold outline-none focus:border-brand-blue/50" />
+                  <input placeholder="Search Operator Name or ID..." className="w-full bg-slate-700/50 border border-slate-600/40 rounded-2xl px-6 py-4 text-sm font-bold outline-none focus:border-brand-blue/50" />
                   <div className="flex gap-4">
-                    <button className="flex-1 bg-slate-100 text-slate-400 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest cursor-not-allowed">Adjust XP</button>
-                    <button className="flex-1 bg-slate-100 text-slate-400 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest cursor-not-allowed">Reset Streak</button>
+                    <button className="flex-1 bg-slate-700/50 text-slate-400 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest cursor-not-allowed">Adjust XP</button>
+                    <button className="flex-1 bg-slate-700/50 text-slate-400 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest cursor-not-allowed">Reset Streak</button>
                   </div>
                 </div>
               </div>
@@ -1488,9 +1488,9 @@ const AdminDashboard = () => {
           )}
 
           {activeTab === 'institutions' && (
-            <div className="bg-white/40 backdrop-blur-xl p-10 rounded-[40px] border border-white/50 shadow-xl">
+            <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
               <div className="flex items-center justify-between mb-10">
-                <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter italic">Institution Management</h3>
+                <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter italic">Institution Management</h3>
                 <button className="bg-brand-blue text-white px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-blue/90 transition-all shadow-xl shadow-brand-blue/20">
                   Register New Institution
                 </button>
@@ -1501,7 +1501,7 @@ const AdminDashboard = () => {
                   { name: 'Stellar High', teachers: 8, students: 320, status: 'Active' },
                   { name: 'Cyber Institute', teachers: 15, students: 600, status: 'Trial' },
                 ].map((inst, i) => (
-                  <div key={i} className="p-8 bg-white/60 border border-white/50 rounded-[32px] group hover:border-brand-blue/30 transition-all">
+                  <div key={i} className="p-8 bg-slate-700/50 border border-slate-600/40 rounded-2xl group hover:border-brand-blue/30 transition-all">
                     <div className="size-12 rounded-2xl bg-brand-blue/10 flex items-center justify-center text-brand-blue mb-6">
                       <School className="size-6" />
                     </div>
@@ -1509,14 +1509,14 @@ const AdminDashboard = () => {
                     <div className="space-y-2 mb-6">
                       <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400">
                         <span>Teachers</span>
-                        <span className="text-slate-900">{inst.teachers}</span>
+                        <span className="text-slate-100">{inst.teachers}</span>
                       </div>
                       <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400">
                         <span>Students</span>
-                        <span className="text-slate-900">{inst.students}</span>
+                        <span className="text-slate-100">{inst.students}</span>
                       </div>
                     </div>
-                    <div className="flex items-center justify-between pt-6 border-t border-slate-100">
+                    <div className="flex items-center justify-between pt-6 border-t border-slate-600/50">
                       <span className={`text-[9px] font-black uppercase tracking-widest ${inst.status === 'Active' ? 'text-brand-blue' : 'text-brand-yellow'}`}>{inst.status}</span>
                       <button className="text-brand-blue text-[9px] font-black uppercase tracking-widest hover:underline">View Analytics</button>
                     </div>
@@ -1527,20 +1527,20 @@ const AdminDashboard = () => {
           )}
 
           {activeTab === 'moderation' && (
-            <div className="bg-white/40 backdrop-blur-xl p-10 rounded-[40px] border border-white/50 shadow-xl">
-              <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter italic mb-10">Content Moderation</h3>
+            <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
+              <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter italic mb-10">Content Moderation</h3>
               <div className="space-y-6">
                 {[
                   { type: 'Game Module', title: 'Quantum Chaos', author: 'User_42', reason: 'Pending Approval' },
                   { type: 'Comment', title: 'Great mission!', author: 'Alex_R', reason: 'Flagged: Spam' },
                 ].map((m, i) => (
-                  <div key={i} className="p-6 bg-white/60 border border-white/50 rounded-3xl flex items-center justify-between">
+                  <div key={i} className="p-6 bg-slate-700/50 border border-slate-600/40 rounded-3xl flex items-center justify-between">
                     <div className="flex items-center gap-6">
                       <div className={`size-12 rounded-2xl flex items-center justify-center ${m.reason.includes('Flagged') ? 'bg-red-500/10 text-red-500' : 'bg-brand-yellow/10 text-brand-yellow'}`}>
                         <Shield className="size-6" />
                       </div>
                       <div>
-                        <h4 className="font-black uppercase tracking-tight italic text-slate-900">{m.title}</h4>
+                        <h4 className="font-black uppercase tracking-tight italic text-slate-100">{m.title}</h4>
                         <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest">{m.type} • By {m.author}</p>
                       </div>
                     </div>
@@ -1555,21 +1555,21 @@ const AdminDashboard = () => {
           )}
 
           {activeTab === 'settings' && (
-            <div className="bg-white/40 backdrop-blur-xl p-10 rounded-[40px] border border-white/50 shadow-xl">
-              <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter italic mb-10">System Configuration</h3>
+            <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
+              <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter italic mb-10">System Configuration</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                 <div className="space-y-8">
                   <div className="space-y-4">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Platform Theme Preset</label>
                     <div className="flex gap-3">
                       <div className="size-10 rounded-xl bg-brand-blue border-2 border-brand-blue ring-2 ring-brand-blue/20 cursor-pointer" />
-                      <div className="size-10 rounded-xl bg-slate-900 border border-slate-200 cursor-pointer" />
-                      <div className="size-10 rounded-xl bg-brand-yellow border border-slate-200 cursor-pointer" />
+                      <div className="size-10 rounded-xl bg-slate-900 border border-slate-600/50 cursor-pointer" />
+                      <div className="size-10 rounded-xl bg-brand-yellow border border-slate-600/50 cursor-pointer" />
                     </div>
                   </div>
                   <div className="space-y-4">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Global Announcements</label>
-                    <textarea rows={3} className="w-full bg-white/60 border border-white/50 rounded-2xl px-6 py-4 text-sm font-bold outline-none focus:border-brand-blue/50" placeholder="Broadcast message to all users..." />
+                    <textarea rows={3} className="w-full bg-slate-700/50 border border-slate-600/40 rounded-2xl px-6 py-4 text-sm font-bold outline-none focus:border-brand-blue/50" placeholder="Broadcast message to all users..." />
                     <button className="w-full bg-brand-blue text-white py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-blue/90 transition-all">Publish Broadcast</button>
                   </div>
                 </div>
@@ -1591,12 +1591,11 @@ const AdminDashboard = () => {
   );
 };
 
-const TeacherHub = ({ sectors, students, student }: { sectors: Sector[], students: Student[], student: Student }) => {
+const TeacherHub = ({ sectors, students, student, refetchStudents }: { sectors: Sector[], students: Student[], student: Student, refetchStudents?: () => void }) => {
   const [activeTab, setActiveTab] = useState<'analytics' | 'classroom' | 'missions' | 'reports'>('analytics');
   const [selectedClassId, setSelectedClassId] = useState<number | null>(null);
   const [classes, setClasses] = useState<Class[]>([]);
   const [assignedMissions, setAssignedMissions] = useState<Mission[]>([]);
-  const [assignedQuizzes, setAssignedQuizzes] = useState<any[]>([]);
 
   useEffect(() => {
     safeFetch('/api/classes').then(data => {
@@ -1623,7 +1622,7 @@ const TeacherHub = ({ sectors, students, student }: { sectors: Sector[], student
             className={`flex items-center gap-3 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border ${
               activeTab === tab.id 
                 ? 'bg-brand-blue text-white border-brand-blue shadow-xl shadow-brand-blue/20' 
-                : 'bg-white/40 backdrop-blur-xl text-slate-400 border-white/50 hover:text-slate-900 hover:bg-white'
+                : 'bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 text-slate-400 border-slate-600/40 hover:text-slate-200 hover:bg-slate-700/50'
             }`}
           >
             <tab.icon className="size-4" />
@@ -1635,9 +1634,9 @@ const TeacherHub = ({ sectors, students, student }: { sectors: Sector[], student
       {activeTab === 'analytics' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
           <div className="lg:col-span-2 space-y-10">
-            <div className="bg-white/40 backdrop-blur-xl p-10 rounded-[40px] border border-white/50 shadow-xl">
+            <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
               <div className="flex items-center justify-between mb-10">
-                <h3 className="text-xl font-black flex items-center gap-3 text-slate-900 uppercase tracking-tighter italic">
+                <h3 className="text-xl font-black flex items-center gap-3 text-slate-100 uppercase tracking-tighter italic">
                   <BarChart3 className="text-brand-blue size-6" />
                   Class Mastery Matrix
                 </h3>
@@ -1652,9 +1651,9 @@ const TeacherHub = ({ sectors, students, student }: { sectors: Sector[], student
                   <div key={i} className="space-y-3">
                     <div className="flex justify-between text-[10px] font-black uppercase tracking-[0.2em]">
                       <span className="text-slate-400">{skill.label}</span>
-                      <span className="text-slate-900">{skill.value}% Mastery</span>
+                      <span className="text-slate-100">{skill.value}% Mastery</span>
                     </div>
-                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                    <div className="h-2 w-full bg-slate-700/50 rounded-full overflow-hidden border border-slate-600/50">
                       <motion.div 
                         initial={{ width: 0 }}
                         animate={{ width: `${skill.value}%` }}
@@ -1666,12 +1665,12 @@ const TeacherHub = ({ sectors, students, student }: { sectors: Sector[], student
               </div>
             </div>
 
-            <QuizTool student={student} />
+            <p className="text-slate-400 text-sm">Create and assign quizzes in the <strong>Challenges</strong> tab (Challenge Builder).</p>
           </div>
 
           <div className="space-y-10">
-            <div className="bg-white/40 backdrop-blur-xl p-8 rounded-[40px] border border-white/50 shadow-xl">
-              <h3 className="text-xl font-black mb-6 text-slate-900 uppercase tracking-tighter italic flex items-center gap-3">
+            <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-8 rounded-2xl shadow-xl">
+              <h3 className="text-xl font-black mb-6 text-slate-100 uppercase tracking-tighter italic flex items-center gap-3">
                 <Award className="text-amber-500" />
                 Grant Rewards
               </h3>
@@ -1680,8 +1679,8 @@ const TeacherHub = ({ sectors, students, student }: { sectors: Sector[], student
               </p>
               <GrantRewardForm students={students.filter(s => s.role === 'student')} />
             </div>
-            <div className="bg-white/40 backdrop-blur-xl p-10 rounded-[40px] border border-white/50 shadow-xl">
-              <h3 className="text-xl font-black mb-10 text-slate-900 uppercase tracking-tighter italic">Neural Sync Rate</h3>
+            <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
+              <h3 className="text-xl font-black mb-10 text-slate-100 uppercase tracking-tighter italic">Neural Sync Rate</h3>
               <div className="flex flex-col items-center justify-center py-8">
                 <div className="relative size-48">
                   <svg className="size-full -rotate-90" viewBox="0 0 36 36">
@@ -1697,7 +1696,7 @@ const TeacherHub = ({ sectors, students, student }: { sectors: Sector[], student
                     />
                   </svg>
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-5xl font-black text-slate-900 italic">85%</span>
+                    <span className="text-5xl font-black text-slate-100 italic">85%</span>
                     <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest mt-1">Active Sync</span>
                   </div>
                 </div>
@@ -1708,7 +1707,7 @@ const TeacherHub = ({ sectors, students, student }: { sectors: Sector[], student
       )}
 
       {activeTab === 'classroom' && (
-        <ClassroomManager teacherId={student.id} students={students} />
+        <ClassroomManager teacherId={student.id} students={students} onStudentsAdded={refetchStudents} />
       )}
 
       {activeTab === 'missions' && (
@@ -1734,7 +1733,7 @@ const TeacherHub = ({ sectors, students, student }: { sectors: Sector[], student
             <ReportCard classId={selectedClassId} />
           ) : (
             <div className="bg-slate-900/50 backdrop-blur-md p-20 rounded-3xl border border-slate-800 text-center">
-              <Users className="size-12 text-slate-700 mx-auto mb-4" />
+              <Users className="size-12 text-slate-300 mx-auto mb-4" />
               <p className="text-slate-500 font-mono text-sm italic">Initialize a classroom to generate performance reports.</p>
             </div>
           )}
@@ -1744,13 +1743,24 @@ const TeacherHub = ({ sectors, students, student }: { sectors: Sector[], student
   );
 };
 
-const ClassroomManager = ({ teacherId, students }: { teacherId: number, students: Student[] }) => {
+const ClassroomManager = ({ teacherId, students, onStudentsAdded }: { teacherId: number, students: Student[], onStudentsAdded?: () => void }) => {
   const [classes, setClasses] = useState<Class[]>([]);
   const [newClassName, setNewClassName] = useState('');
   const [selectedClass, setSelectedClass] = useState<Class | null>(null);
   const [loading, setLoading] = useState(true);
   const [missions, setMissions] = useState<Mission[]>([]);
-  const [quizzes, setQuizzes] = useState<any[]>([]);
+  const [assignedMissions, setAssignedMissions] = useState<Mission[]>([]);
+  const [allChallenges, setAllChallenges] = useState<{ id: number; title: string; type: string }[]>([]);
+  const [assignedChallenges, setAssignedChallenges] = useState<{ id: number; title: string; type: string }[]>([]);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<{ studentId: number; message: string } | null>(null);
+  const [copyCodeFeedback, setCopyCodeFeedback] = useState(false);
+  const [pasteNames, setPasteNames] = useState('');
+  const [pasteResult, setPasteResult] = useState<{ added: number; created: string[]; error?: string } | null>(null);
+  const [pasteLoading, setPasteLoading] = useState(false);
+  const [generateCodeLoading, setGenerateCodeLoading] = useState(false);
+  const [generateCodeError, setGenerateCodeError] = useState<string | null>(null);
 
   const fetchClasses = async () => {
     const data = await safeFetch('/api/classes');
@@ -1759,8 +1769,8 @@ const ClassroomManager = ({ teacherId, students }: { teacherId: number, students
     }
     const missionsData = await safeFetch('/api/missions');
     if (missionsData) setMissions(missionsData);
-    const quizzesData = await safeFetch('/api/quizzes');
-    if (quizzesData) setQuizzes(quizzesData);
+    const challengesData = await safeFetch('/api/challenges');
+    if (challengesData) setAllChallenges(Array.isArray(challengesData) ? challengesData : []);
     setLoading(false);
   };
 
@@ -1768,7 +1778,7 @@ const ClassroomManager = ({ teacherId, students }: { teacherId: number, students
     const data = await safeFetch(`/api/classes/${classId}/content`);
     if (data) {
       setAssignedMissions(data.missions || []);
-      setAssignedQuizzes(data.quizzes || []);
+      setAssignedChallenges(data.challenges || []);
     }
   };
 
@@ -1776,28 +1786,131 @@ const ClassroomManager = ({ teacherId, students }: { teacherId: number, students
     fetchClasses();
   }, []);
 
+  // When a class is selected, ensure we have join_code (fetch or generate)
+  useEffect(() => {
+    if (!selectedClass?.id) return;
+    const current = classes.find(c => c.id === selectedClass.id) || selectedClass;
+    if (current?.join_code) return;
+    (async () => {
+      const data = await safeFetch(`/api/classes/${selectedClass.id}`);
+      if (data?.join_code != null) {
+        setClasses(prev => prev.map(c => c.id === selectedClass.id ? { ...c, join_code: data.join_code } : c));
+        return;
+      }
+      const res = await fetch('/api/classes/ensure-join-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ class_id: selectedClass.id })
+      });
+      const json = await res.json().catch(() => ({}));
+      if (json.join_code)
+        setClasses(prev => prev.map(c => c.id === selectedClass.id ? { ...c, join_code: json.join_code } : c));
+    })();
+  }, [selectedClass?.id]);
+
   const createClass = async () => {
-    if (!newClassName) return;
-    await fetch('/api/classes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newClassName, teacher_id: teacherId, description: '' })
-    });
-    setNewClassName('');
-    fetchClasses();
-    if (selectedClass) {
-      fetchClassContent(selectedClass.id);
+    if (!newClassName.trim()) return;
+    setCreateError(null);
+    setCreating(true);
+    try {
+      const res = await fetch('/api/classes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name: newClassName.trim(), teacher_id: teacherId, description: '' })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCreateError(data.error || data.message || 'Failed to create class');
+        return;
+      }
+      setNewClassName('');
+      await fetchClasses();
+      if (selectedClass) fetchClassContent(selectedClass.id);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const copyJoinCodeToClipboard = (code: string) => {
+    const doCopy = (text: string) => {
+      try {
+        const input = document.createElement('input');
+        input.value = text;
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(code).then(() => {
+        setCopyCodeFeedback(true);
+        setTimeout(() => setCopyCodeFeedback(false), 2000);
+      }).catch(() => {
+        if (doCopy(code)) { setCopyCodeFeedback(true); setTimeout(() => setCopyCodeFeedback(false), 2000); }
+      });
+    } else {
+      if (doCopy(code)) { setCopyCodeFeedback(true); setTimeout(() => setCopyCodeFeedback(false), 2000); }
+    }
+  };
+
+  const addStudentsByNames = async () => {
+    if (!selectedClass || !pasteNames.trim()) return;
+    const names = pasteNames.split(/\n/).map(n => n.trim()).filter(Boolean);
+    if (names.length === 0) return;
+    setPasteLoading(true);
+    setPasteResult(null);
+    try {
+      const res = await fetch('/api/classes/add-students-by-names', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ class_id: selectedClass.id, names })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setPasteResult({ added: data.added ?? 0, created: data.created ?? [] });
+        setPasteNames('');
+        await fetchClasses();
+        onStudentsAdded?.();
+      } else {
+        setPasteResult({ added: 0, created: [], error: data.error || data.message || `Request failed (${res.status})` });
+      }
+    } catch (e: any) {
+      setPasteResult({ added: 0, created: [], error: e?.message || 'Network error' });
+    } finally {
+      setPasteLoading(false);
     }
   };
 
   const addStudentToClass = async (studentId: number) => {
     if (!selectedClass) return;
-    await fetch(`/api/classes/${selectedClass.id}/students`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ student_id: studentId })
-    });
-    fetchClasses();
+    setSyncFeedback(null);
+    try {
+      const res = await fetch(`/api/classes/${selectedClass.id}/students`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ student_id: studentId })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSyncFeedback({ studentId, message: data.error || data.message || 'Failed to add' });
+        return;
+      }
+      setSyncFeedback({ studentId, message: 'Added!' });
+      setTimeout(() => setSyncFeedback(null), 2000);
+      await fetchClasses();
+    } catch {
+      setSyncFeedback({ studentId, message: 'Network error' });
+    }
   };
 
   const assignMissionToClass = async (missionId: number) => {
@@ -1805,6 +1918,7 @@ const ClassroomManager = ({ teacherId, students }: { teacherId: number, students
     await fetch(`/api/classes/${selectedClass.id}/missions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ mission_id: missionId })
     });
     fetchClassContent(selectedClass.id);
@@ -1815,6 +1929,7 @@ const ClassroomManager = ({ teacherId, students }: { teacherId: number, students
     await fetch(`/api/classes/${selectedClass.id}/quizzes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ quiz_id: quizId })
     });
     fetchClassContent(selectedClass.id);
@@ -1824,44 +1939,61 @@ const ClassroomManager = ({ teacherId, students }: { teacherId: number, students
     if (!selectedClass) return;
     await fetch(`/api/classes/${selectedClass.id}/missions/${missionId}`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' }
+      credentials: 'include'
     });
     fetchClassContent(selectedClass.id);
   };
 
-  const unassignQuizFromClass = async (quizId: number) => {
+  const assignChallengeToClass = async (challengeId: number) => {
     if (!selectedClass) return;
-    await fetch(`/api/classes/${selectedClass.id}/quizzes/${quizId}`, {
+    await fetch(`/api/classes/${selectedClass.id}/challenges`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ challenge_id: challengeId })
+    });
+    fetchClassContent(selectedClass.id);
+  };
+
+  const unassignChallengeFromClass = async (challengeId: number) => {
+    if (!selectedClass) return;
+    await fetch(`/api/classes/${selectedClass.id}/challenges/${challengeId}`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' }
+      credentials: 'include'
     });
     fetchClassContent(selectedClass.id);
   };
 
   return (
     <div className="space-y-10">
-      <div className="bg-white/40 backdrop-blur-xl p-10 rounded-[40px] border border-white/50 shadow-xl">
-        <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter mb-8 italic">Squad Initialization</h3>
-        <div className="flex gap-4">
-          <input 
-            type="text" 
-            value={newClassName}
-            onChange={e => setNewClassName(e.target.value)}
-            placeholder="Squad Designation (e.g. Physics Alpha)"
-            className="flex-1 bg-white/60 border border-white/50 rounded-2xl px-8 py-4 text-slate-900 font-black uppercase tracking-tight italic outline-none focus:border-brand-blue/50 transition-all placeholder:text-slate-300"
-          />
-          <button 
-            onClick={createClass}
-            className="bg-brand-blue text-white font-black px-10 py-4 rounded-2xl uppercase tracking-[0.2em] text-[10px] hover:bg-brand-blue/90 transition-all shadow-xl shadow-brand-blue/20 active:scale-95"
-          >
-            Initialize
-          </button>
+      <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
+        <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter mb-8 italic">Squad Initialization</h3>
+        <div className="flex flex-col gap-3">
+          <div className="flex gap-4">
+            <input 
+              type="text" 
+              value={newClassName}
+              onChange={e => { setNewClassName(e.target.value); setCreateError(null); }}
+              placeholder="Squad Designation (e.g. Physics Alpha)"
+              className="flex-1 bg-slate-700/50 border border-slate-600/40 rounded-2xl px-8 py-4 text-slate-100 font-black uppercase tracking-tight italic outline-none focus:border-brand-blue/50 transition-all placeholder:text-slate-300"
+            />
+            <button 
+              onClick={createClass}
+              disabled={creating}
+              className="bg-brand-blue text-white font-black px-10 py-4 rounded-2xl uppercase tracking-[0.2em] text-[10px] hover:bg-brand-blue/90 transition-all shadow-xl shadow-brand-blue/20 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {creating ? 'Creating…' : 'Initialize'}
+            </button>
+          </div>
+          {createError && (
+            <p className="text-rose-400 text-sm font-medium">{createError}</p>
+          )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-        <div className="bg-white/40 backdrop-blur-xl p-10 rounded-[40px] border border-white/50 shadow-xl">
-          <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter mb-8 italic">Active Squads</h3>
+        <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
+          <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter mb-8 italic">Active Squads</h3>
           <div className="space-y-4">
             {classes.map(c => (
               <button 
@@ -1870,10 +2002,10 @@ const ClassroomManager = ({ teacherId, students }: { teacherId: number, students
                   setSelectedClass(c);
                   fetchClassContent(c.id);
                 }}
-                className={`w-full flex items-center justify-between p-6 rounded-[24px] border transition-all relative overflow-hidden group ${
+                className={`w-full flex items-center justify-between p-6 rounded-2xl border transition-all relative overflow-hidden group ${
                   selectedClass?.id === c.id 
                     ? 'bg-brand-blue text-white border-brand-blue shadow-xl shadow-brand-blue/20' 
-                    : 'bg-white/60 border-white/50 hover:border-brand-blue/30'
+                    : 'bg-slate-700/50 border-slate-600/40 hover:border-brand-blue/30'
                 }`}
               >
                 <div className="text-left relative z-10">
@@ -1895,38 +2027,141 @@ const ClassroomManager = ({ teacherId, students }: { teacherId: number, students
           </div>
         </div>
 
-        {selectedClass && (
+        {selectedClass && (() => {
+          const currentClass = classes.find(c => c.id === selectedClass.id) || selectedClass;
+          return (
           <motion.div 
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            className="bg-white/40 backdrop-blur-xl p-10 rounded-[40px] border border-white/50 shadow-xl space-y-10"
+            className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl space-y-10"
           >
-            <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter mb-4 italic">
-              Sync Operators: {selectedClass.name}
+            {/* Class join code – always visible, never masked */}
+            <div className="rounded-2xl border-2 border-brand-blue/50 bg-brand-blue/10 p-5">
+              <p className="text-[9px] font-black text-brand-blue uppercase tracking-widest mb-2">Class join code – share with students</p>
+              <div className="flex items-center gap-4 flex-wrap">
+                <code className="text-2xl font-mono font-black text-brand-blue tracking-[0.2em] select-all bg-slate-900/40 px-3 py-2 rounded-xl" title="Class code – select and copy if needed">
+                  {currentClass.join_code ?? '—'}
+                </code>
+                {currentClass.join_code ? (
+                  <button
+                    type="button"
+                    onClick={() => copyJoinCodeToClipboard(currentClass.join_code!)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-blue text-white font-black text-xs uppercase tracking-widest hover:bg-brand-blue/90 transition-all"
+                  >
+                    {copyCodeFeedback ? 'Copied!' : <><Copy className="size-4" /> Copy code</>}
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      disabled={generateCodeLoading}
+                      onClick={async () => {
+                        setGenerateCodeError(null);
+                        setGenerateCodeLoading(true);
+                        try {
+                          const res = await fetch('/api/classes/ensure-join-code', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
+                            body: JSON.stringify({ class_id: selectedClass.id })
+                          });
+                          const json = await res.json().catch(() => ({}));
+                          if (res.ok && json.join_code) {
+                            const code = json.join_code;
+                            setClasses(prev => prev.map(c => c.id === selectedClass.id ? { ...c, join_code: code } : c));
+                            setSelectedClass(prev => prev && prev.id === selectedClass.id ? { ...prev, join_code: code } : prev);
+                          } else {
+                            setGenerateCodeError(json.error || json.message || `Could not generate code (${res.status})`);
+                          }
+                        } catch {
+                          setGenerateCodeError('Network error');
+                        } finally {
+                          setGenerateCodeLoading(false);
+                        }
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 font-black text-xs uppercase disabled:opacity-60"
+                    >
+                      {generateCodeLoading ? 'Generating…' : 'Generate code'}
+                    </button>
+                    {generateCodeError && <span className="text-rose-400 text-xs">{generateCodeError}</span>}
+                  </>
+                )}
+              </div>
+              <p className="text-slate-400 text-xs mt-2">Students enter this code in Squad → My Classes → Join with code.</p>
+            </div>
+
+            {/* Add many students by pasting names (one per line); create accounts if needed */}
+            <div className="rounded-2xl border border-slate-600/40 bg-slate-700/30 p-5">
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Add students by name list</p>
+              <p className="text-slate-400 text-xs mb-3">Paste one name per line. New accounts are created for any name that doesn’t exist (default password: password123).</p>
+              <textarea
+                value={pasteNames}
+                onChange={e => { setPasteNames(e.target.value); setPasteResult(null); }}
+                placeholder={'Alice Smith\nBob Jones\nCharlie Lee'}
+                rows={4}
+                className="w-full bg-slate-800/60 border border-slate-600/40 rounded-xl px-4 py-3 text-slate-100 text-sm font-mono placeholder:text-slate-500 outline-none focus:border-brand-blue/50 resize-y"
+              />
+              <div className="flex items-center gap-3 mt-3 flex-wrap">
+                <button
+                  type="button"
+                  onClick={addStudentsByNames}
+                  disabled={pasteLoading || !pasteNames.trim()}
+                  className="px-4 py-2 rounded-xl bg-brand-blue text-white font-black text-xs uppercase tracking-widest hover:bg-brand-blue/90 disabled:opacity-50 transition-all"
+                >
+                  {pasteLoading ? 'Adding…' : 'Add to class'}
+                </button>
+                {pasteResult && (
+                  <span className="text-sm">
+                    {pasteResult.error ? (
+                      <span className="text-rose-400">{pasteResult.error}</span>
+                    ) : (
+                      <>
+                        <span className="text-brand-blue font-black">Added {pasteResult.added} to class</span>
+                        {pasteResult.created.length > 0 && (
+                          <span className="text-cyan-400 ml-2"> · Created {pasteResult.created.length} new account(s); default password: password123</span>
+                        )}
+                      </>
+                    )}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter mb-4 italic">
+              Sync Operators: {currentClass.name}
             </h3>
             <div className="space-y-3 max-h-[260px] overflow-y-auto pr-4 custom-scrollbar">
-              {students.filter(s => s.role === 'student').map(s => (
-                <div key={s.id} className="flex items-center justify-between p-4 bg-white/60 border border-white/50 rounded-2xl group hover:border-brand-blue/30 transition-all">
+              {students.filter(s => s.role === 'student').map(s => {
+                const feedback = syncFeedback?.studentId === s.id ? syncFeedback.message : null;
+                return (
+                <div key={s.id} className="flex items-center justify-between p-4 bg-slate-700/50 border border-slate-600/40 rounded-2xl group hover:border-brand-blue/30 transition-all">
                   <div className="flex items-center gap-4">
-                    <img src={s.avatar_url} className="size-12 rounded-xl object-cover border border-white/50" alt="" referrerPolicy="no-referrer" />
+                    <img src={s.avatar_url} className="size-12 rounded-xl object-cover border border-slate-600/40" alt="" referrerPolicy="no-referrer" />
                     <div>
-                      <p className="text-sm font-black text-slate-900 uppercase tracking-tight italic">{s.name}</p>
+                      <p className="text-sm font-black text-slate-100 uppercase tracking-tight italic">{s.name}</p>
                       <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">Lvl {s.level} Operator</p>
                     </div>
                   </div>
-                  <button 
-                    onClick={() => addStudentToClass(s.id)}
-                    className="px-4 py-2 bg-brand-blue/10 text-brand-blue rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-brand-blue hover:text-white transition-all border border-brand-blue/20"
-                  >
-                    Sync
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {feedback && (
+                      <span className={`text-[10px] font-black uppercase ${feedback === 'Added!' ? 'text-brand-blue' : 'text-rose-400'}`}>
+                        {feedback}
+                      </span>
+                    )}
+                    <button 
+                      onClick={() => addStudentToClass(s.id)}
+                      className="px-4 py-2 bg-brand-blue/10 text-brand-blue rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-brand-blue hover:text-white transition-all border border-brand-blue/20"
+                    >
+                      Sync
+                    </button>
+                  </div>
                 </div>
-              ))}
+              );})}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6 border-t border-slate-100">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6 border-t border-slate-600/50">
               <div>
-                <h4 className="text-sm font-black text-slate-900 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                <h4 className="text-sm font-black text-slate-100 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
                   <Rocket className="size-4 text-brand-blue" />
                   Assign Missions
                 </h4>
@@ -1935,9 +2170,9 @@ const ClassroomManager = ({ teacherId, students }: { teacherId: number, students
                     <button
                       key={m.id}
                       onClick={() => assignMissionToClass(m.id)}
-                      className="w-full flex items-center justify-between px-4 py-3 rounded-2xl border border-slate-200 bg-white/60 hover:border-brand-blue/40 hover:bg-brand-blue/5 text-left text-xs font-bold transition-all"
+                      className="w-full flex items-center justify-between px-4 py-3 rounded-2xl border border-slate-600/50 bg-slate-700/50 hover:border-brand-blue/40 hover:bg-brand-blue/5 text-left text-xs font-bold transition-all"
                     >
-                      <span className="text-slate-700 line-clamp-1">{m.title}</span>
+                      <span className="text-slate-300 line-clamp-1">{m.title}</span>
                       <span className="text-[9px] uppercase tracking-widest text-brand-blue">Assign</span>
                     </button>
                   ))}
@@ -1948,30 +2183,30 @@ const ClassroomManager = ({ teacherId, students }: { teacherId: number, students
               </div>
 
               <div>
-                <h4 className="text-sm font-black text-slate-900 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
-                  <ClipboardList className="size-4 text-brand-blue" />
-                  Assign Quizzes
+                <h4 className="text-sm font-black text-slate-100 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                  <Layers className="size-4 text-brand-blue" />
+                  Assign Quizzes / Challenges
                 </h4>
                 <div className="space-y-3 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
-                  {quizzes.map(q => (
+                  {allChallenges.map(ch => (
                     <button
-                      key={q.id}
-                      onClick={() => assignQuizToClass(q.id)}
-                      className="w-full flex items-center justify-between px-4 py-3 rounded-2xl border border-slate-200 bg-white/60 hover:border-brand-blue/40 hover:bg-brand-blue/5 text-left text-xs font-bold transition-all"
+                      key={ch.id}
+                      onClick={() => assignChallengeToClass(ch.id)}
+                      className="w-full flex items-center justify-between px-4 py-3 rounded-2xl border border-slate-600/50 bg-slate-700/50 hover:border-brand-blue/40 hover:bg-brand-blue/5 text-left text-xs font-bold transition-all"
                     >
-                      <span className="text-slate-700 line-clamp-1">{q.title}</span>
+                      <span className="text-slate-300 line-clamp-1">{ch.title}</span>
                       <span className="text-[9px] uppercase tracking-widest text-brand-blue">Assign</span>
                     </button>
                   ))}
-                  {quizzes.length === 0 && (
-                    <p className="text-slate-400 text-xs italic">No quizzes created yet.</p>
+                  {allChallenges.length === 0 && (
+                    <p className="text-slate-400 text-xs italic">No challenges yet. Create them in Challenges.</p>
                   )}
                 </div>
               </div>
             </div>
 
-            <div className="pt-6 border-t border-slate-100">
-              <h4 className="text-sm font-black text-slate-900 uppercase tracking-[0.2em] mb-3 flex items-center gap-2">
+            <div className="pt-6 border-t border-slate-600/50">
+              <h4 className="text-sm font-black text-slate-100 uppercase tracking-[0.2em] mb-3 flex items-center gap-2">
                 <Rocket className="size-4 text-brand-blue" />
                 Assigned Missions
               </h4>
@@ -1992,19 +2227,19 @@ const ClassroomManager = ({ teacherId, students }: { teacherId: number, students
                 ))}
               </div>
 
-              <h4 className="text-sm font-black text-slate-900 uppercase tracking-[0.2em] mb-3 flex items-center gap-2">
-                <ClipboardList className="size-4 text-brand-blue" />
-                Assigned Quizzes
+              <h4 className="text-sm font-black text-slate-100 uppercase tracking-[0.2em] mb-3 flex items-center gap-2">
+                <Layers className="size-4 text-brand-blue" />
+                Assigned Quizzes &amp; Challenges
               </h4>
               <div className="flex flex-wrap gap-2">
-                {assignedQuizzes.length === 0 && (
-                  <p className="text-[11px] text-slate-400 italic">No quizzes assigned to this squad yet.</p>
+                {assignedChallenges.length === 0 && (
+                  <p className="text-[11px] text-slate-400 italic">No interactive challenges assigned yet.</p>
                 )}
-                {assignedQuizzes.map(q => (
-                  <div key={q.id} className="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-[10px] font-black text-slate-700">
-                    <span className="truncate max-w-[140px]">{q.title}</span>
+                {assignedChallenges.map(c => (
+                  <div key={c.id} className="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-700/50 border border-slate-600/50 text-[10px] font-black text-slate-300">
+                    <span className="truncate max-w-[140px]">{c.title}</span>
                     <button
-                      onClick={() => unassignQuizFromClass(q.id)}
+                      onClick={() => unassignChallengeFromClass(c.id)}
                       className="text-[10px] text-slate-400 hover:text-red-500 ml-1"
                     >
                       ✕
@@ -2014,23 +2249,57 @@ const ClassroomManager = ({ teacherId, students }: { teacherId: number, students
               </div>
             </div>
           </motion.div>
-        )}
+          ); })()}
       </div>
     </div>
   );
 };
-const StudentDashboard = ({ student, onOpenSettings }: { student: Student; onOpenSettings?: () => void }) => {
+const STUDENT_SKIPPED_JOIN_KEY = 'stemverse_student_skipped_join';
+
+const StudentDashboard = ({ student, onOpenSettings, setActiveView }: { student: Student; onOpenSettings?: () => void; setActiveView?: (v: string) => void }) => {
   const [progress, setProgress] = useState<StudentProgress | null>(null);
   const [classes, setClasses] = useState<Class[]>([]);
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [joinCodeInput, setJoinCodeInput] = useState('');
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [joinLoading, setJoinLoading] = useState(false);
+  const [skippedJoinPrompt, setSkippedJoinPrompt] = useState(() => sessionStorage.getItem(STUDENT_SKIPPED_JOIN_KEY) === '1');
+
+  const refetchClasses = () => safeFetch(`/api/students/${student.id}/classes`).then(data => { if (data) setClasses(data); });
 
   useEffect(() => {
     safeFetch(`/api/students/${student.id}/progress`).then(data => {
       if (data) setProgress(data);
     });
-    safeFetch(`/api/students/${student.id}/classes`).then(data => {
-      if (data) setClasses(data);
-    });
+    refetchClasses();
   }, [student.id]);
+
+  const showFirstTimeJoinPrompt = classes.length === 0 && !skippedJoinPrompt;
+
+  const handleJoinClass = async () => {
+    const code = joinCodeInput.trim().toUpperCase();
+    if (!code) return;
+    setJoinError(null);
+    setJoinLoading(true);
+    try {
+      const res = await fetch('/api/classes/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ join_code: code }),
+        credentials: 'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setJoinError(data.error || 'Invalid or expired code');
+        return;
+      }
+      setJoinCodeInput('');
+      setShowJoinModal(false);
+      refetchClasses();
+    } finally {
+      setJoinLoading(false);
+    }
+  };
 
   const detailItems = [
     { label: 'Email', value: student.email || '—' },
@@ -2042,17 +2311,49 @@ const StudentDashboard = ({ student, onOpenSettings }: { student: Student; onOpe
     { label: 'Contact number', value: student.contact_number || '—' },
   ];
 
-  const masteryData = [
-    { subject: 'Quantum Physics', mastery: 85, color: 'bg-brand-blue' },
-    { subject: 'Orbital Mechanics', mastery: 62, color: 'bg-brand-yellow' },
-    { subject: 'Neural Biology', mastery: 45, color: 'bg-brand-blue/60' },
-    { subject: 'Cyber Security', mastery: 92, color: 'bg-rose-500' },
-  ];
+  const masteryData = (progress?.quizzes ?? []).map((q: { title: string; score: number; total_questions: number }, i: number) => {
+    const pct = q.total_questions ? Math.round((q.score / q.total_questions) * 100) : 0;
+    const colors = ['bg-cyan-500', 'bg-amber-500', 'bg-brand-blue', 'bg-rose-500'];
+    return { subject: q.title, mastery: pct, color: colors[i % colors.length] };
+  });
 
   return (
     <div className="space-y-12">
+      {/* First-time student: do you have a class code? */}
+      {showFirstTimeJoinPrompt && (
+        <div className="bg-gradient-to-br from-brand-blue/20 to-cyan-500/10 backdrop-blur-xl rounded-2xl border-2 border-brand-blue/40 p-8 shadow-xl">
+          <h3 className="text-xl font-black text-slate-100 uppercase tracking-tight mb-2 flex items-center gap-2">
+            <School className="text-brand-blue" />
+            Welcome! Do you have a class code?
+          </h3>
+          <p className="text-slate-300 text-sm mb-6">
+            If your teacher gave you a code, enter it to join their class and see assignments and announcements. Otherwise you can explore on your own.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => { setShowJoinModal(true); setJoinError(null); setJoinCodeInput(''); }}
+              className="flex items-center gap-2 px-6 py-3 rounded-xl bg-brand-blue text-white font-black text-sm uppercase tracking-widest hover:bg-brand-blue/90 transition-all shadow-lg"
+            >
+              <LogIn className="size-4" />
+              Yes, I have a code
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                sessionStorage.setItem(STUDENT_SKIPPED_JOIN_KEY, '1');
+                setSkippedJoinPrompt(true);
+              }}
+              className="px-6 py-3 rounded-xl border border-slate-500/60 text-slate-300 font-black text-sm uppercase tracking-widest hover:bg-slate-700/50 transition-all"
+            >
+              No, I&apos;ll explore on my own
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Hero Profile Section */}
-      <div className="relative bg-white/40 backdrop-blur-2xl rounded-[40px] border border-white/50 p-10 shadow-2xl overflow-hidden">
+      <div className="relative bg-slate-800/60 backdrop-blur-xl rounded-2xl border border-slate-600/40 p-10 shadow-xl overflow-hidden">
         <div className="absolute top-0 right-0 p-10 opacity-10 pointer-events-none">
           <Rocket className="size-64 -rotate-12" />
         </div>
@@ -2060,29 +2361,36 @@ const StudentDashboard = ({ student, onOpenSettings }: { student: Student; onOpe
         <div className="flex flex-col lg:flex-row gap-12 items-center relative z-10">
           <div className="relative">
             <div className="absolute -inset-4 bg-brand-blue/20 rounded-full blur-2xl animate-pulse" />
-            <div className="relative size-48 rounded-[40px] border-4 border-white overflow-hidden shadow-2xl">
+            <div className="relative size-48 rounded-2xl border-2 border-slate-600/50 overflow-hidden shadow-2xl">
               <img src={student.avatar_url} className="size-full object-cover" alt="" referrerPolicy="no-referrer" />
             </div>
-            <div className="absolute -bottom-4 -right-4 bg-brand-blue text-white px-4 py-2 rounded-xl font-black text-sm shadow-xl border-2 border-white">
+            <div className="absolute -bottom-4 -right-4 bg-brand-blue text-white px-4 py-2 rounded-xl font-black text-sm shadow-xl border-2 border-slate-600/50">
               LVL {student.level}
             </div>
           </div>
 
           <div className="flex-1 text-center lg:text-left">
             <p className="text-[10px] font-black text-brand-blue uppercase tracking-[0.4em] mb-2">Operator Identity Confirmed</p>
-            <h2 className="text-5xl font-black text-slate-900 uppercase tracking-tighter mb-4 italic">{student.name}</h2>
+            <h2 className="text-5xl font-black text-slate-100 uppercase tracking-tighter mb-4 italic">{student.name}</h2>
             <div className="flex flex-wrap justify-center lg:justify-start gap-4">
-              <div className="bg-white/60 px-6 py-3 rounded-2xl border border-white/50 shadow-sm">
+              <div className="bg-slate-700/50 px-6 py-3 rounded-2xl shadow-sm">
                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Total XP</p>
-                <p className="text-xl font-black text-slate-900 font-mono">{student.xp}</p>
+                <p className="text-xl font-black text-slate-100 font-mono">{student.xp}</p>
               </div>
-              <div className="bg-white/60 px-6 py-3 rounded-2xl border border-white/50 shadow-sm">
-                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Neural Sync</p>
-                <p className="text-xl font-black text-brand-blue font-mono">85.4%</p>
+              <div className="bg-slate-700/50 px-6 py-3 rounded-2xl shadow-sm">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Avg quiz score</p>
+                <p className="text-xl font-black text-brand-blue font-mono">
+                  {progress?.quizzes?.length
+                    ? `${Math.round(
+                        progress.quizzes.reduce((a: number, q: { score: number; total_questions: number }) => a + (q.total_questions ? (q.score / q.total_questions) * 100 : 0), 0) /
+                          progress.quizzes.length
+                      )}%`
+                    : '0%'}
+                </p>
               </div>
-              <div className="bg-white/60 px-6 py-3 rounded-2xl border border-white/50 shadow-sm">
+              <div className="bg-slate-700/50 px-6 py-3 rounded-2xl shadow-sm">
                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Missions</p>
-                <p className="text-xl font-black text-slate-900 font-mono">{progress?.quizzes.length || 0}</p>
+                <p className="text-xl font-black text-slate-100 font-mono">{progress?.quizzes.length || 0}</p>
               </div>
             </div>
           </div>
@@ -2114,19 +2422,21 @@ const StudentDashboard = ({ student, onOpenSettings }: { student: Student; onOpe
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left Column: Skill Tree & Mastery */}
         <div className="lg:col-span-7 space-y-8">
-          <div className="bg-white/40 backdrop-blur-xl p-8 rounded-[40px] border border-white/50 shadow-xl">
-            <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter mb-8 flex items-center gap-3">
+          <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-8 rounded-2xl shadow-xl">
+            <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter mb-8 flex items-center gap-3">
               <Activity className="text-brand-blue" />
-              Neural Skill Matrix
+              Assessment results
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {masteryData.map((m, i) => (
+              {masteryData.length === 0 ? (
+                <p className="text-slate-400 col-span-2">No assessments completed yet. Complete quizzes from your Command Console or Galaxy.</p>
+              ) : masteryData.map((m, i) => (
                 <div key={i} className="relative group">
                   <div className="flex justify-between items-end mb-3">
-                    <span className="text-xs font-black text-slate-700 uppercase tracking-tight">{m.subject}</span>
+                    <span className="text-xs font-black text-slate-300 uppercase tracking-tight">{m.subject}</span>
                     <span className="text-xs font-mono font-black text-brand-blue">{m.mastery}%</span>
                   </div>
-                  <div className="h-3 w-full bg-white/50 rounded-full overflow-hidden border border-white/50 p-0.5">
+                  <div className="h-3 w-full bg-slate-700/60 rounded-full overflow-hidden border border-slate-600/40 p-0.5">
                     <motion.div 
                       initial={{ width: 0 }}
                       animate={{ width: `${m.mastery}%` }}
@@ -2138,20 +2448,20 @@ const StudentDashboard = ({ student, onOpenSettings }: { student: Student; onOpe
             </div>
           </div>
 
-          <div className="bg-white/40 backdrop-blur-xl p-8 rounded-[40px] border border-white/50 shadow-xl">
-            <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter mb-8 flex items-center gap-3">
+          <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-8 rounded-2xl shadow-xl">
+            <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter mb-8 flex items-center gap-3">
               <ClipboardList className="text-brand-blue" />
-              Mission Log Archive
+              Quiz log
             </h3>
             <div className="space-y-4">
               {progress?.quizzes.map((q, i) => (
-                <div key={i} className="flex items-center justify-between p-5 bg-white/40 border border-white/50 rounded-3xl hover:bg-white/60 transition-all group">
+                <div key={i} className="flex items-center justify-between p-5 bg-slate-700/50 border border-slate-600/40 rounded-2xl hover:bg-slate-700/70 transition-all group">
                   <div className="flex items-center gap-4">
                     <div className="size-10 rounded-xl bg-brand-blue/10 flex items-center justify-center text-brand-blue">
                       <Zap className="size-5" />
                     </div>
                     <div>
-                      <p className="font-black text-slate-900 uppercase tracking-tight text-sm">{q.title}</p>
+                      <p className="font-black text-slate-100 uppercase tracking-tight text-sm">{q.title}</p>
                       <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest">Sync Date: {new Date(q.completed_at).toLocaleDateString()}</p>
                     </div>
                   </div>
@@ -2168,24 +2478,52 @@ const StudentDashboard = ({ student, onOpenSettings }: { student: Student; onOpe
 
         {/* Right Column: Classes, Achievements & Assessments */}
         <div className="lg:col-span-5 space-y-8">
-          <div className="bg-white/40 backdrop-blur-xl p-8 rounded-[40px] border border-white/50 shadow-xl">
-            <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter mb-6 flex items-center gap-3">
+          <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-8 rounded-2xl shadow-xl">
+            <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter mb-6 flex items-center gap-3">
               <Users className="text-brand-blue" />
               My Classes
             </h3>
+            <button
+              type="button"
+              onClick={() => { setShowJoinModal(true); setJoinError(null); setJoinCodeInput(''); }}
+              className="mb-4 flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-blue/20 border border-brand-blue/40 text-brand-blue font-black text-xs uppercase tracking-widest hover:bg-brand-blue/30 transition-all"
+            >
+              <LogIn className="size-4" />
+              Join with code
+            </button>
+            {showJoinModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => !joinLoading && setShowJoinModal(false)}>
+                <div className="bg-slate-800 border border-slate-600/50 rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+                  <h4 className="text-lg font-black text-slate-100 uppercase tracking-tight mb-4">Enter class code</h4>
+                  <input
+                    type="text"
+                    value={joinCodeInput}
+                    onChange={e => { setJoinCodeInput(e.target.value.toUpperCase()); setJoinError(null); }}
+                    placeholder="e.g. ABC123"
+                    maxLength={10}
+                    className="w-full bg-slate-700/50 border border-slate-600/40 rounded-xl px-4 py-3 text-slate-100 font-mono text-lg tracking-widest placeholder:text-slate-400 outline-none focus:border-brand-blue/50 mb-4"
+                  />
+                  {joinError && <p className="text-rose-400 text-sm mb-4">{joinError}</p>}
+                  <div className="flex gap-3">
+                    <button type="button" onClick={() => !joinLoading && setShowJoinModal(false)} className="flex-1 py-3 rounded-xl border border-slate-600/50 text-slate-300 font-black uppercase text-xs">Cancel</button>
+                    <button type="button" onClick={handleJoinClass} disabled={joinLoading || !joinCodeInput.trim()} className="flex-1 py-3 rounded-xl bg-brand-blue text-white font-black uppercase text-xs hover:bg-brand-blue/90 disabled:opacity-50">Join</button>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="space-y-3 max-h-48 overflow-y-auto pr-2 custom-scrollbar text-sm">
               {classes.length === 0 && (
                 <p className="text-slate-400 italic">
-                  You are not enrolled in any classrooms yet. Your teacher can add you from the Classroom Manager.
+                  You are not enrolled in any classrooms yet. Join with a code from your teacher or ask them to add you.
                 </p>
               )}
               {classes.map(c => (
                 <div
                   key={c.id}
-                  className="flex items-center justify-between p-3 rounded-2xl bg-white/60 border border-white/50"
+                  className="flex items-center justify-between p-3 rounded-2xl bg-slate-700/50 border border-slate-600/40"
                 >
                   <div>
-                    <p className="font-black text-slate-900 uppercase tracking-tight text-xs">{c.name}</p>
+                    <p className="font-black text-slate-100 uppercase tracking-tight text-xs">{c.name}</p>
                     <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest">
                       {c.teacher_name} • {c.student_count} students
                     </p>
@@ -2195,8 +2533,8 @@ const StudentDashboard = ({ student, onOpenSettings }: { student: Student; onOpe
             </div>
           </div>
 
-          <div className="bg-white/40 backdrop-blur-xl p-8 rounded-[40px] border border-white/50 shadow-xl">
-            <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter mb-8 flex items-center gap-3">
+          <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-8 rounded-2xl shadow-xl">
+            <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter mb-8 flex items-center gap-3">
               <Trophy className="text-amber-500" />
               Neural Achievements
             </h3>
@@ -2205,7 +2543,7 @@ const StudentDashboard = ({ student, onOpenSettings }: { student: Student; onOpe
                 <motion.div 
                   key={i} 
                   whileHover={{ scale: 1.05, rotate: 5 }}
-                  className="aspect-square bg-white/60 rounded-3xl border border-white/50 flex items-center justify-center group relative shadow-sm"
+                  className="aspect-square bg-slate-700/50 rounded-3xl border border-slate-600/40 flex items-center justify-center group relative shadow-sm"
                 >
                   <span className="text-3xl">{b.badge_icon || '🚀'}</span>
                   <div className="absolute -bottom-2 bg-brand-blue text-white text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
@@ -2214,23 +2552,27 @@ const StudentDashboard = ({ student, onOpenSettings }: { student: Student; onOpe
                 </motion.div>
               ))}
               {Array.from({ length: 6 - (progress?.badges.length || 0) }).map((_, i) => (
-                <div key={i} className="aspect-square bg-white/20 rounded-3xl border border-white/30 border-dashed flex items-center justify-center">
+                <div key={i} className="aspect-square bg-slate-800/40 rounded-2xl border border-slate-600/50 border-dashed flex items-center justify-center">
                   <Lock className="size-6 text-slate-300" />
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="bg-gradient-to-br from-brand-blue to-brand-blue/80 p-1 rounded-[40px] shadow-2xl shadow-brand-blue/20">
-            <div className="bg-white/10 backdrop-blur-xl p-8 rounded-[38px] h-full">
+          <div className="bg-gradient-to-br from-brand-blue to-brand-blue/80 p-1 rounded-2xl shadow-2xl shadow-brand-blue/20">
+            <div className="bg-slate-800/50 backdrop-blur-xl p-8 rounded-2xl h-full">
               <h3 className="text-xl font-black text-white uppercase tracking-tighter mb-6 flex items-center gap-3">
                 <Zap className="text-white" />
-                Active Assessment
+                Quizzes &amp; Challenges
               </h3>
-              <QuizTool 
-                student={student} 
-                completedQuizIds={progress?.quizzes.map((q: any) => q.quiz_id) || []} 
-              />
+              <p className="text-slate-300 text-sm mb-4">Complete your assigned quizzes and challenges in <strong>Command Console</strong>.</p>
+              <button
+                type="button"
+                onClick={() => setActiveView?.('dashboard')}
+                className="px-4 py-2 rounded-xl bg-white/10 border border-white/20 text-white font-black text-xs uppercase hover:bg-white/20"
+              >
+                Go to Command Console
+              </button>
             </div>
           </div>
         </div>
@@ -2248,19 +2590,19 @@ const ReportCard = ({ classId }: { classId: number }) => {
   }, [classId]);
 
   return (
-    <div className="bg-white/40 backdrop-blur-xl p-10 rounded-[40px] border border-white/50 shadow-xl">
+    <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
       <div className="flex items-center justify-between mb-10">
         <div className="flex items-center gap-3">
           <div className="size-10 rounded-xl bg-brand-blue/10 flex items-center justify-center text-brand-blue border border-brand-blue/20">
             <ClipboardList className="size-5" />
           </div>
-          <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter italic">
+          <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter italic">
             Squad Performance Log
           </h3>
         </div>
         <button
           onClick={() => window.print()}
-          className="px-4 py-2 rounded-xl border border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-brand-blue hover:border-brand-blue/40 bg-white/70 shadow-sm"
+          className="px-4 py-2 rounded-xl border border-slate-600/50 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-brand-blue hover:border-brand-blue/40 bg-slate-800/70 shadow-sm"
         >
           Download PDF
         </button>
@@ -2268,7 +2610,7 @@ const ReportCard = ({ classId }: { classId: number }) => {
       <div className="overflow-x-auto">
         <table className="w-full text-left">
           <thead>
-            <tr className="border-b border-slate-100 text-[10px] uppercase font-black text-slate-400 tracking-[0.2em]">
+            <tr className="border-b border-slate-600/50 text-[10px] uppercase font-black text-slate-400 tracking-[0.2em]">
               <th className="pb-6">Operator</th>
               <th className="pb-6">Neural Level</th>
               <th className="pb-6">Simulations</th>
@@ -2278,11 +2620,11 @@ const ReportCard = ({ classId }: { classId: number }) => {
           </thead>
           <tbody className="text-sm font-mono">
             {report.map(r => (
-              <tr key={r.id} className="border-b border-slate-50 last:border-0 group hover:bg-brand-blue/5 transition-colors">
-                <td className="py-6 font-black text-slate-900 uppercase tracking-tight italic">{r.name}</td>
+              <tr key={r.id} className="border-b border-slate-600/50 last:border-0 group hover:bg-brand-blue/5 transition-colors">
+                <td className="py-6 font-black text-slate-100 uppercase tracking-tight italic">{r.name}</td>
                 <td className="py-6 text-brand-blue font-black">LVL {r.level}</td>
                 <td className="py-6 text-slate-500">{r.quizzes_completed}</td>
-                <td className="py-6 text-slate-900 font-black">{Math.round(r.avg_quiz_score || 0)}%</td>
+                <td className="py-6 text-slate-100 font-black">{Math.round(r.avg_quiz_score || 0)}%</td>
                 <td className="py-6">
                   <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${
                     (r.avg_quiz_score || 0) >= 70 
@@ -2300,27 +2642,79 @@ const ReportCard = ({ classId }: { classId: number }) => {
     </div>
   );
 };
+function toEmbeddableUrl(rawUrl: string): string {
+  const url = rawUrl.trim();
+  // YouTube: watch?v= -> /embed/
+  const ytWatch = url.match(/^https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([^&]+).*/i);
+  if (ytWatch?.[1]) return `https://www.youtube.com/embed/${encodeURIComponent(ytWatch[1])}`;
+  const ytShort = url.match(/^https?:\/\/youtu\.be\/([^?&/]+).*/i);
+  if (ytShort?.[1]) return `https://www.youtube.com/embed/${encodeURIComponent(ytShort[1])}`;
+
+  // Vimeo: vimeo.com/<id> -> player.vimeo.com/video/<id>
+  const vimeo = url.match(/^https?:\/\/(?:www\.)?vimeo\.com\/(\d+).*/i);
+  if (vimeo?.[1]) return `https://player.vimeo.com/video/${encodeURIComponent(vimeo[1])}`;
+
+  // Scratch: scratch.mit.edu/projects/<id>/ -> embed
+  const scratch = url.match(/^https?:\/\/scratch\.mit\.edu\/projects\/(\d+)\/?/i);
+  if (scratch?.[1]) return `https://scratch.mit.edu/projects/${scratch[1]}/embed`;
+
+  return url;
+}
+
+/** Normalize + sanitize game URL/embed for display: plain URL -> safe iframe; iframe snippet -> keep only safe iframe src. */
+function normalizeEmbedForDisplay(embed: string | null | undefined): string | null {
+  if (!embed || typeof embed !== 'string') return null;
+  const s = embed.trim();
+  if (!s) return null;
+
+  // Plain URL (http/https)
+  if (/^https?:\/\/[^\s<>"']+$/i.test(s)) {
+    const url = toEmbeddableUrl(s).replace(/["'<>]/g, '');
+    return `<iframe src="${url}" class="w-full h-full min-h-[400px]" allowfullscreen></iframe>`;
+  }
+
+  // Iframe snippet: extract src (src may have no leading space in markup)
+  const srcMatch = s.match(/<iframe[^>]*\s*src\s*=\s*["']([^"']+)["'][^>]*>/i);
+  const src = (srcMatch?.[1] || '').trim();
+  if (src && /^https?:\/\//i.test(src)) {
+    const url = toEmbeddableUrl(src).replace(/["'<>]/g, '');
+    return `<iframe src="${url}" class="w-full h-full min-h-[400px]" allowfullscreen></iframe>`;
+  }
+
+  // Already a single safe iframe (e.g. stored from server)
+  if (/<iframe\s*[^>]*\s*src\s*=\s*["']https?:\/\/[^"']+["'][^>]*>/i.test(s) && !/</(script|object)/i.test(s)) {
+    const one = s.match(/src\s*=\s*["'](https?:\/\/[^"']+)["']/i);
+    if (one?.[1]) {
+      const url = toEmbeddableUrl(one[1]).replace(/["'<>]/g, '');
+      return `<iframe src="${url}" class="w-full h-full min-h-[400px]" allowfullscreen></iframe>`;
+    }
+  }
+
+  return null;
+}
+
 const GamePlayer = ({ mission, onComplete }: { mission: Mission, onComplete: () => void }) => {
+  const embedHtml = normalizeEmbedForDisplay(mission.embed_code);
   return (
     <div className="space-y-8">
-      <div className="bg-black rounded-[40px] border border-brand-blue/30 overflow-hidden aspect-video relative shadow-2xl shadow-brand-blue/10">
-        {mission.embed_code ? (
+      <div className="bg-black rounded-2xl border border-brand-blue/30 overflow-hidden aspect-video relative shadow-2xl shadow-brand-blue/10 min-h-[400px]">
+        {embedHtml ? (
           <div 
-            className="size-full"
-            dangerouslySetInnerHTML={{ __html: mission.embed_code }}
+            className="size-full min-h-[400px]"
+            dangerouslySetInnerHTML={{ __html: embedHtml }}
           />
         ) : (
           <div className="size-full flex flex-col items-center justify-center p-12 text-center relative">
             <div className="absolute inset-0 opacity-10 pointer-events-none" 
                  style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, #003c71 1px, transparent 0)', backgroundSize: '24px 24px' }} />
             
-            <div className="size-24 bg-brand-blue/10 rounded-[32px] flex items-center justify-center mb-8 border border-brand-blue/20 shadow-[0_0_30px_rgba(0,60,113,0.1)]">
+            <div className="size-24 bg-brand-blue/10 rounded-2xl flex items-center justify-center mb-8 border border-brand-blue/20 shadow-[0_0_30px_rgba(0,60,113,0.1)]">
               <Terminal className="text-brand-blue size-12" />
             </div>
             <h3 className="text-4xl font-black text-white uppercase italic mb-4 tracking-tighter">{mission.title}</h3>
             <p className="text-brand-blue/60 max-w-md font-mono text-xs mb-10 uppercase tracking-widest">{mission.description}</p>
             
-            <div className="p-10 bg-slate-900/50 backdrop-blur-xl rounded-[32px] border border-white/10 w-full max-w-md shadow-2xl">
+            <div className="p-10 bg-slate-900/50 backdrop-blur-xl rounded-2xl border border-slate-600/40 w-full max-w-md shadow-2xl">
               <div className="flex items-center justify-between mb-8">
                 <div className="text-left">
                   <p className="text-[9px] uppercase font-black text-brand-blue/50 tracking-[0.2em] mb-1">Neural Training</p>
@@ -2378,12 +2772,16 @@ const MissionSetup = ({ sectors, canEmbed = false }: { sectors: Sector[], canEmb
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatus('submitting');
-    
+    const embed = formData.embed_code?.trim();
+    const payload = {
+      ...formData,
+      embed_code: embed || undefined,
+    };
     try {
       const response = await fetch('/api/missions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
       
       if (response.ok) {
@@ -2405,17 +2803,17 @@ const MissionSetup = ({ sectors, canEmbed = false }: { sectors: Sector[], canEmb
   };
 
   return (
-    <div className="max-w-4xl mx-auto bg-white/40 backdrop-blur-xl p-12 rounded-[40px] border border-white/50 shadow-2xl relative overflow-hidden">
+    <div className="max-w-4xl mx-auto bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-12 rounded-2xl border border-slate-600/40 shadow-2xl relative overflow-hidden">
       <div className="absolute top-0 right-0 p-12 opacity-5 pointer-events-none">
         <Rocket className="size-48" />
       </div>
 
       <div className="flex items-center gap-6 mb-12">
-        <div className="size-16 rounded-[24px] bg-brand-blue text-white flex items-center justify-center shadow-xl shadow-brand-blue/20">
+        <div className="size-16 rounded-2xl bg-brand-blue text-white flex items-center justify-center shadow-xl shadow-brand-blue/20">
           <Rocket className="size-8" />
         </div>
         <div>
-          <h3 className="text-3xl font-black text-slate-900 uppercase tracking-tighter italic">Mission Architect</h3>
+          <h3 className="text-3xl font-black text-slate-100 uppercase tracking-tighter italic">Mission Architect</h3>
           <p className="text-slate-500 font-medium uppercase text-[10px] tracking-widest">Design and deploy new tactical objectives</p>
         </div>
       </div>
@@ -2430,7 +2828,7 @@ const MissionSetup = ({ sectors, canEmbed = false }: { sectors: Sector[], canEmb
               value={formData.title}
               onChange={e => setFormData({...formData, title: e.target.value})}
               placeholder="e.g. Quantum Gate Mastery" 
-              className="w-full bg-white/60 border border-white/50 rounded-2xl px-8 py-5 text-slate-900 placeholder:text-slate-300 focus:border-brand-blue/50 focus:ring-4 focus:ring-brand-blue/5 outline-none transition-all text-lg font-black italic uppercase tracking-tight" 
+              className="w-full bg-slate-700/50 border border-slate-600/40 rounded-2xl px-8 py-5 text-slate-100 placeholder:text-slate-300 focus:border-brand-blue/50 focus:ring-4 focus:ring-brand-blue/5 outline-none transition-all text-lg font-black italic uppercase tracking-tight" 
             />
           </div>
           <div className="space-y-3">
@@ -2439,7 +2837,7 @@ const MissionSetup = ({ sectors, canEmbed = false }: { sectors: Sector[], canEmb
               <select 
                 value={formData.sector_id}
                 onChange={e => setFormData({...formData, sector_id: parseInt(e.target.value)})}
-                className="w-full bg-white/60 border border-white/50 rounded-2xl px-8 py-5 text-slate-900 focus:border-brand-blue/50 outline-none appearance-none font-black uppercase tracking-tight text-lg italic cursor-pointer"
+                className="w-full bg-slate-700/50 border border-slate-600/40 rounded-2xl px-8 py-5 text-slate-100 focus:border-brand-blue/50 outline-none appearance-none font-black uppercase tracking-tight text-lg italic cursor-pointer"
               >
                 {sectors.map(s => (
                   <option key={s.id} value={s.id}>{s.name}</option>
@@ -2453,7 +2851,7 @@ const MissionSetup = ({ sectors, canEmbed = false }: { sectors: Sector[], canEmb
         <div className="space-y-3">
           <label className="text-[10px] uppercase font-black text-slate-400 tracking-[0.2em] ml-2">Embedded Game (Optional)</label>
           <p className="text-[10px] text-slate-400 mb-1">
-            Paste an embed snippet (iframe or script) from your game platform. It will render for students inside the mission player.
+            Paste a share link (YouTube/Vimeo/Scratch/etc) or an <code>{'<iframe>'}</code> snippet. It will render for students inside the mission player.
           </p>
           <textarea
             rows={4}
@@ -2472,7 +2870,7 @@ const MissionSetup = ({ sectors, canEmbed = false }: { sectors: Sector[], canEmb
             value={formData.description}
             onChange={e => setFormData({...formData, description: e.target.value})}
             placeholder="Describe the mission parameters and learning outcomes..."
-            className="w-full bg-white/60 border border-white/50 rounded-3xl px-8 py-6 text-slate-900 placeholder:text-slate-300 focus:border-brand-blue/50 focus:ring-4 focus:ring-brand-blue/5 outline-none transition-all font-medium text-lg"
+            className="w-full bg-slate-700/50 border border-slate-600/40 rounded-3xl px-8 py-6 text-slate-100 placeholder:text-slate-300 focus:border-brand-blue/50 focus:ring-4 focus:ring-brand-blue/5 outline-none transition-all font-medium text-lg"
           />
         </div>
 
@@ -2488,7 +2886,7 @@ const MissionSetup = ({ sectors, canEmbed = false }: { sectors: Sector[], canEmb
                   className={`flex-1 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${
                     formData.difficulty === d 
                       ? 'bg-brand-blue text-white border-brand-blue shadow-lg shadow-brand-blue/20' 
-                      : 'bg-white/60 text-slate-400 border-white/50 hover:bg-white'
+                      : 'bg-slate-700/50 text-slate-400 border-slate-600/40 hover:bg-slate-700/50'
                   }`}
                 >
                   {d}
@@ -2503,7 +2901,7 @@ const MissionSetup = ({ sectors, canEmbed = false }: { sectors: Sector[], canEmb
               required 
               value={formData.xp_reward}
               onChange={e => setFormData({...formData, xp_reward: parseInt(e.target.value)})}
-              className="w-full bg-white/60 border border-white/50 rounded-2xl px-8 py-4 text-brand-blue font-mono text-xl font-black outline-none focus:border-brand-blue/50 transition-all" 
+              className="w-full bg-slate-700/50 border border-slate-600/40 rounded-2xl px-8 py-4 text-brand-blue font-mono text-xl font-black outline-none focus:border-brand-blue/50 transition-all" 
             />
           </div>
         </div>
@@ -2512,7 +2910,7 @@ const MissionSetup = ({ sectors, canEmbed = false }: { sectors: Sector[], canEmb
           <div className="space-y-3">
             <label className="text-[10px] uppercase font-black text-slate-400 tracking-[0.2em] ml-2">Embedded Game (Admin Only)</label>
             <p className="text-[10px] text-slate-400 mb-1">
-              Paste an embed snippet (iframe or script) from your game platform. It will render for students inside the mission player.
+              Paste a share link (YouTube/Vimeo/Scratch/etc) or an <code>{'<iframe>'}</code> snippet. It will render for students inside the mission player.
             </p>
             <textarea
               rows={4}
@@ -2571,13 +2969,13 @@ const SquadLeaderboard = ({ student }: { student: Student }) => {
   return (
     <div className="max-w-4xl mx-auto space-y-8">
       {/* Class Squad */}
-      <div className="bg-white/70 backdrop-blur-md rounded-2xl border border-slate-200 overflow-hidden shadow-2xl shadow-slate-200/50">
-        <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
-          <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter flex items-center gap-3">
+      <div className="bg-slate-800/70 backdrop-blur-md rounded-2xl border border-slate-600/50 overflow-hidden shadow-2xl shadow-black/20">
+        <div className="p-8 border-b border-slate-600/50 flex justify-between items-center bg-slate-800/50/30">
+          <h3 className="text-2xl font-black text-slate-100 uppercase tracking-tighter flex items-center gap-3">
             <Users className="text-brand-blue" />
             Class Squad
           </h3>
-          <span className="px-3 py-1 bg-slate-100 border border-slate-200 rounded-lg text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
+          <span className="px-3 py-1 bg-slate-700/50 border border-slate-600/50 rounded-lg text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
             Peers Near Your Level
           </span>
         </div>
@@ -2588,26 +2986,26 @@ const SquadLeaderboard = ({ student }: { student: Student }) => {
             </div>
           )}
           {classmates.map((s, i) => (
-            <div key={s.id} className="p-6 flex items-center gap-6 hover:bg-slate-50 transition-all group">
+            <div key={s.id} className="p-6 flex items-center gap-6 hover:bg-slate-800/50 transition-all group">
               <div className="w-8 text-center">
                 <span className={`text-xl font-black font-mono ${i < 3 ? 'text-amber-500' : 'text-slate-300'}`}>
                   {String(i + 1).padStart(2, '0')}
                 </span>
               </div>
               <div className="relative">
-                <img src={s.avatar_url} className="size-14 rounded-xl border border-slate-200 group-hover:border-brand-blue/50 transition-all object-cover" alt={s.name} referrerPolicy="no-referrer" />
+                <img src={s.avatar_url} className="size-14 rounded-xl border border-slate-600/50 group-hover:border-brand-blue/50 transition-all object-cover" alt={s.name} referrerPolicy="no-referrer" />
                 {i === 0 && <div className="absolute -top-2 -right-2 bg-brand-yellow text-white p-1 rounded-full shadow-lg"><Trophy className="size-3" /></div>}
               </div>
               <div className="flex-1">
-                <h4 className="text-lg font-black text-slate-900 group-hover:text-brand-blue transition-colors uppercase tracking-tight">{s.name}</h4>
+                <h4 className="text-lg font-black text-slate-100 group-hover:text-brand-blue transition-colors uppercase tracking-tight">{s.name}</h4>
                 <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest">{s.role}</p>
               </div>
               <div className="text-right">
-                <p className="text-xl font-black text-slate-900 font-mono">{s.xp.toLocaleString()}</p>
+                <p className="text-xl font-black text-slate-100 font-mono">{s.xp.toLocaleString()}</p>
                 <p className="text-[9px] text-brand-blue font-black uppercase tracking-widest">Squad XP</p>
               </div>
               <div className="hidden sm:block pl-8">
-                <div className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl">
+                <div className="px-4 py-2 bg-slate-800/50 border border-slate-600/50 rounded-xl">
                   <span className="text-brand-blue font-black font-mono">Lvl {s.level}</span>
                 </div>
               </div>
@@ -2617,14 +3015,14 @@ const SquadLeaderboard = ({ student }: { student: Student }) => {
       </div>
 
       {/* Global Level Leaderboard */}
-      <div className="bg-white/70 backdrop-blur-md rounded-2xl border border-slate-200 overflow-hidden shadow-2xl shadow-slate-200/50">
-        <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
-          <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter flex items-center gap-3">
+      <div className="bg-slate-800/70 backdrop-blur-md rounded-2xl border border-slate-600/50 overflow-hidden shadow-2xl shadow-black/20">
+        <div className="p-8 border-b border-slate-600/50 flex justify-between items-center bg-slate-800/50/30">
+          <h3 className="text-2xl font-black text-slate-100 uppercase tracking-tighter flex items-center gap-3">
             <Trophy className="text-amber-500" />
             Global Level {student.level} Rankings
           </h3>
           <div className="flex gap-2">
-            <span className="px-3 py-1 bg-slate-100 border border-slate-200 rounded-lg text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
+            <span className="px-3 py-1 bg-slate-700/50 border border-slate-600/50 rounded-lg text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
               Your Tier
             </span>
           </div>
@@ -2636,7 +3034,7 @@ const SquadLeaderboard = ({ student }: { student: Student }) => {
             </div>
           )}
           {levelPeers.map((s, i) => (
-            <div key={s.id} className="p-6 flex items-center gap-6 hover:bg-slate-50 transition-all group">
+            <div key={s.id} className="p-6 flex items-center gap-6 hover:bg-slate-800/50 transition-all group">
               <div className="w-8 text-center">
                 <span className={`text-xl font-black font-mono ${s.id === student.id ? 'text-brand-blue' : i < 3 ? 'text-amber-500' : 'text-slate-300'}`}>
                   {String(i + 1).padStart(2, '0')}
@@ -2645,7 +3043,7 @@ const SquadLeaderboard = ({ student }: { student: Student }) => {
               <div className="relative">
                 <img
                   src={s.avatar_url}
-                  className="size-14 rounded-xl border border-slate-200 group-hover:border-brand-blue/50 transition-all object-cover"
+                  className="size-14 rounded-xl border border-slate-600/50 group-hover:border-brand-blue/50 transition-all object-cover"
                   alt={s.name}
                   referrerPolicy="no-referrer"
                 />
@@ -2656,13 +3054,13 @@ const SquadLeaderboard = ({ student }: { student: Student }) => {
                 )}
               </div>
               <div className="flex-1">
-                <h4 className="text-lg font-black text-slate-900 group-hover:text-brand-blue transition-colors uppercase tracking-tight">
+                <h4 className="text-lg font-black text-slate-100 group-hover:text-brand-blue transition-colors uppercase tracking-tight">
                   {s.name}
                 </h4>
                 <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest">Lvl {s.level}</p>
               </div>
               <div className="text-right">
-                <p className="text-xl font-black text-slate-900 font-mono">{s.xp.toLocaleString()}</p>
+                <p className="text-xl font-black text-slate-100 font-mono">{s.xp.toLocaleString()}</p>
                 <p className="text-[9px] text-brand-blue font-black uppercase tracking-widest">Global XP</p>
               </div>
             </div>
@@ -2708,7 +3106,7 @@ const GrantRewardForm = ({ students }: { students: Student[] }) => {
         <select
           value={selectedStudentId}
           onChange={e => setSelectedStudentId(e.target.value ? parseInt(e.target.value) : '')}
-          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 outline-none focus:border-brand-blue/50"
+          className="w-full bg-slate-700/80 border border-slate-600/50 rounded-xl px-4 py-3 text-sm text-slate-100 outline-none focus:border-brand-blue/50"
         >
           <option value="">Choose student…</option>
           {students.map(s => (
@@ -2726,7 +3124,7 @@ const GrantRewardForm = ({ students }: { students: Student[] }) => {
           value={badgeName}
           onChange={e => setBadgeName(e.target.value)}
           placeholder="e.g. Lab Legend"
-          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 outline-none focus:border-brand-blue/50"
+          className="w-full bg-slate-700/80 border border-slate-600/50 rounded-xl px-4 py-3 text-sm text-slate-100 outline-none focus:border-brand-blue/50"
         />
       </div>
       <div className="space-y-2">
@@ -2737,7 +3135,7 @@ const GrantRewardForm = ({ students }: { students: Student[] }) => {
           value={badgeIcon}
           onChange={e => setBadgeIcon(e.target.value)}
           maxLength={4}
-          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 outline-none focus:border-brand-blue/50"
+          className="w-full bg-slate-700/80 border border-slate-600/50 rounded-xl px-4 py-3 text-sm text-slate-100 outline-none focus:border-brand-blue/50"
         />
       </div>
       <button
@@ -2767,15 +3165,15 @@ const AwardsView = () => {
         {achievements.map(ach => (
           <div key={ach.id} className={`p-8 rounded-2xl border transition-all relative overflow-hidden group shadow-xl ${
             ach.unlocked 
-              ? 'bg-white/70 backdrop-blur-md border-slate-200 hover:border-brand-blue/30 shadow-slate-200/50' 
-              : 'bg-slate-50 border-slate-200 opacity-60 grayscale'
+              ? 'bg-slate-800/70 backdrop-blur-md border-slate-200 hover:border-brand-blue/30 shadow-black/20' 
+              : 'bg-slate-800/50 border-slate-200 opacity-60 grayscale'
           }`}>
             <div className={`size-16 rounded-2xl flex items-center justify-center mb-6 border ${
-              ach.unlocked ? 'bg-brand-blue/10 border-brand-blue/20 text-brand-blue' : 'bg-slate-100 border-slate-200 text-slate-400'
+              ach.unlocked ? 'bg-brand-blue/10 border-brand-blue/20 text-brand-blue' : 'bg-slate-700/50 border-slate-200 text-slate-400'
             }`}>
               <Award className="size-8" />
             </div>
-            <h3 className={`text-xl font-black mb-2 uppercase tracking-tight ${ach.unlocked ? 'text-slate-900' : 'text-slate-400'}`}>{ach.title}</h3>
+            <h3 className={`text-xl font-black mb-2 uppercase tracking-tight ${ach.unlocked ? 'text-slate-100' : 'text-slate-400'}`}>{ach.title}</h3>
             <p className="text-sm text-slate-500 mb-6 leading-relaxed font-medium">{ach.description}</p>
             {ach.unlocked ? (
               <div className="flex items-center justify-between mt-auto">
@@ -2795,7 +3193,7 @@ const AwardsView = () => {
   );
 };
 
-const MissionSimulation = ({ mission, onComplete, onCancel }: { mission: Mission, onComplete: (xp: number) => void, onCancel: () => void }) => {
+const MissionSimulation = ({ mission, onComplete, onCancel }: { mission: Mission, onComplete: (mission: Mission) => void, onCancel: () => void }) => {
   const [step, setStep] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
 
@@ -2815,7 +3213,7 @@ const MissionSimulation = ({ mission, onComplete, onCancel }: { mission: Mission
       return () => clearTimeout(timer);
     } else {
       setTimeout(() => {
-        onComplete(mission.xp_reward);
+        onComplete(mission);
       }, 1000);
     }
   }, [step]);
@@ -2827,7 +3225,7 @@ const MissionSimulation = ({ mission, onComplete, onCancel }: { mission: Mission
       <motion.div 
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className="relative w-full max-w-2xl bg-black rounded-[40px] border border-brand-blue/30 overflow-hidden shadow-[0_0_50px_rgba(0,60,113,0.2)]"
+        className="relative w-full max-w-2xl bg-black rounded-2xl border border-brand-blue/30 overflow-hidden shadow-[0_0_50px_rgba(0,60,113,0.2)]"
       >
         {/* Terminal Header */}
         <div className="bg-slate-900 px-8 py-4 border-b border-brand-blue/20 flex items-center justify-between">
@@ -2897,7 +3295,7 @@ const MissionSimulation = ({ mission, onComplete, onCancel }: { mission: Mission
   );
 };
 
-// --- Settings Modal (Profile + Password) ---
+// --- Settings Modal (Profile + Password for all; avatar customization for students and teachers) ---
 
 const SettingsModal = ({
   student,
@@ -2908,6 +3306,7 @@ const SettingsModal = ({
   setStudent: (s: Student | null) => void;
   onClose: () => void;
 }) => {
+  const isTeacher = student.role === 'teacher' || student.role === 'admin';
   const [activeTab, setActiveTab] = useState<'profile' | 'password'>('profile');
   const [profileForm, setProfileForm] = useState({
     name: student.name,
@@ -3064,6 +3463,8 @@ const SettingsModal = ({
                   placeholder="https://..."
                 />
               </div>
+              {!isTeacher && (
+              <>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[10px] uppercase font-black text-cyan-400 tracking-widest block mb-1">Age</label>
@@ -3125,6 +3526,8 @@ const SettingsModal = ({
                   className="w-full bg-slate-800/50 border border-cyan-500/30 rounded-xl px-4 py-2.5 text-slate-100 text-sm"
                 />
               </div>
+              </>
+              )}
               <button
                 type="submit"
                 disabled={savingProfile}
@@ -3198,6 +3601,9 @@ export default function App() {
   const [activeMission, setActiveMission] = useState<Mission | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [assignedChallenges, setAssignedChallenges] = useState<{ id: number; title: string; type: string; xp_reward: number }[]>([]);
+  const [activeChallengeId, setActiveChallengeId] = useState<number | null>(null);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   useEffect(() => {
     safeFetch('/api/sectors').then(data => data && setSectors(data));
@@ -3212,13 +3618,57 @@ export default function App() {
     });
   }, []);
 
+  useEffect(() => {
+    if (student?.role === 'student' && student?.id) {
+      safeFetch(`/api/students/${student.id}/assigned-challenges`).then(data => setAssignedChallenges(Array.isArray(data) ? data : []));
+      safeFetch('/api/notifications').then((data) => setNotifications(Array.isArray(data) ? data : []));
+    } else {
+      setAssignedChallenges([]);
+      setNotifications([]);
+    }
+  }, [student?.id, student?.role]);
+
+  useEffect(() => {
+    if (student?.role !== 'student') return;
+    const t = window.setInterval(() => {
+      safeFetch('/api/notifications').then((data) => setNotifications(Array.isArray(data) ? data : []));
+    }, 15000);
+    return () => window.clearInterval(t);
+  }, [student?.role]);
+
+  const markNotificationRead = async (id: number) => {
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: 1 } : n)));
+    await fetch(`/api/notifications/${id}/read`, { method: 'PATCH', credentials: 'include' }).catch(() => {});
+  };
+
+  const markAllNotificationsRead = async () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: 1 })));
+    await fetch('/api/notifications/read-all', { method: 'PATCH', credentials: 'include' }).catch(() => {});
+  };
+
+  const openNotificationLink = (link: string | null | undefined) => {
+    if (!link) return;
+    // Current link format: "challenge:<id>"
+    if (link.startsWith('challenge:')) {
+      const id = Number(link.split(':')[1]);
+      if (Number.isInteger(id) && id > 0) {
+        setActiveView('dashboard');
+        setActiveChallengeId(id);
+      } else {
+        setActiveView('dashboard');
+      }
+      return;
+    }
+    // Fallback: just go to dashboard
+    setActiveView('dashboard');
+  };
+
   const handleLogin = (user: any) => {
     setStudent(user);
     setIsLoggedIn(true);
-    // Set initial view based on role
-    if (user.role === 'teacher') setActiveView('teacher');
-    else if (user.role === 'admin') setActiveView('admin');
-    else setActiveView('galaxy');
+    // Set initial view based on role (teachers see hub on dashboard; no separate Teacher tab)
+    if (user.role === 'admin') setActiveView('admin');
+    else setActiveView('dashboard');
   };
 
   const handleSelectSector = (sector: Sector) => {
@@ -3226,24 +3676,29 @@ export default function App() {
     setActiveView('sector-detail');
   };
 
-  const handleMissionComplete = async (xp: number) => {
+  const handleMissionComplete = async (mission: Mission) => {
     if (!student) return;
-    
+    const xp = mission.xp_reward ?? 0;
+
     const newXp = student.xp + xp;
     const newLevel = Math.floor(newXp / 1000) + 1;
-    
     setStudent({ ...student, xp: newXp, level: newLevel });
     setActiveMission(null);
-    
-    // Log completion
-    await fetch('/api/logs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+
+    if (student.role === "student") {
+      await fetch(`/api/students/${student.id}/missions/${mission.id}/complete`, {
+        method: "POST",
+        credentials: "include",
+      });
+    }
+    await fetch("/api/logs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        message: `Game "${activeMission?.title}" completed successfully by ${student.name}.`,
-        type: 'mission',
-        xp_change: xp
-      })
+        message: `Game "${mission.title}" completed successfully by ${student.name}.`,
+        type: "mission",
+        xp_change: xp,
+      }),
     });
   };
 
@@ -3261,7 +3716,16 @@ export default function App() {
       <div className="fixed bottom-0 left-0 w-32 h-32 border-b-2 border-l-2 border-cyan-500/40 pointer-events-none m-8 z-50" />
       <div className="fixed bottom-0 right-0 w-32 h-32 border-b-2 border-r-2 border-cyan-500/40 pointer-events-none m-8 z-50" />
 
-      <Navbar activeView={activeView} setActiveView={setActiveView} student={student} onOpenSettings={() => setSettingsOpen(true)} />
+      <Navbar
+        activeView={activeView}
+        setActiveView={setActiveView}
+        student={student}
+        onOpenSettings={() => setSettingsOpen(true)}
+        notifications={notifications}
+        onMarkRead={markNotificationRead}
+        onMarkAllRead={markAllNotificationsRead}
+        onOpenLink={openNotificationLink}
+      />
 
       {settingsOpen && student && (
         <SettingsModal
@@ -3281,6 +3745,20 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               className="space-y-10"
             >
+              {(student.role === 'teacher' || student.role === 'admin') ? (
+                <>
+                  <div className="mb-6">
+                    <h2 className="font-display text-4xl font-black tracking-tighter text-slate-100 mb-2 uppercase text-glow-cyan">
+                      Dashboard
+                    </h2>
+                    <p className="text-cyan-400/80 tracking-[0.2em] uppercase text-[10px] font-black">
+                      Classes, analytics &amp; assignments
+                    </p>
+                  </div>
+                  <TeacherHub sectors={sectors} students={students} student={student} refetchStudents={() => safeFetch('/api/students').then(data => data && setStudents(data))} />
+                </>
+              ) : (
+              <>
               <div className="mb-6 flex items-center justify-between">
                 <div>
                   <h2 className="font-display text-4xl font-black tracking-tighter text-slate-100 mb-2 uppercase text-glow-cyan">
@@ -3292,18 +3770,52 @@ export default function App() {
                 </div>
               </div>
 
+              {activeChallengeId ? (
+                <div className="space-y-4">
+                  <button
+                    type="button"
+                    onClick={() => setActiveChallengeId(null)}
+                    className="flex items-center gap-2 text-slate-400 hover:text-cyan-400 font-black text-sm uppercase"
+                  >
+                    <ArrowLeft className="size-4" />
+                    Back to assignments
+                  </button>
+                  <ChallengeRenderer
+                    challengeId={activeChallengeId}
+                    onComplete={(result) => {
+                      if (student && result.total_xp != null) {
+                        setStudent((s) => s ? { ...s, xp: result.total_xp } : null);
+                      }
+                      setActiveChallengeId(null);
+                    }}
+                  />
+                </div>
+              ) : (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Left: Assigned missions/quizzes */}
+                {/* Left: Quizzes & Challenges (unified) */}
                 <div className="lg:col-span-2 space-y-6">
                   <div className="glass-panel p-8 rounded-2xl card-hover-glow border-glow">
-                    <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter mb-6 flex items-center gap-3">
+                    <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter mb-4 flex items-center gap-3">
                       <ClipboardList className="text-cyan-400" />
-                      Pending Neural Assignments
+                      Quizzes &amp; Challenges
                     </h3>
-                    <QuizTool
-                      student={student}
-                      completedQuizIds={[]}
-                    />
+                    {assignedChallenges.length === 0 ? (
+                      <p className="text-slate-400 text-sm">No quizzes or challenges assigned yet. Your teacher will add them to your class.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {assignedChallenges.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => setActiveChallengeId(c.id)}
+                            className="w-full flex items-center justify-between p-4 rounded-xl bg-slate-800/50 border border-slate-600/40 hover:border-cyan-500/40 text-left transition-all"
+                          >
+                            <span className="font-black text-slate-100 uppercase text-sm">{c.title}</span>
+                            <span className="text-[10px] text-slate-400 uppercase">{c.type.replace(/_/g, ' ')} · {c.xp_reward} XP</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -3333,6 +3845,9 @@ export default function App() {
                   </div>
                 </div>
               </div>
+              )}
+              </>
+              )}
             </motion.div>
           )}
           {activeView === 'galaxy' && (
@@ -3363,6 +3878,7 @@ export default function App() {
               sector={selectedSector} 
               onBack={() => setActiveView('galaxy')} 
               onPlayMission={(m) => setActiveMission(m)}
+              allUnlocked={student?.role === 'teacher' || student?.role === 'admin'}
             />
           )}
 
@@ -3374,41 +3890,66 @@ export default function App() {
               exit={{ opacity: 0 }}
             >
               <div className="mb-12">
-                <h2 className="text-4xl font-black tracking-tighter text-slate-900 mb-2 uppercase italic">Admin Command Center</h2>
+                <h2 className="text-4xl font-black tracking-tighter text-slate-100 mb-2 uppercase italic">Admin Command Center</h2>
                 <p className="text-slate-400 tracking-[0.2em] uppercase text-[10px] font-black">System-wide performance and telemetry</p>
               </div>
               <AdminDashboard />
             </motion.div>
           )}
 
-          {activeView === 'teacher' && (student?.role === 'teacher' || student?.role === 'admin') && (
-            <motion.div 
-              key="teacher"
+          {activeView === 'challenges' && (student?.role === 'teacher' || student?.role === 'admin') && (
+            <motion.div
+              key="challenges"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
+              className="flex flex-col flex-1 min-h-0 overflow-hidden"
             >
-              <div className="mb-12">
-                <h2 className="text-4xl font-black tracking-tighter text-slate-900 mb-2 uppercase italic">Teacher Analytics Hub</h2>
-                <p className="text-slate-400 tracking-[0.2em] uppercase text-[10px] font-black">Class progress and student mastery insights</p>
-              </div>
-              <TeacherHub sectors={sectors} students={students} student={student!} />
+              <ChallengeBuilder />
             </motion.div>
           )}
 
           {activeView === 'profile' && student && (
-            <motion.div 
-              key="profile"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <div className="mb-12">
-                <h2 className="font-display text-4xl font-black tracking-tighter text-slate-100 mb-2 uppercase text-glow-cyan">Operator Profile</h2>
-                <p className="text-cyan-400/80 tracking-[0.2em] uppercase text-[10px] font-black">Your details, progress, and achievement logs</p>
-              </div>
-              <StudentDashboard student={student} onOpenSettings={() => setSettingsOpen(true)} />
-            </motion.div>
+            (student.role === 'teacher' || student.role === 'admin') ? (
+              <motion.div key="profile-teacher" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <div className="mb-12">
+                  <h2 className="font-display text-4xl font-black tracking-tighter text-slate-100 mb-2 uppercase text-glow-cyan">Profile</h2>
+                  <p className="text-cyan-400/80 tracking-[0.2em] uppercase text-[10px] font-black">Your account and avatar</p>
+                </div>
+                <div className="glass-panel border-glow rounded-2xl p-10 card-hover-glow flex flex-col sm:flex-row gap-10 items-center">
+                  <div className="relative">
+                    <div className="size-40 rounded-2xl border-2 border-cyan-500/40 overflow-hidden shadow-2xl bg-slate-800/50">
+                      <img src={student.avatar_url || 'https://picsum.photos/seed/avatar/200/200'} className="size-full object-cover" alt="" referrerPolicy="no-referrer" />
+                    </div>
+                  </div>
+                  <div className="flex-1 text-center sm:text-left">
+                    <p className="text-[10px] font-black text-cyan-400 uppercase tracking-widest mb-1">Display name</p>
+                    <h2 className="text-3xl font-black text-slate-100 mb-4">{student.name}</h2>
+                    <button
+                      type="button"
+                      onClick={() => setSettingsOpen(true)}
+                      className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 font-black text-sm uppercase tracking-wider hover:bg-cyan-500/30 transition-all"
+                    >
+                      <Settings className="size-4" />
+                      Edit profile &amp; password
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="profile"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <div className="mb-12">
+                  <h2 className="font-display text-4xl font-black tracking-tighter text-slate-100 mb-2 uppercase text-glow-cyan">Operator Profile</h2>
+                  <p className="text-cyan-400/80 tracking-[0.2em] uppercase text-[10px] font-black">Your details, progress, and achievement logs</p>
+                </div>
+                <StudentDashboard student={student} onOpenSettings={() => setSettingsOpen(true)} setActiveView={setActiveView} />
+              </motion.div>
+            )
           )}
 
           {activeView === 'create-mission' && (student?.role === 'teacher' || student?.role === 'admin') && (
@@ -3419,7 +3960,7 @@ export default function App() {
               exit={{ opacity: 0 }}
             >
               <div className="mb-12">
-                <h2 className="text-4xl font-black tracking-tighter text-slate-900 mb-2 uppercase italic">Game Deployment</h2>
+                <h2 className="text-4xl font-black tracking-tighter text-slate-100 mb-2 uppercase italic">Game Deployment</h2>
                 <p className="text-slate-400 tracking-[0.2em] uppercase text-[10px] font-black">Deploy new learning objectives to the galaxy</p>
               </div>
               <MissionSetup sectors={sectors} />
@@ -3434,7 +3975,7 @@ export default function App() {
               exit={{ opacity: 0 }}
             >
               <div className="mb-12">
-                <h2 className="text-4xl font-black tracking-tighter text-slate-900 mb-2 uppercase italic">Squad Leaderboard</h2>
+                <h2 className="text-4xl font-black tracking-tighter text-slate-100 mb-2 uppercase italic">Squad Leaderboard</h2>
                 <p className="text-slate-400 tracking-[0.2em] uppercase text-[10px] font-black">See how you rank against the global STEM elite</p>
               </div>
               <SquadLeaderboard student={student} />
@@ -3449,7 +3990,7 @@ export default function App() {
               exit={{ opacity: 0 }}
             >
               <div className="mb-12">
-                <h2 className="text-4xl font-black tracking-tighter text-slate-900 mb-2 uppercase italic">Achievement Hall</h2>
+                <h2 className="text-4xl font-black tracking-tighter text-slate-100 mb-2 uppercase italic">Achievement Hall</h2>
                 <p className="text-slate-400 tracking-[0.2em] uppercase text-[10px] font-black">Your journey of scientific discovery and mastery</p>
               </div>
               <AwardsView />
@@ -3469,7 +4010,7 @@ export default function App() {
             {activeMission.embed_code ? (
               <GamePlayer 
                 mission={activeMission} 
-                onComplete={() => handleMissionComplete(activeMission.xp_reward)} 
+                onComplete={() => handleMissionComplete(activeMission)} 
               />
             ) : (
               <MissionSimulation 
@@ -3489,7 +4030,9 @@ export default function App() {
           className={`flex flex-col items-center gap-1 group transition-all ${activeView === 'dashboard' ? 'text-cyan-400' : 'text-slate-400 opacity-70 hover:opacity-100 hover:text-cyan-400/80'}`}
         >
           <LayoutDashboard className={`size-6 group-hover:scale-110 transition-transform ${activeView === 'dashboard' ? 'text-cyan-400' : 'text-slate-400'}`} />
-          <span className="text-[9px] font-black uppercase tracking-widest">Command</span>
+          <span className="text-[9px] font-black uppercase tracking-widest">
+            {(student?.role === 'teacher' || student?.role === 'admin') ? 'Dashboard' : 'Command'}
+          </span>
         </button>
         <button 
           onClick={() => setActiveView('galaxy')}
@@ -3510,15 +4053,13 @@ export default function App() {
         )}
 
         {(student?.role === 'teacher' || student?.role === 'admin') && (
-          <>
             <button 
-              onClick={() => setActiveView('teacher')}
-              className={`flex flex-col items-center gap-1 group transition-all ${activeView === 'teacher' ? 'text-cyan-400' : 'text-slate-400 opacity-70 hover:opacity-100 hover:text-cyan-400/80'}`}
+              onClick={() => setActiveView('challenges')}
+              className={`flex flex-col items-center gap-1 group transition-all ${activeView === 'challenges' ? 'text-cyan-400' : 'text-slate-400 opacity-70 hover:opacity-100 hover:text-cyan-400/80'}`}
             >
-              <School className={`size-6 group-hover:scale-110 transition-transform ${activeView === 'teacher' ? 'text-cyan-400' : 'text-slate-400'}`} />
-              <span className="text-[9px] font-black uppercase tracking-widest">Teacher</span>
+              <Layers className={`size-6 group-hover:scale-110 transition-transform ${activeView === 'challenges' ? 'text-cyan-400' : 'text-slate-400'}`} />
+              <span className="text-[9px] font-black uppercase tracking-widest">Challenges</span>
             </button>
-          </>
         )}
 
         <button 

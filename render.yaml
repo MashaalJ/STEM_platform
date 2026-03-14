@@ -1,4 +1,5 @@
 # Render Blueprint: deploy Stemverse from GitHub
+# Set SESSION_SECRET in Render Dashboard → Service → Environment (secret, 32+ chars).
 # Docs: https://render.com/docs/blueprint-spec
 services:
   - type: web
@@ -9,3 +10,4 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Add SESSION_SECRET in Dashboard (Environment) - required for production

@@ -85,6 +85,15 @@ db.exec(`
     FOREIGN KEY(student_id) REFERENCES students(id)
   );
 
+  CREATE TABLE IF NOT EXISTS student_mission_completions (
+    student_id INTEGER NOT NULL,
+    mission_id INTEGER NOT NULL,
+    completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(student_id, mission_id),
+    FOREIGN KEY(student_id) REFERENCES students(id),
+    FOREIGN KEY(mission_id) REFERENCES missions(id)
+  );
+
   CREATE TABLE IF NOT EXISTS student_quizzes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     student_id INTEGER,
@@ -120,6 +129,57 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS challenges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    type TEXT NOT NULL,
+    world TEXT,
+    zone TEXT,
+    xp_reward INTEGER DEFAULT 100,
+    xp_bonus_first_try INTEGER DEFAULT 0,
+    xp_retry_penalty INTEGER DEFAULT 0,
+    content_json TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS challenge_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL,
+    challenge_id INTEGER NOT NULL,
+    attempt_number INTEGER DEFAULT 1,
+    score REAL NOT NULL,
+    correct INTEGER NOT NULL,
+    response_json TEXT,
+    time_ms INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (student_id) REFERENCES students(id),
+    FOREIGN KEY (challenge_id) REFERENCES challenges(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS class_challenges (
+    class_id INTEGER NOT NULL,
+    challenge_id INTEGER NOT NULL,
+    assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (class_id, challenge_id),
+    FOREIGN KEY (class_id) REFERENCES classes(id),
+    FOREIGN KEY (challenge_id) REFERENCES challenges(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    link TEXT,
+    is_read INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES students(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
+  CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, is_read);
+
   CREATE TABLE IF NOT EXISTS logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -128,6 +188,35 @@ db.exec(`
     xp_change INTEGER
   );
 `);
+
+// Migration: add join_code to classes if missing
+try {
+  db.exec(`ALTER TABLE classes ADD COLUMN join_code TEXT;`);
+} catch (e: any) {
+  if (!/duplicate column name/i.test(e?.message || "")) throw e;
+}
+// Backfill join_code for existing classes (run after ensureUniqueJoinCode is defined below)
+
+const generateJoinCode = (): string => {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+};
+
+const ensureUniqueJoinCode = (): string => {
+  let code = generateJoinCode();
+  const exists = db.prepare("SELECT 1 FROM classes WHERE join_code = ?").get(code);
+  if (exists) return ensureUniqueJoinCode();
+  return code;
+};
+
+// Backfill join_code for existing classes
+const nullJoinCodes = db.prepare("SELECT id FROM classes WHERE join_code IS NULL OR join_code = ''").all() as { id: number }[];
+const updateJoinCode = db.prepare("UPDATE classes SET join_code = ? WHERE id = ?");
+nullJoinCodes.forEach((row) => {
+  updateJoinCode.run(ensureUniqueJoinCode(), row.id);
+});
 
 // Migration: Add password column if it doesn't exist
 try {
@@ -182,19 +271,52 @@ if (studentCount.count === 0) {
   insertStudent.run("Admin Core", hashPassword("admin123"), 99, 99999, "https://picsum.photos/seed/admin/200", "admin");
 }
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+// Ensure demo accounts always have correct bcrypt passwords (fixes DBs created before hashing or with plain-text default)
+const DEMO_ACCOUNTS = [
+  { name: "Alex Rivera", password: "student123" },
+  { name: "Professor Nova", password: "teacher123" },
+  { name: "Admin Core", password: "admin123" },
+] as const;
+const isBcryptHash = (s: string | null) => typeof s === "string" && /^\$2[aby]\$\d+\$/.test(s);
+const updatePasswordById = db.prepare("UPDATE students SET password = ? WHERE id = ?");
+for (const { name, password } of DEMO_ACCOUNTS) {
+  const row = db.prepare("SELECT id, password FROM students WHERE name = ? COLLATE NOCASE").get(name) as { id: number; password: string } | undefined;
+  if (row && !isBcryptHash(row.password)) {
+    updatePasswordById.run(hashPassword(password), row.id);
+  }
+}
 
-  app.use(express.json());
+async function startServer() {
+  const isProduction = process.env.NODE_ENV === "production";
+  const SESSION_SECRET = process.env.SESSION_SECRET || "dev-change-me-please";
+  if (isProduction && (!SESSION_SECRET || SESSION_SECRET === "dev-change-me-please")) {
+    console.error("FATAL: Set SESSION_SECRET to a long random string in production (e.g. 32+ chars).");
+    process.exit(1);
+  }
+
+  const app = express();
+  const PORT = Number(process.env.PORT) || 3000;
+
+  // Security headers (reduce XSS, clickjacking, MIME sniffing)
+  app.use((_req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("X-XSS-Protection", "1; mode=block");
+    if (isProduction) {
+      res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+    next();
+  });
+
+  app.use(express.json({ limit: "256kb" }));
 
   app.use(
     cookieSession({
       name: "stemverse_sess",
-      keys: [process.env.SESSION_SECRET || "dev-change-me-please"],
+      keys: [SESSION_SECRET],
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: isProduction,
       sameSite: "lax",
     }),
   );
@@ -205,6 +327,54 @@ async function startServer() {
     if (!user) return null;
     const { password: _pw, ...rest } = user;
     return rest;
+  };
+
+  const toEmbeddableUrl = (rawUrl: string): string => {
+    const url = rawUrl.trim();
+    // YouTube: watch?v= -> /embed/
+    const ytWatch = url.match(/^https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([^&]+).*/i);
+    if (ytWatch?.[1]) return `https://www.youtube.com/embed/${encodeURIComponent(ytWatch[1])}`;
+    const ytShort = url.match(/^https?:\/\/youtu\.be\/([^?&/]+).*/i);
+    if (ytShort?.[1]) return `https://www.youtube.com/embed/${encodeURIComponent(ytShort[1])}`;
+
+    // Vimeo: vimeo.com/<id> -> player.vimeo.com/video/<id>
+    const vimeo = url.match(/^https?:\/\/(?:www\.)?vimeo\.com\/(\d+).*/i);
+    if (vimeo?.[1]) return `https://player.vimeo.com/video/${encodeURIComponent(vimeo[1])}`;
+
+    // Scratch: scratch.mit.edu/projects/<id>/ -> embed
+    const scratch = url.match(/^https?:\/\/scratch\.mit\.edu\/projects\/(\d+)\/?$/i);
+    if (scratch?.[1]) return `https://scratch.mit.edu/projects/${encodeURIComponent(scratch[1])}/embed`;
+
+    return url;
+  };
+
+  /** Normalize and sanitize embed input: plain URL -> safe iframe; iframe snippet -> safe iframe only. */
+  const sanitizeEmbedCode = (input: string): string | null => {
+    const s = input.trim();
+    if (!s) return null;
+    // Plain URL (http/https)
+    if (/^https?:\/\/[^\s<>"']+$/i.test(s)) {
+      const url = toEmbeddableUrl(s).replace(/["'<>]/g, "");
+      return `<iframe src="${url}" class="w-full h-full min-h-[400px]" allowfullscreen></iframe>`;
+    }
+    // Extract iframe src from HTML snippet (src with or without leading space)
+    const iframeMatch = s.match(/<iframe[^>]*\s*src\s*=\s*["']([^"']+)["'][^>]*>/i) || s.match(/<iframe[^>]*>/i);
+    if (iframeMatch) {
+      const src = (iframeMatch[1] || "").trim();
+      if (src && /^https?:\/\//i.test(src)) {
+        const url = toEmbeddableUrl(src).replace(/["'<>]/g, "");
+        return `<iframe src="${url}" class="w-full h-full min-h-[400px]" allowfullscreen></iframe>`;
+      }
+    }
+    // Allow existing safe iframe as-is if it contains only one iframe with safe src (simple check)
+    if (/<iframe\s[^>]*src\s*=\s*["']https?:\/\/[^"']+["'][^>]*>/i.test(s) && !/</(script|object|embed)/i.test(s)) {
+      const srcMatch = s.match(/src\s*=\s*["'](https?:\/\/[^"']+)["']/i);
+      if (srcMatch) {
+        const url = toEmbeddableUrl(srcMatch[1]).replace(/["'<>]/g, "");
+        return `<iframe src="${url}" class="w-full h-full min-h-[400px]" allowfullscreen></iframe>`;
+      }
+    }
+    return null;
   };
 
   const requireAuth: express.RequestHandler = (req, res, next) => {
@@ -222,6 +392,18 @@ async function startServer() {
       }
       next();
     };
+  };
+
+  /** Students can only access their own id; teachers/admins can access any student. */
+  const requireStudentAccess: express.RequestHandler = (req, res, next) => {
+    const user = (req.session as any)?.user as SessionUser | undefined;
+    if (!user) return res.status(401).json({ success: false, message: "Unauthorized" });
+    const studentId = Number(req.params.id);
+    if (Number.isNaN(studentId)) return res.status(400).json({ success: false, message: "Invalid id" });
+    if (user.role === "student" && user.id !== studentId) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+    next();
   };
 
   const loginAttempts: Record<string, { count: number; windowStart: number }> = {};
@@ -256,8 +438,43 @@ async function startServer() {
 
   app.get("/api/sectors/:id", (req, res) => {
     const sector = db.prepare("SELECT * FROM sectors WHERE id = ?").get(req.params.id);
-    const missions = db.prepare("SELECT * FROM missions WHERE sector_id = ?").all(req.params.id);
-    res.json({ ...sector, missions });
+    if (!sector) return res.status(404).json({ error: "Sector not found" });
+    res.json(sector);
+  });
+
+  /** Missions in this sector. Students see only missions assigned to their class(es); teachers/admins see all. */
+  app.get("/api/sectors/:id/missions", requireAuth, (req, res) => {
+    const sectorId = req.params.id;
+    const sector = db.prepare("SELECT * FROM sectors WHERE id = ?").get(sectorId);
+    if (!sector) return res.status(404).json({ error: "Sector not found" });
+
+    const sessionUser = (req.session as any)?.user as SessionUser;
+    let missions: unknown[];
+
+    let completedMissionIds: number[] = [];
+    if (sessionUser.role === "student") {
+      const rows = db
+        .prepare(
+          `SELECT DISTINCT m.*
+           FROM missions m
+           JOIN class_missions cm ON cm.mission_id = m.id
+           JOIN class_students cs ON cs.class_id = cm.class_id
+           WHERE cs.student_id = ? AND m.sector_id = ?
+           ORDER BY m.id`
+        )
+        .all(sessionUser.id, sectorId);
+      missions = rows;
+      const completed = db
+        .prepare(
+          `SELECT mission_id FROM student_mission_completions WHERE student_id = ? AND mission_id IN (SELECT id FROM missions WHERE sector_id = ?)`
+        )
+        .all(sessionUser.id, sectorId) as { mission_id: number }[];
+      completedMissionIds = completed.map((c) => c.mission_id);
+    } else {
+      missions = db.prepare("SELECT * FROM missions WHERE sector_id = ? ORDER BY id").all(sectorId);
+    }
+
+    res.json({ missions, completedMissionIds });
   });
 
   app.get("/api/students", requireAuth, (req, res) => {
@@ -364,9 +581,33 @@ async function startServer() {
     res.json({ success: true, user: sanitizeUser(user) });
   });
 
-  app.get("/api/quizzes", (req, res) => {
+  app.get("/api/quizzes", requireAuth, (req, res) => {
     const quizzes = db.prepare("SELECT * FROM quizzes ORDER BY created_at DESC").all();
     res.json(quizzes);
+  });
+
+  app.get("/api/quizzes/:id", requireAuth, (req, res) => {
+    const row = db.prepare("SELECT * FROM quizzes WHERE id = ?").get(req.params.id);
+    if (!row) return res.status(404).json({ error: "Quiz not found" });
+    res.json(row);
+  });
+
+  app.patch("/api/quizzes/:id", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const id = req.params.id;
+    const existing = db.prepare("SELECT id FROM quizzes WHERE id = ?").get(id);
+    if (!existing) return res.status(404).json({ error: "Quiz not found" });
+    const { title, questions } = req.body;
+    if (title !== undefined) db.prepare("UPDATE quizzes SET title = ? WHERE id = ?").run(title, id);
+    if (questions !== undefined) db.prepare("UPDATE quizzes SET questions = ? WHERE id = ?").run(typeof questions === "string" ? questions : JSON.stringify(questions), id);
+    res.json({ success: true });
+  });
+
+  app.delete("/api/quizzes/:id", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const id = req.params.id;
+    db.prepare("DELETE FROM class_quizzes WHERE quiz_id = ?").run(id);
+    db.prepare("DELETE FROM student_quizzes WHERE quiz_id = ?").run(id);
+    db.prepare("DELETE FROM quizzes WHERE id = ?").run(id);
+    res.json({ success: true });
   });
 
   app.get("/api/missions", (req, res) => {
@@ -381,6 +622,224 @@ async function startServer() {
     res.json({ success: true, id: result.lastInsertRowid });
   });
 
+  // --- Notifications ---
+  app.get("/api/notifications", requireAuth, (req, res) => {
+    const sessionUser = (req.session as any)?.user as SessionUser;
+    const rows = db
+      .prepare(
+        `SELECT id, user_id, type, title, message, link, is_read, created_at
+         FROM notifications
+         WHERE user_id = ?
+         ORDER BY created_at DESC
+         LIMIT 100`,
+      )
+      .all(sessionUser.id);
+    res.json(rows);
+  });
+
+  app.patch("/api/notifications/:id/read", requireAuth, (req, res) => {
+    const sessionUser = (req.session as any)?.user as SessionUser;
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "Invalid id" });
+    const row = db.prepare("SELECT id FROM notifications WHERE id = ? AND user_id = ?").get(id, sessionUser.id);
+    if (!row) return res.status(404).json({ error: "Notification not found" });
+    db.prepare("UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?").run(id, sessionUser.id);
+    res.json({ success: true });
+  });
+
+  app.patch("/api/notifications/read-all", requireAuth, (req, res) => {
+    const sessionUser = (req.session as any)?.user as SessionUser;
+    db.prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ?").run(sessionUser.id);
+    res.json({ success: true });
+  });
+
+  // --- Challenge Engine API (H5P-style interactive challenges) ---
+  app.get("/api/challenges", requireAuth, (req, res) => {
+    const sessionUser = (req.session as any)?.user as SessionUser;
+    if (sessionUser.role === "student") {
+      const challenges = db.prepare(`
+        SELECT DISTINCT c.* FROM challenges c
+        JOIN class_challenges cc ON cc.challenge_id = c.id
+        JOIN class_students cs ON cs.class_id = cc.class_id
+        WHERE cs.student_id = ?
+        ORDER BY c.created_at DESC
+      `).all(sessionUser.id);
+      return res.json(challenges);
+    }
+    const challenges = db.prepare("SELECT * FROM challenges ORDER BY created_at DESC").all();
+    res.json(challenges);
+  });
+
+  app.get("/api/challenges/:id", requireAuth, (req, res) => {
+    const row = db.prepare("SELECT * FROM challenges WHERE id = ?").get(req.params.id);
+    if (!row) return res.status(404).json({ error: "Challenge not found" });
+    res.json(row);
+  });
+
+  app.post("/api/challenges", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const { title, type, world, zone, xp_reward, xp_bonus_first_try, xp_retry_penalty, content_json } = req.body;
+    if (!title || !type || content_json === undefined) {
+      return res.status(400).json({ error: "title, type, and content_json required" });
+    }
+    const insert = db.prepare(
+      "INSERT INTO challenges (title, type, world, zone, xp_reward, xp_bonus_first_try, xp_retry_penalty, content_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    const result = insert.run(
+      title,
+      type,
+      world || null,
+      zone || null,
+      Number(xp_reward) || 100,
+      Number(xp_bonus_first_try) || 0,
+      Number(xp_retry_penalty) || 0,
+      typeof content_json === "string" ? content_json : JSON.stringify(content_json)
+    );
+    res.json({ success: true, id: result.lastInsertRowid });
+  });
+
+  app.patch("/api/challenges/:id", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const id = req.params.id;
+    const existing = db.prepare("SELECT id FROM challenges WHERE id = ?").get(id);
+    if (!existing) return res.status(404).json({ error: "Challenge not found" });
+    const { title, type, world, zone, xp_reward, xp_bonus_first_try, xp_retry_penalty, content_json } = req.body;
+    const updates: string[] = [];
+    const values: unknown[] = [];
+    if (title !== undefined) { updates.push("title = ?"); values.push(title); }
+    if (type !== undefined) { updates.push("type = ?"); values.push(type); }
+    if (world !== undefined) { updates.push("world = ?"); values.push(world); }
+    if (zone !== undefined) { updates.push("zone = ?"); values.push(zone); }
+    if (xp_reward !== undefined) { updates.push("xp_reward = ?"); values.push(Number(xp_reward)); }
+    if (xp_bonus_first_try !== undefined) { updates.push("xp_bonus_first_try = ?"); values.push(Number(xp_bonus_first_try)); }
+    if (xp_retry_penalty !== undefined) { updates.push("xp_retry_penalty = ?"); values.push(Number(xp_retry_penalty)); }
+    if (content_json !== undefined) { updates.push("content_json = ?"); values.push(typeof content_json === "string" ? content_json : JSON.stringify(content_json)); }
+    if (updates.length === 0) return res.json({ success: true });
+    values.push(id);
+    db.prepare(`UPDATE challenges SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+    res.json({ success: true });
+  });
+
+  app.delete("/api/challenges/:id", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const id = req.params.id;
+    db.prepare("DELETE FROM class_challenges WHERE challenge_id = ?").run(id);
+    db.prepare("DELETE FROM challenge_attempts WHERE challenge_id = ?").run(id);
+    db.prepare("DELETE FROM challenges WHERE id = ?").run(id);
+    res.json({ success: true });
+  });
+
+  app.post("/api/challenges/:id/attempt", requireAuth, requireRole(["student"]), (req, res) => {
+    const challengeId = Number(req.params.id);
+    const sessionUser = (req.session as any)?.user as SessionUser;
+    const challenge = db.prepare("SELECT * FROM challenges WHERE id = ?").get(challengeId) as { id: number; xp_reward: number; xp_bonus_first_try: number; xp_retry_penalty: number } | undefined;
+    if (!challenge) return res.status(404).json({ error: "Challenge not found" });
+    const { score, correct, response, time_ms } = req.body;
+    const scoreNum = typeof score === "number" ? score : (correct ? 1 : 0);
+    const correctNum = correct === true || scoreNum >= 1 ? 1 : 0;
+    const prevAttempts = db.prepare("SELECT COUNT(*) as c FROM challenge_attempts WHERE student_id = ? AND challenge_id = ?").get(sessionUser.id, challengeId) as { c: number };
+    const attemptNumber = (prevAttempts?.c ?? 0) + 1;
+    db.prepare(
+      "INSERT INTO challenge_attempts (student_id, challenge_id, attempt_number, score, correct, response_json, time_ms) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run(sessionUser.id, challengeId, attemptNumber, scoreNum, correctNum, typeof response === "string" ? response : JSON.stringify(response ?? {}), time_ms ?? null);
+    let xpEarned = 0;
+    if (correctNum) {
+      xpEarned = challenge.xp_reward + (attemptNumber === 1 ? (challenge.xp_bonus_first_try || 0) : 0) - (attemptNumber > 1 ? (challenge.xp_retry_penalty || 0) * (attemptNumber - 1) : 0);
+      if (xpEarned < 0) xpEarned = 0;
+      db.prepare("UPDATE students SET xp = xp + ? WHERE id = ?").run(xpEarned, sessionUser.id);
+    }
+    const student = db.prepare("SELECT xp FROM students WHERE id = ?").get(sessionUser.id) as { xp: number };
+    res.json({ success: true, correct: !!correctNum, xp_earned: xpEarned, total_xp: student?.xp ?? 0, attempt_number: attemptNumber });
+  });
+
+  app.get("/api/challenges/:id/analytics", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const challengeId = req.params.id;
+    const attempts = db.prepare(`
+      SELECT ca.*, s.name as student_name FROM challenge_attempts ca
+      JOIN students s ON s.id = ca.student_id
+      WHERE ca.challenge_id = ?
+      ORDER BY ca.created_at DESC
+    `).all(challengeId) as any[];
+    const total = attempts.length;
+    const correctCount = attempts.filter((a: any) => a.correct).length;
+    const byAttempt = attempts.reduce((acc: Record<number, number>, a: any) => {
+      acc[a.attempt_number] = (acc[a.attempt_number] || 0) + 1;
+      return acc;
+    }, {});
+    res.json({ attempts, total, correct_count: correctCount, success_rate: total ? correctCount / total : 0, by_attempt_number: byAttempt });
+  });
+
+  app.get("/api/challenges/:id/assigned-classes", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const sessionUser = (req.session as any)?.user as SessionUser;
+    const challengeId = Number(req.params.id);
+    if (!Number.isInteger(challengeId) || challengeId < 1) return res.status(400).json({ error: "Invalid challenge id" });
+    const sql = sessionUser.role === "teacher"
+      ? `
+        SELECT c.id, c.name, cc.assigned_at
+        FROM class_challenges cc
+        JOIN classes c ON c.id = cc.class_id
+        WHERE cc.challenge_id = ? AND c.teacher_id = ?
+        ORDER BY cc.assigned_at DESC
+      `
+      : `
+        SELECT c.id, c.name, cc.assigned_at
+        FROM class_challenges cc
+        JOIN classes c ON c.id = cc.class_id
+        WHERE cc.challenge_id = ?
+        ORDER BY cc.assigned_at DESC
+      `;
+    const rows = sessionUser.role === "teacher"
+      ? db.prepare(sql).all(challengeId, sessionUser.id)
+      : db.prepare(sql).all(challengeId);
+    res.json(rows);
+  });
+
+  app.post("/api/classes/:id/challenges", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const { challenge_id } = req.body;
+    if (!challenge_id) return res.status(400).json({ error: "challenge_id required" });
+    const classId = Number(req.params.id);
+    const challengeId = Number(challenge_id);
+    const r = db
+      .prepare("INSERT OR IGNORE INTO class_challenges (class_id, challenge_id) VALUES (?, ?)")
+      .run(classId, challengeId);
+
+    // Notify students only when it's a new assignment
+    if (r.changes > 0) {
+      const cls = db.prepare("SELECT id, name FROM classes WHERE id = ?").get(classId) as { id: number; name: string } | undefined;
+      const ch = db.prepare("SELECT id, title, type FROM challenges WHERE id = ?").get(challengeId) as { id: number; title: string; type: string } | undefined;
+      const students = db.prepare("SELECT student_id FROM class_students WHERE class_id = ?").all(classId) as { student_id: number }[];
+
+      const insertNotif = db.prepare(
+        "INSERT INTO notifications (user_id, type, title, message, link, is_read) VALUES (?, ?, ?, ?, ?, 0)",
+      );
+      const title = "New assignment posted";
+      const message = `${ch?.title || "A new challenge"} was assigned in ${cls?.name || "your class"}.`;
+      const link = `challenge:${challengeId}`;
+
+      const tx = db.transaction(() => {
+        for (const s of students) {
+          insertNotif.run(s.student_id, "challenge_assigned", title, message, link);
+        }
+      });
+      tx();
+    }
+    res.json({ success: true });
+  });
+
+  app.delete("/api/classes/:id/challenges/:challengeId", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    db.prepare("DELETE FROM class_challenges WHERE class_id = ? AND challenge_id = ?").run(req.params.id, req.params.challengeId);
+    res.json({ success: true });
+  });
+
+  app.get("/api/students/:id/assigned-challenges", requireAuth, requireStudentAccess, (req, res) => {
+    const studentId = req.params.id;
+    const challenges = db.prepare(`
+      SELECT DISTINCT c.* FROM challenges c
+      JOIN class_challenges cc ON cc.challenge_id = c.id
+      JOIN class_students cs ON cs.class_id = cc.class_id
+      WHERE cs.student_id = ?
+      ORDER BY c.created_at DESC
+    `).all(studentId);
+    res.json(challenges);
+  });
+
   app.get("/api/logs", requireAuth, requireRole(["admin"]), (req, res) => {
     const logs = db.prepare("SELECT * FROM logs ORDER BY timestamp DESC LIMIT 20").all();
     res.json(logs);
@@ -389,10 +848,9 @@ async function startServer() {
   app.post("/api/missions", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
     const { sector_id, title, description, difficulty, xp_reward, image_url, embed_code } = req.body;
     const sessionUser = (req.session as any)?.user as SessionUser | undefined;
-    const safeEmbed =
-      sessionUser && sessionUser.role === "admin"
-        ? embed_code || null
-        : null;
+    // Allow both teachers and admins to save embed/game URL (normalized on client or as raw string; sanitized below)
+    const rawEmbed = typeof embed_code === "string" && embed_code.trim() ? embed_code.trim() : null;
+    const safeEmbed = rawEmbed ? sanitizeEmbedCode(rawEmbed) : null;
 
     const insert = db.prepare(
       "INSERT INTO missions (sector_id, title, description, difficulty, xp_reward, status, image_url, embed_code) VALUES (?, ?, ?, ?, ?, 'available', ?, ?)",
@@ -445,14 +903,135 @@ async function startServer() {
     res.json(classes);
   });
 
+  app.get("/api/classes/:id", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const cls = db.prepare("SELECT * FROM classes WHERE id = ?").get(req.params.id);
+    if (!cls) return res.status(404).json({ error: "Class not found" });
+    res.json(cls);
+  });
+
+  /** Ensure class has a join_code; generate and save if missing. Returns { join_code }. */
+  const handleEnsureJoinCode = (req: express.Request, res: express.Response) => {
+    const id = req.params.id ?? req.body?.class_id;
+    const classId = id != null ? Number(id) : NaN;
+    if (!Number.isInteger(classId) || classId < 1) {
+      return res.status(400).json({ error: "Class id required" });
+    }
+    const row = db.prepare("SELECT id, join_code FROM classes WHERE id = ?").get(classId) as { id: number; join_code: string | null } | undefined;
+    if (!row) return res.status(404).json({ error: "Class not found" });
+    let code = row.join_code != null && String(row.join_code).trim() !== "" ? String(row.join_code).trim() : null;
+    if (!code) {
+      code = ensureUniqueJoinCode();
+      db.prepare("UPDATE classes SET join_code = ? WHERE id = ?").run(code, row.id);
+    }
+    res.json({ join_code: code });
+  };
+  app.post("/api/classes/ensure-join-code", requireAuth, requireRole(["teacher", "admin"]), (req, res) => handleEnsureJoinCode(req, res));
+  app.patch("/api/classes/ensure-join-code", requireAuth, requireRole(["teacher", "admin"]), (req, res) => handleEnsureJoinCode(req, res));
+  app.patch("/api/classes/:id/ensureJoinCode", requireAuth, requireRole(["teacher", "admin"]), handleEnsureJoinCode);
+  app.patch("/api/classes/:id/ensure-join-code", requireAuth, requireRole(["teacher", "admin"]), handleEnsureJoinCode);
+
   app.post("/api/classes", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
     const { name, teacher_id, description } = req.body;
     const sessionUser = (req.session as any)?.user as SessionUser;
     const effectiveTeacherId = sessionUser.role === "teacher" ? sessionUser.id : teacher_id;
 
-    const insert = db.prepare("INSERT INTO classes (name, teacher_id, description) VALUES (?, ?, ?)");
-    const result = insert.run(name, effectiveTeacherId, description);
-    res.json({ success: true, id: result.lastInsertRowid });
+    const trimmedName = typeof name === "string" ? name.trim() : "";
+    if (!trimmedName) {
+      return res.status(400).json({ success: false, error: "Class name is required" });
+    }
+    const tid = Number(effectiveTeacherId);
+    if (!Number.isInteger(tid) || tid < 1) {
+      return res.status(400).json({ success: false, error: "Invalid teacher" });
+    }
+
+    const join_code = ensureUniqueJoinCode();
+    const insert = db.prepare("INSERT INTO classes (name, teacher_id, description, join_code) VALUES (?, ?, ?, ?)");
+    const result = insert.run(trimmedName, tid, description || "", join_code);
+    res.json({ success: true, id: result.lastInsertRowid, join_code });
+  });
+
+  app.post("/api/classes/join", requireAuth, requireRole(["student"]), (req, res) => {
+    const { join_code } = req.body;
+    const sessionUser = (req.session as any)?.user as SessionUser;
+    if (!join_code || typeof join_code !== "string") {
+      return res.status(400).json({ error: "join_code required" });
+    }
+    const code = String(join_code).trim().toUpperCase();
+    const cls = db.prepare("SELECT id, name FROM classes WHERE join_code = ?").get(code) as { id: number; name: string } | undefined;
+    if (!cls) {
+      return res.status(404).json({ error: "Invalid or expired class code" });
+    }
+    const existing = db.prepare("SELECT 1 FROM class_students WHERE class_id = ? AND student_id = ?").get(cls.id, sessionUser.id);
+    if (existing) {
+      return res.status(400).json({ error: "Already in this class" });
+    }
+    db.prepare("INSERT INTO class_students (class_id, student_id) VALUES (?, ?)").run(cls.id, sessionUser.id);
+    res.json({ success: true, class_id: cls.id, class_name: cls.name });
+  });
+
+  /** Add students to class by name list; create new accounts for names that don't exist. */
+  const handleAddStudentsByNames = (req: express.Request, res: express.Response) => {
+    try {
+      const id = req.params.id ?? req.body?.class_id;
+      const classId = id != null ? Number(id) : NaN;
+      if (!Number.isInteger(classId) || classId < 1) {
+        return res.status(400).json({ success: false, error: "Invalid class id" });
+      }
+      const { names } = req.body;
+      const rawNames = Array.isArray(names) ? names.map((n: unknown) => String(n).trim()).filter(Boolean) : [];
+      const seen = new Set<string>();
+      const uniqueNames = rawNames.filter((n) => {
+        const key = n.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      const getStudentByName = db.prepare("SELECT id FROM students WHERE LOWER(TRIM(name)) = LOWER(?) LIMIT 1");
+      const insertStudent = db.prepare(
+        "INSERT INTO students (name, password, level, xp, avatar_url, role) VALUES (?, ?, 1, 0, ?, 'student')"
+      );
+      const addToClass = db.prepare("INSERT OR IGNORE INTO class_students (class_id, student_id) VALUES (?, ?)");
+
+      const defaultPassword = hashPassword("password123");
+      const created: string[] = [];
+      let added = 0;
+
+      for (const name of uniqueNames) {
+        let row = getStudentByName.get(name) as { id: number } | undefined;
+        if (!row) {
+          const avatarSeed = encodeURIComponent(name.toLowerCase().replace(/\s+/g, "-"));
+          const avatar_url = `https://picsum.photos/seed/${avatarSeed}/200`;
+          const result = insertStudent.run(name, defaultPassword, avatar_url);
+          row = { id: Number(result.lastInsertRowid) };
+          created.push(name);
+        }
+        const r = addToClass.run(classId, row.id);
+        if (r.changes > 0) added += 1;
+      }
+
+      res.json({ success: true, created, added });
+    } catch (e: unknown) {
+      const err = e as Error;
+      console.error("by-names error:", e);
+      res.status(500).json({ success: false, error: err?.message || "Failed to add students" });
+    }
+  };
+  app.post("/api/classes/add-students-by-names", requireAuth, requireRole(["teacher", "admin"]), handleAddStudentsByNames);
+  app.post("/api/classes/:id/addStudentsByNames", requireAuth, requireRole(["teacher", "admin"]), handleAddStudentsByNames);
+  app.post("/api/classes/:id/add-students-by-names", requireAuth, requireRole(["teacher", "admin"]), handleAddStudentsByNames);
+
+  app.post("/api/classes/:id/students/bulk", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const classId = req.params.id;
+    const { student_ids } = req.body;
+    const ids = Array.isArray(student_ids) ? student_ids.map((x: unknown) => Number(x)).filter((n: number) => Number.isInteger(n) && n > 0) : [];
+    const insert = db.prepare("INSERT OR IGNORE INTO class_students (class_id, student_id) VALUES (?, ?)");
+    let added = 0;
+    for (const sid of ids) {
+      const r = insert.run(classId, sid);
+      if (r.changes > 0) added += 1;
+    }
+    res.json({ success: true, added, total: ids.length });
   });
 
   app.post("/api/classes/:id/students", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
@@ -498,7 +1077,16 @@ async function startServer() {
     `,
       )
       .all(classId);
-    res.json({ missions, quizzes });
+    const challenges = db
+      .prepare(
+        `
+      SELECT c.* FROM challenges c
+      JOIN class_challenges cc ON cc.challenge_id = c.id
+      WHERE cc.class_id = ?
+    `,
+      )
+      .all(classId);
+    res.json({ missions, quizzes, challenges });
   });
 
   app.delete("/api/classes/:id/missions/:missionId", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
@@ -515,8 +1103,8 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // Student Progress
-  app.get("/api/students/:id/progress", requireAuth, (req, res) => {
+  // Student Progress (students can only read own data)
+  app.get("/api/students/:id/progress", requireAuth, requireStudentAccess, (req, res) => {
     const studentId = req.params.id;
     const badges = db.prepare("SELECT * FROM student_badges WHERE student_id = ?").all(studentId);
     const quizzes = db.prepare(`
@@ -529,7 +1117,7 @@ async function startServer() {
     res.json({ badges, quizzes });
   });
 
-  app.get("/api/students/:id/assigned-quizzes", requireAuth, (req, res) => {
+  app.get("/api/students/:id/assigned-quizzes", requireAuth, requireStudentAccess, (req, res) => {
     const studentId = req.params.id;
     const quizzes = db.prepare(`
       SELECT DISTINCT q.*
@@ -542,7 +1130,18 @@ async function startServer() {
     res.json(quizzes);
   });
 
-  app.get("/api/students/:id/classes", requireAuth, (req, res) => {
+  app.post("/api/students/:id/missions/:missionId/complete", requireAuth, requireStudentAccess, (req, res) => {
+    const studentId = Number(req.params.id);
+    const missionId = Number(req.params.missionId);
+    const sessionUser = (req.session as any)?.user as SessionUser;
+    if (sessionUser.id !== studentId) return res.status(403).json({ error: "Forbidden" });
+    db.prepare(
+      "INSERT OR IGNORE INTO student_mission_completions (student_id, mission_id) VALUES (?, ?)"
+    ).run(studentId, missionId);
+    res.json({ success: true });
+  });
+
+  app.get("/api/students/:id/classes", requireAuth, requireStudentAccess, (req, res) => {
     const studentId = req.params.id;
     const classes = db
       .prepare(
@@ -559,7 +1158,7 @@ async function startServer() {
     res.json(classes);
   });
 
-  app.get("/api/students/:id/classmates", requireAuth, (req, res) => {
+  app.get("/api/students/:id/classmates", requireAuth, requireStudentAccess, (req, res) => {
     const studentId = req.params.id;
     const classmates = db
       .prepare(
@@ -580,7 +1179,11 @@ async function startServer() {
   });
 
   app.post("/api/student-quizzes", requireAuth, (req, res) => {
+    const sessionUser = (req.session as any)?.user as SessionUser;
     const { student_id, quiz_id, score, total_questions } = req.body;
+    if (sessionUser.role === "student" && Number(student_id) !== sessionUser.id) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
     const insert = db.prepare("INSERT INTO student_quizzes (student_id, quiz_id, score, total_questions) VALUES (?, ?, ?, ?)");
     insert.run(student_id, quiz_id, score, total_questions);
     res.json({ success: true });
@@ -688,7 +1291,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
   }).on('error', (err) => {
     console.error('Server failed to start:', err);
   });
