@@ -904,7 +904,9 @@ async function startServer() {
   });
 
   app.get("/api/classes/:id", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const cls = db.prepare("SELECT * FROM classes WHERE id = ?").get(req.params.id);
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "Invalid class id" });
+    const cls = db.prepare("SELECT * FROM classes WHERE id = ?").get(id);
     if (!cls) return res.status(404).json({ error: "Class not found" });
     res.json(cls);
   });

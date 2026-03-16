@@ -39,7 +39,8 @@ import {
   ChevronDown,
   Copy,
   LogIn,
-  Layers
+  Layers,
+  LayoutGrid
 } from 'lucide-react';
 import { ChallengeBuilder, ChallengeRenderer } from './challenges';
 
@@ -1592,27 +1593,78 @@ const AdminDashboard = () => {
 };
 
 const TeacherHub = ({ sectors, students, student, refetchStudents }: { sectors: Sector[], students: Student[], student: Student, refetchStudents?: () => void }) => {
-  const [activeTab, setActiveTab] = useState<'analytics' | 'classroom' | 'missions' | 'reports'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'classroom' | 'library' | 'missions' | 'reports'>('analytics');
   const [selectedClassId, setSelectedClassId] = useState<number | null>(null);
   const [classes, setClasses] = useState<Class[]>([]);
   const [assignedMissions, setAssignedMissions] = useState<Mission[]>([]);
+  const [libraryMissions, setLibraryMissions] = useState<Mission[]>([]);
+  const [libraryAssigning, setLibraryAssigning] = useState<{ missionId: number; classId: number } | null>(null);
+  const [libraryAssignFeedback, setLibraryAssignFeedback] = useState<{ missionTitle: string; className: string } | null>(null);
 
   useEffect(() => {
     safeFetch('/api/classes').then(data => {
       if (data) {
         const teacherClasses = data.filter((c: Class) => c.teacher_id === student.id);
         setClasses(teacherClasses);
-        if (teacherClasses.length > 0) setSelectedClassId(teacherClasses[0].id);
+        if (teacherClasses.length > 0 && !selectedClassId) setSelectedClassId(teacherClasses[0].id);
       }
     });
   }, [student.id]);
 
+  useEffect(() => {
+    if (activeTab === 'library') safeFetch('/api/missions').then(data => setLibraryMissions(Array.isArray(data) ? data : []));
+  }, [activeTab]);
+
+  const assignMissionToClassFromLibrary = async (missionId: number, classId: number) => {
+    setLibraryAssigning({ missionId, classId });
+    const mission = libraryMissions.find((m: Mission) => m.id === missionId);
+    const cls = classes.find(c => c.id === classId);
+    try {
+      const res = await fetch(`/api/classes/${classId}/missions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ mission_id: missionId })
+      });
+      if (res.ok && mission && cls) {
+        setLibraryAssignFeedback({ missionTitle: mission.title, className: cls.name });
+        setTimeout(() => setLibraryAssignFeedback(null), 2500);
+      }
+    } finally {
+      setLibraryAssigning(null);
+    }
+  };
+
+  const selectedClass = classes.find(c => c.id === selectedClassId) || null;
+
   return (
     <div className="space-y-8">
+      {/* Top class selector: everything below is scoped to this class where applicable */}
+      <div className="flex flex-wrap items-center gap-4 mb-6 p-4 rounded-2xl bg-slate-800/40 border border-slate-600/40">
+        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Viewing class</span>
+        <select
+          value={selectedClassId ?? ''}
+          onChange={e => setSelectedClassId(e.target.value ? parseInt(e.target.value) : null)}
+          className="bg-slate-700/80 border border-slate-600/50 rounded-xl px-4 py-2.5 text-sm font-black text-slate-100 uppercase tracking-tight outline-none focus:border-brand-blue/50"
+        >
+          <option value="">Select a class…</option>
+          {classes.map(c => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+          {classes.length === 0 && <option disabled>No classrooms yet</option>}
+        </select>
+        {selectedClass && (
+          <span className="text-slate-400 text-xs font-medium">
+            Analytics, reports, and assignments use this class.
+          </span>
+        )}
+      </div>
+
       <div className="flex flex-wrap gap-4 mb-10">
         {[
           { id: 'analytics', label: 'Neural Analytics', icon: BarChart3 },
           { id: 'classroom', label: 'Classroom Manager', icon: Users },
+          { id: 'library', label: 'Mission Library', icon: LayoutGrid },
           { id: 'missions', label: 'Mission Architect', icon: Rocket },
           { id: 'reports', label: 'Report Cards', icon: ClipboardList },
         ].map(tab => (
@@ -1635,11 +1687,16 @@ const TeacherHub = ({ sectors, students, student, refetchStudents }: { sectors: 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
           <div className="lg:col-span-2 space-y-10">
             <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
-              <div className="flex items-center justify-between mb-10">
+              <div className="flex items-center justify-between mb-10 flex-wrap gap-3">
                 <h3 className="text-xl font-black flex items-center gap-3 text-slate-100 uppercase tracking-tighter italic">
                   <BarChart3 className="text-brand-blue size-6" />
                   Class Mastery Matrix
                 </h3>
+                {selectedClass && (
+                  <span className="text-[10px] font-black text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-3 py-1.5 rounded-lg border border-brand-blue/30">
+                    {selectedClass.name}
+                  </span>
+                )}
               </div>
               <div className="space-y-8">
                 {[
@@ -1669,16 +1726,6 @@ const TeacherHub = ({ sectors, students, student, refetchStudents }: { sectors: 
           </div>
 
           <div className="space-y-10">
-            <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-8 rounded-2xl shadow-xl">
-              <h3 className="text-xl font-black mb-6 text-slate-100 uppercase tracking-tighter italic flex items-center gap-3">
-                <Award className="text-amber-500" />
-                Grant Rewards
-              </h3>
-              <p className="text-[11px] text-slate-500 mb-4">
-                Select a student and grant a custom badge. It will appear in their Achievement Hall.
-              </p>
-              <GrantRewardForm students={students.filter(s => s.role === 'student')} />
-            </div>
             <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
               <h3 className="text-xl font-black mb-10 text-slate-100 uppercase tracking-tighter italic">Neural Sync Rate</h3>
               <div className="flex flex-col items-center justify-center py-8">
@@ -1710,31 +1757,77 @@ const TeacherHub = ({ sectors, students, student, refetchStudents }: { sectors: 
         <ClassroomManager teacherId={student.id} students={students} onStudentsAdded={refetchStudents} />
       )}
 
+      {activeTab === 'library' && (
+        <div className="space-y-6">
+          <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-8 rounded-2xl shadow-xl">
+            <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter italic mb-2 flex items-center gap-3">
+              <LayoutGrid className="text-brand-blue size-6" />
+              Mission Library
+            </h3>
+            <p className="text-slate-400 text-sm mb-6">All games you’ve created. Assign any mission to a class so students can play it.</p>
+            {libraryAssignFeedback && (
+              <p className="text-brand-blue text-sm font-black mb-4 uppercase tracking-wide">
+                Assigned “{libraryAssignFeedback.missionTitle}” to {libraryAssignFeedback.className}.
+              </p>
+            )}
+            {libraryMissions.length === 0 ? (
+              <p className="text-slate-500 text-sm italic">No missions yet. Create one in <strong>Mission Architect</strong>.</p>
+            ) : (
+              <div className="space-y-3">
+                {libraryMissions.map((m: Mission) => {
+                  const sector = sectors.find(s => s.id === m.sector_id);
+                  const isAssigning = libraryAssigning?.missionId === m.id;
+                  return (
+                    <div
+                      key={m.id}
+                      className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl bg-slate-700/40 border border-slate-600/40 hover:border-brand-blue/30 transition-all"
+                    >
+                      <div>
+                        <p className="font-black text-slate-100 uppercase tracking-tight">{m.title}</p>
+                        <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">
+                          {sector?.name ?? 'Sector'} · {m.difficulty ?? 'Medium'} · +{m.xp_reward ?? 0} XP
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Assign to class</span>
+                        <select
+                          value=""
+                          onChange={e => {
+                            const classId = e.target.value ? parseInt(e.target.value) : 0;
+                            if (classId) assignMissionToClassFromLibrary(m.id, classId);
+                            e.target.value = '';
+                          }}
+                          disabled={isAssigning || classes.length === 0}
+                          className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs font-black text-slate-100 uppercase tracking-tight outline-none focus:border-brand-blue/50 disabled:opacity-60"
+                        >
+                          <option value="">Choose class…</option>
+                          {classes.map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                        {isAssigning && <span className="text-[10px] text-brand-blue font-black">Adding…</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {activeTab === 'missions' && (
         <MissionSetup sectors={sectors} canEmbed={false} />
       )}
 
       {activeTab === 'reports' && (
         <div className="space-y-6">
-          <div className="bg-slate-900/50 backdrop-blur-md p-6 rounded-2xl border border-slate-800 flex items-center justify-between">
-            <h3 className="text-lg font-black text-white uppercase tracking-tighter">Select Classroom</h3>
-            <select 
-              value={selectedClassId || ''}
-              onChange={e => setSelectedClassId(parseInt(e.target.value))}
-              className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-brand-blue font-black uppercase tracking-widest text-[10px] outline-none focus:border-brand-blue/50"
-            >
-              {classes.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-              {classes.length === 0 && <option disabled>No Classrooms Initialized</option>}
-            </select>
-          </div>
           {selectedClassId ? (
             <ReportCard classId={selectedClassId} />
           ) : (
             <div className="bg-slate-900/50 backdrop-blur-md p-20 rounded-3xl border border-slate-800 text-center">
               <Users className="size-12 text-slate-300 mx-auto mb-4" />
-              <p className="text-slate-500 font-mono text-sm italic">Initialize a classroom to generate performance reports.</p>
+              <p className="text-slate-500 font-mono text-sm italic">Select a class from the dropdown above to view report cards.</p>
             </div>
           )}
         </div>
@@ -1761,17 +1854,25 @@ const ClassroomManager = ({ teacherId, students, onStudentsAdded }: { teacherId:
   const [pasteLoading, setPasteLoading] = useState(false);
   const [generateCodeLoading, setGenerateCodeLoading] = useState(false);
   const [generateCodeError, setGenerateCodeError] = useState<string | null>(null);
+  const [classesLoadError, setClassesLoadError] = useState<string | null>(null);
 
-  const fetchClasses = async () => {
-    const data = await safeFetch('/api/classes');
-    if (data) {
-      setClasses(data as Class[]);
+  const fetchClasses = async (): Promise<Class[]> => {
+    setClassesLoadError(null);
+    const res = await fetch('/api/classes', { credentials: 'include' });
+    let list: Class[] = [];
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      list = (data && Array.isArray(data) ? data : []) as Class[];
+    } else {
+      setClassesLoadError(res.status === 401 ? 'Please log in again.' : 'Could not load classrooms. Try refreshing.');
     }
+    setClasses(list);
     const missionsData = await safeFetch('/api/missions');
     if (missionsData) setMissions(missionsData);
     const challengesData = await safeFetch('/api/challenges');
     if (challengesData) setAllChallenges(Array.isArray(challengesData) ? challengesData : []);
     setLoading(false);
+    return list;
   };
 
   const fetchClassContent = async (classId: number) => {
@@ -1825,9 +1926,20 @@ const ClassroomManager = ({ teacherId, students, onStudentsAdded }: { teacherId:
         setCreateError(data.error || data.message || 'Failed to create class');
         return;
       }
+      const name = newClassName.trim();
       setNewClassName('');
-      await fetchClasses();
-      if (selectedClass) fetchClassContent(selectedClass.id);
+      const list = await fetchClasses();
+      const newId = typeof data.id === 'number' ? data.id : Number(data.id);
+      const newClass = list.find(c => c.id === newId) || {
+        id: newId,
+        name,
+        teacher_id: teacherId,
+        description: '',
+        join_code: data.join_code ?? undefined,
+        student_count: 0
+      };
+      setSelectedClass(newClass);
+      fetchClassContent(newId);
     } finally {
       setCreating(false);
     }
@@ -1863,7 +1975,11 @@ const ClassroomManager = ({ teacherId, students, onStudentsAdded }: { teacherId:
 
   const addStudentsByNames = async () => {
     if (!selectedClass || !pasteNames.trim()) return;
-    const names = pasteNames.split(/\n/).map(n => n.trim()).filter(Boolean);
+    // Accept names separated by newlines or commas
+    const names = pasteNames
+      .split(/[\n,]+/)
+      .map(n => n.trim())
+      .filter(Boolean);
     if (names.length === 0) return;
     setPasteLoading(true);
     setPasteResult(null);
@@ -1994,6 +2110,12 @@ const ClassroomManager = ({ teacherId, students, onStudentsAdded }: { teacherId:
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
         <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
           <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter mb-8 italic">Active Squads</h3>
+          {classesLoadError && (
+            <p className="text-rose-400 text-sm font-medium mb-4">{classesLoadError}</p>
+          )}
+          {loading ? (
+            <p className="text-slate-400 text-sm">Loading…</p>
+          ) : (
           <div className="space-y-4">
             {classes.map(c => (
               <button 
@@ -2025,6 +2147,7 @@ const ClassroomManager = ({ teacherId, students, onStudentsAdded }: { teacherId:
               </button>
             ))}
           </div>
+          )}
         </div>
 
         {selectedClass && (() => {
@@ -2097,7 +2220,7 @@ const ClassroomManager = ({ teacherId, students, onStudentsAdded }: { teacherId:
               <textarea
                 value={pasteNames}
                 onChange={e => { setPasteNames(e.target.value); setPasteResult(null); }}
-                placeholder={'Alice Smith\nBob Jones\nCharlie Lee'}
+                placeholder={'Paste names (one per line or comma-separated)\ne.g. Alice Smith, Bob Jones\nCharlie Lee'}
                 rows={4}
                 className="w-full bg-slate-800/60 border border-slate-600/40 rounded-xl px-4 py-3 text-slate-100 text-sm font-mono placeholder:text-slate-500 outline-none focus:border-brand-blue/50 resize-y"
               />
@@ -2951,21 +3074,143 @@ const MissionSetup = ({ sectors, canEmbed = false }: { sectors: Sector[], canEmb
 const SquadLeaderboard = ({ student }: { student: Student }) => {
   const [classmates, setClassmates] = useState<Student[]>([]);
   const [levelPeers, setLevelPeers] = useState<Student[]>([]);
+  const [teacherClasses, setTeacherClasses] = useState<Class[]>([]);
+  const [teacherClassId, setTeacherClassId] = useState<number | null>(null);
+  const [teacherStudents, setTeacherStudents] = useState<Student[]>([]);
 
+  // Student view: load own classmates + global peers
   useEffect(() => {
-    safeFetch(`/api/students/${student.id}/classmates`).then(data => {
-      if (data) setClassmates(data);
-    });
-    safeFetch('/api/students').then(data => {
-      if (data) {
-        const peers = (data as Student[])
-          .filter(s => s.role === 'student' && s.level === student.level)
+    if (student.role === 'student') {
+      safeFetch(`/api/students/${student.id}/classmates`).then(data => {
+        if (data) setClassmates(data);
+      });
+      safeFetch('/api/students').then(data => {
+        if (data) {
+          const peers = (data as Student[])
+            .filter(s => s.role === 'student' && s.level === student.level)
+            .sort((a, b) => b.xp - a.xp);
+          setLevelPeers(peers);
+        }
+      });
+    }
+  }, [student.id, student.level, student.role]);
+
+  // Teacher/admin view: load classes they can see
+  useEffect(() => {
+    if (student.role === 'teacher' || student.role === 'admin') {
+      safeFetch('/api/classes').then(data => {
+        if (Array.isArray(data)) {
+          const list = (data as Class[]).filter(c =>
+            student.role === 'teacher' ? c.teacher_id === student.id : true
+          );
+          setTeacherClasses(list);
+          if (list.length > 0 && !teacherClassId) setTeacherClassId(list[0].id);
+        }
+      });
+    }
+  }, [student.id, student.role]);
+
+  // Teacher/admin view: load students for selected class
+  useEffect(() => {
+    if (!teacherClassId || (student.role !== 'teacher' && student.role !== 'admin')) return;
+    safeFetch(`/api/classes/${teacherClassId}/students`).then(data => {
+      if (Array.isArray(data)) {
+        const list = (data as Student[])
+          .filter(s => s.role === 'student')
           .sort((a, b) => b.xp - a.xp);
-        setLevelPeers(peers);
+        setTeacherStudents(list);
       }
     });
-  }, [student.id, student.level]);
+  }, [teacherClassId, student.role]);
 
+  // Teacher/admin view: class selector + rankings
+  if (student.role === 'teacher' || student.role === 'admin') {
+    const currentClass = teacherClasses.find(c => c.id === teacherClassId) || null;
+    return (
+      <div className="max-w-5xl mx-auto space-y-8">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-2xl font-black text-slate-100 uppercase tracking-tighter flex items-center gap-3">
+            <Users className="text-brand-blue" />
+            Educator Squad
+          </h3>
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Class</span>
+            <select
+              value={teacherClassId ?? ''}
+              onChange={e => setTeacherClassId(e.target.value ? parseInt(e.target.value) : null)}
+              className="bg-slate-800 border border-slate-600 rounded-xl px-3 py-1.5 text-xs text-slate-100 font-black uppercase tracking-tight outline-none focus:border-cyan-500/60"
+            >
+              <option value="">Select class…</option>
+              {teacherClasses.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+              {teacherClasses.length === 0 && <option disabled>No classrooms yet</option>}
+            </select>
+          </div>
+        </div>
+
+        <div className="bg-slate-800/70 backdrop-blur-md rounded-2xl border border-slate-600/50 overflow-hidden shadow-2xl shadow-black/20">
+          <div className="p-6 border-b border-slate-600/50 flex justify-between items-center bg-slate-800/60">
+            <div>
+              <p className="text-[9px] text-slate-400 font-black uppercase tracking-[0.2em] mb-1">Class Rankings</p>
+              <h4 className="text-xl font-black text-slate-100 uppercase tracking-tighter">
+                {currentClass ? currentClass.name : 'No class selected'}
+              </h4>
+            </div>
+            <span className="px-3 py-1 bg-slate-900/60 border border-slate-700 rounded-lg text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
+              XP · Level · Rank
+            </span>
+          </div>
+          <div className="divide-y divide-slate-700/60">
+            {!currentClass && (
+              <div className="p-6 text-center text-slate-400 text-sm italic">
+                Select a class to see your students&apos; rankings.
+              </div>
+            )}
+            {currentClass && teacherStudents.length === 0 && (
+              <div className="p-6 text-center text-slate-400 text-sm italic">
+                No students in this class yet. Add them in Classroom Manager.
+              </div>
+            )}
+            {currentClass && teacherStudents.map((s, i) => (
+              <div key={s.id} className="p-6 flex items-center gap-6 hover:bg-slate-800/60 transition-all group">
+                <div className="w-10 text-center">
+                  <span className={`text-xl font-black font-mono ${i < 3 ? 'text-amber-500' : 'text-slate-300'}`}>
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                </div>
+                <div className="relative">
+                  <img
+                    src={s.avatar_url}
+                    className="size-12 rounded-xl border border-slate-600/60 group-hover:border-brand-blue/60 transition-all object-cover"
+                    alt={s.name}
+                    referrerPolicy="no-referrer"
+                  />
+                  {i === 0 && (
+                    <div className="absolute -top-2 -right-2 bg-brand-yellow text-white p-1 rounded-full shadow-lg">
+                      <Trophy className="size-3" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <h4 className="text-base font-black text-slate-100 group-hover:text-brand-blue transition-colors uppercase tracking-tight">
+                    {s.name}
+                  </h4>
+                  <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest">Lvl {s.level}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-lg font-black text-slate-100 font-mono">{s.xp.toLocaleString()}</p>
+                  <p className="text-[9px] text-brand-blue font-black uppercase tracking-widest">Squad XP</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Student view: squad + global leaderboard
   return (
     <div className="max-w-4xl mx-auto space-y-8">
       {/* Class Squad */}
@@ -3068,84 +3313,6 @@ const SquadLeaderboard = ({ student }: { student: Student }) => {
         </div>
       </div>
     </div>
-  );
-};
-
-const GrantRewardForm = ({ students }: { students: Student[] }) => {
-  const [selectedStudentId, setSelectedStudentId] = useState<number | ''>('');
-  const [badgeName, setBadgeName] = useState('');
-  const [badgeIcon, setBadgeIcon] = useState('🏅');
-  const [submitting, setSubmitting] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedStudentId || !badgeName) return;
-    setSubmitting(true);
-    try {
-      await fetch('/api/student-badges', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          student_id: selectedStudentId,
-          badge_name: badgeName,
-          badge_icon: badgeIcon,
-        }),
-      });
-      setBadgeName('');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="space-y-2">
-        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
-          Select Operator
-        </label>
-        <select
-          value={selectedStudentId}
-          onChange={e => setSelectedStudentId(e.target.value ? parseInt(e.target.value) : '')}
-          className="w-full bg-slate-700/80 border border-slate-600/50 rounded-xl px-4 py-3 text-sm text-slate-100 outline-none focus:border-brand-blue/50"
-        >
-          <option value="">Choose student…</option>
-          {students.map(s => (
-            <option key={s.id} value={s.id}>
-              {s.name} (Lvl {s.level})
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="space-y-2">
-        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
-          Reward Title
-        </label>
-        <input
-          value={badgeName}
-          onChange={e => setBadgeName(e.target.value)}
-          placeholder="e.g. Lab Legend"
-          className="w-full bg-slate-700/80 border border-slate-600/50 rounded-xl px-4 py-3 text-sm text-slate-100 outline-none focus:border-brand-blue/50"
-        />
-      </div>
-      <div className="space-y-2">
-        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
-          Icon (emoji)
-        </label>
-        <input
-          value={badgeIcon}
-          onChange={e => setBadgeIcon(e.target.value)}
-          maxLength={4}
-          className="w-full bg-slate-700/80 border border-slate-600/50 rounded-xl px-4 py-3 text-sm text-slate-100 outline-none focus:border-brand-blue/50"
-        />
-      </div>
-      <button
-        type="submit"
-        disabled={submitting}
-        className="w-full bg-brand-blue hover:bg-brand-blue/90 text-white font-black py-3 rounded-xl text-[10px] uppercase tracking-widest shadow-lg shadow-brand-blue/20 disabled:opacity-50"
-      >
-        {submitting ? 'Granting…' : 'Grant Reward'}
-      </button>
-    </form>
   );
 };
 

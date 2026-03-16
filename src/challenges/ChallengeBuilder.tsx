@@ -25,6 +25,7 @@ import {
   ListChecks,
   MessageSquare,
   ArrowUpDown,
+  X,
 } from 'lucide-react';
 import type { ChallengeType, ChallengeContent, ChallengeRecord } from './types';
 import { getAllChallengeTypes, getChallengeType, getDefaultContent } from './registry';
@@ -76,6 +77,11 @@ export function ChallengeBuilder() {
   const [assignMsg, setAssignMsg] = useState<string | null>(null);
   const [centerTab, setCenterTab] = useState<'editor' | 'preview' | 'dataset'>('editor');
   const [timeLimitSec, setTimeLimitSec] = useState<number>(45);
+  const [saveMessage, setSaveMessage] = useState<'saved' | 'error' | null>(null);
+  const [showPublishModal, setShowPublishModal] = useState(false);
+  const [publishClassId, setPublishClassId] = useState<number | ''>('');
+  const [publishing, setPublishing] = useState(false);
+  const [publishMessage, setPublishMessage] = useState<string | null>(null);
 
   const catalog = getContentTypeCatalog();
   const plugin = getChallengeType(challengeType);
@@ -140,10 +146,10 @@ export function ChallengeBuilder() {
     setContent(getDefaultContent(t) || {});
   };
 
-  const handleSave = async () => {
+  const handleSave = async (): Promise<number | null> => {
     if (!title.trim()) {
       setError('Title is required');
-      return;
+      return null;
     }
     setError(null);
     setSaving(true);
@@ -169,13 +175,57 @@ export function ChallengeBuilder() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error || data.message || 'Failed to save');
-        return;
+        setSaveMessage('error');
+        return null;
       }
       loadChallenges();
-      if (data.id) setSelectedId(data.id);
+      const id = selectedId ?? (typeof data.id === 'number' ? data.id : Number(data.id));
+      if (id) setSelectedId(id);
       setError(null);
+      setSaveMessage('saved');
+      setTimeout(() => setSaveMessage(null), 2500);
+      return id;
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handlePublishToClass = async () => {
+    const cid = Number(publishClassId);
+    if (!Number.isInteger(cid) || cid < 1) {
+      setPublishMessage('Select a class.');
+      return;
+    }
+    setPublishMessage(null);
+    setPublishing(true);
+    try {
+      let id = selectedId;
+      if (!id) {
+        id = await handleSave();
+        if (!id) {
+          setPublishMessage('Save failed. Fix errors and try again.');
+          return;
+        }
+      }
+      const res = await fetch(`/api/classes/${cid}/challenges`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ challenge_id: id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPublishMessage(data.error || data.message || 'Assign failed');
+        return;
+      }
+      setPublishMessage('Published to class.');
+      setShowPublishModal(false);
+      setPublishClassId('');
+      const refreshed = await safeFetch(`/api/challenges/${id}/assigned-classes`);
+      setAssignedTo(Array.isArray(refreshed) ? refreshed : []);
+      setTimeout(() => setPublishMessage(null), 2000);
+    } finally {
+      setPublishing(false);
     }
   };
 
@@ -262,53 +312,112 @@ export function ChallengeBuilder() {
     setXpRetryPenalty(0);
   };
 
+  const handlePublish = async () => {
+    const cid = Number(publishClassId);
+    if (!Number.isInteger(cid) || cid < 1) {
+      setPublishMessage('Select a class first.');
+      return;
+    }
+    setPublishMessage(null);
+    setPublishing(true);
+    try {
+      let challengeId = selectedId;
+      if (!challengeId) {
+        if (!title.trim()) {
+          setPublishMessage('Add a title and save first.');
+          setPublishing(false);
+          return;
+        }
+        setError(null);
+        const body = {
+          title: title.trim(),
+          type: challengeType,
+          world: world.trim() || undefined,
+          zone: zone.trim() || undefined,
+          xp_reward: xpReward,
+          xp_bonus_first_try: xpBonusFirstTry,
+          xp_retry_penalty: xpRetryPenalty,
+          content_json: JSON.stringify(content),
+        };
+        const res = await fetch('/api/challenges', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setPublishMessage(data.error || data.message || 'Save failed.');
+          setPublishing(false);
+          return;
+        }
+        challengeId = data.id;
+        setSelectedId(challengeId);
+        loadChallenges();
+      }
+      const assignRes = await fetch(`/api/classes/${cid}/challenges`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ challenge_id: challengeId }),
+      });
+      if (!assignRes.ok) {
+        const data = await assignRes.json().catch(() => ({}));
+        setPublishMessage(data.error || data.message || 'Assign failed.');
+        setPublishing(false);
+        return;
+      }
+      const refreshed = await safeFetch(`/api/challenges/${challengeId}/assigned-classes`);
+      setAssignedTo(Array.isArray(refreshed) ? refreshed : []);
+      const cls = classes.find((c) => c.id === cid);
+      setPublishMessage(cls ? `Published to ${cls.name}.` : 'Published.');
+      setTimeout(() => {
+        setShowPublishModal(false);
+        setPublishMessage(null);
+        setPublishClassId('');
+      }, 1500);
+    } finally {
+      setPublishing(false);
+    }
+  };
+
   const displayTitle = title.trim() || 'Untitled Challenge';
 
   return (
     <div className="flex flex-col h-full min-h-[100vh] bg-slate-950 text-slate-100 overflow-hidden">
-      {/* Top bar - mockup: STEMverse Builder, challenge title, nav, Save Draft, Deploy to Squad */}
-      <header className="flex items-center justify-between px-6 py-3 border-b border-[#2d3548] bg-slate-900/80 backdrop-blur-md z-50 shrink-0">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-[#256af4]">
-            <Box className="w-8 h-8" />
-            <h1 className="text-xl font-bold tracking-tight">
-              STEMverse <span className="text-slate-400 font-medium">Builder</span>
-            </h1>
+      {/* Top bar – integrated with main app look */}
+      <header className="flex items-center justify-between px-6 py-3 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md z-40 shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center justify-center size-9 rounded-xl bg-slate-800 border border-slate-700 text-cyan-400">
+            <Box className="w-5 h-5" />
           </div>
-          <div className="h-6 w-px bg-[#2d3548] mx-2 hidden sm:block" />
           <div className="flex flex-col min-w-0">
-            <span className="text-xs uppercase tracking-widest text-slate-500 font-bold">Challenge Title</span>
-            <span className="text-sm font-semibold truncate">{displayTitle}</span>
+            <span className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-black">
+              Challenge Builder
+            </span>
+            <span className="text-sm font-semibold truncate text-slate-100">
+              {displayTitle}
+            </span>
           </div>
         </div>
-        <div className="flex items-center gap-4 sm:gap-6">
-          <nav className="hidden md:flex items-center gap-6">
-            <a className="text-sm font-medium text-slate-400 hover:text-[#256af4] transition-colors" href="#">Dashboard</a>
-            <a className="text-sm font-medium text-slate-400 hover:text-[#256af4] transition-colors" href="#">Asset Vault</a>
-            <a className="text-sm font-medium text-slate-400 hover:text-[#256af4] transition-colors" href="#">Analytics</a>
-          </nav>
-          <div className="flex items-center gap-2 sm:gap-3">
-            <button type="button" className="p-2 rounded-lg bg-[#161b2a] border border-[#2d3548] text-slate-400 hover:text-white transition-all" title="Settings">
-              <Settings className="w-5 h-5" />
-            </button>
-            <button
+        <div className="flex items-center gap-3 sm:gap-4">
+          <button
               type="button"
               onClick={handleSave}
               disabled={saving}
               className="px-4 py-2 rounded-lg bg-[#161b2a] border border-[#2d3548] text-sm font-bold hover:bg-slate-800 transition-all disabled:opacity-50"
             >
-              Save
+              {saving ? 'Saving…' : saveMessage === 'saved' ? 'Saved' : 'Save'}
             </button>
+            {error && <span className="text-rose-400 text-xs font-medium">{error}</span>}
             <button
               type="button"
-              onClick={handleSave}
+              onClick={() => setShowPublishModal(true)}
               className="px-4 py-2 rounded-lg bg-[#256af4] text-white text-sm font-bold shadow-[0_0_15px_rgba(37,106,244,0.3)] hover:brightness-110 transition-all flex items-center gap-2"
             >
               <Rocket className="w-4 h-4" />
               Publish
             </button>
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#256af4] to-purple-600 border-2 border-[#2d3548] shrink-0" aria-hidden />
-          </div>
         </div>
       </header>
 
@@ -393,7 +502,7 @@ export function ChallengeBuilder() {
               </button>
             </div>
           ) : (
-            <div className="flex flex-col gap-6 max-w-5xl mx-auto w-full">
+            <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full min-w-0">
               {/* Tabs: Editor | Preview | Dataset */}
               <div className="builder-glass rounded-2xl p-2 flex gap-1 self-center">
                 <button
@@ -548,12 +657,7 @@ export function ChallengeBuilder() {
             </div>
           )}
 
-          {error && (
-            <div className="max-w-5xl mx-auto mt-4">
-              <p className="text-rose-400 text-sm">{error}</p>
-            </div>
-          )}
-        </section>
+          </section>
 
         {/* Right: Feedback & rewards + Assign */}
         <aside className="w-80 border-l border-[#2d3548] bg-slate-900/80 flex flex-col hidden xl:flex shrink-0">
@@ -648,6 +752,53 @@ export function ChallengeBuilder() {
         </aside>
       </main>
 
+      {/* Publish to class modal */}
+      {showPublishModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-[#2d3548] rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Rocket className="w-5 h-5 text-[#256af4]" />
+                Publish to class
+              </h3>
+              <button type="button" onClick={() => { setShowPublishModal(false); setPublishMessage(null); setPublishClassId(''); }} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-slate-400 mb-4">Choose which class will receive this challenge. Students in that class will see it in their Command Console.</p>
+            <select
+              value={publishClassId}
+              onChange={(e) => setPublishClassId(e.target.value ? Number(e.target.value) : '')}
+              className="w-full bg-slate-950 border border-[#2d3548] rounded-xl px-4 py-3 text-slate-100 text-sm mb-4 focus:ring-2 focus:ring-[#256af4]/50 focus:border-[#256af4] outline-none"
+            >
+              <option value="">— Select class —</option>
+              {classes.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+              {classes.length === 0 && <option disabled>No classes yet</option>}
+            </select>
+            {publishMessage && <p className={`text-sm mb-4 ${publishMessage.startsWith('Published') ? 'text-emerald-400' : 'text-rose-400'}`}>{publishMessage}</p>}
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => { setShowPublishModal(false); setPublishMessage(null); setPublishClassId(''); }}
+                className="flex-1 py-2.5 rounded-xl border border-[#2d3548] text-slate-300 text-sm font-bold hover:bg-slate-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handlePublishToClass}
+                disabled={publishing || classes.length === 0}
+                className="flex-1 py-2.5 rounded-xl bg-[#256af4] text-white text-sm font-bold hover:brightness-110 disabled:opacity-50 transition-all"
+              >
+                {publishing ? 'Publishing…' : selectedId ? 'Publish to class' : 'Save & Publish to class'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <button
         type="button"
         className="fixed bottom-6 right-6 w-12 h-12 rounded-full bg-[#256af4] text-white shadow-xl shadow-[#256af4]/30 flex items-center justify-center hover:scale-110 transition-transform z-50"
@@ -655,6 +806,42 @@ export function ChallengeBuilder() {
       >
         <HelpCircle className="w-6 h-6" />
       </button>
+
+      {/* Publish to class modal */}
+      {showPublishModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => !publishing && setShowPublishModal(false)}>
+          <div className="bg-slate-900 border border-[#2d3548] rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Rocket className="w-5 h-5 text-[#256af4]" />
+                Publish to class
+              </h3>
+              <button type="button" onClick={() => !publishing && setShowPublishModal(false)} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-slate-400 mb-4">Choose which class should receive this challenge. Students in that class will see it in their Command Console.</p>
+            <select
+              value={publishClassId}
+              onChange={(e) => setPublishClassId(e.target.value ? Number(e.target.value) : '')}
+              className="w-full bg-slate-800 border border-[#2d3548] rounded-xl px-4 py-3 text-slate-100 text-sm focus:ring-2 focus:ring-[#256af4]/50 focus:border-[#256af4] outline-none"
+            >
+              <option value="">— Select class —</option>
+              {classes.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            {classes.length === 0 && <p className="text-xs text-slate-500 mt-2">No classes yet. Create one in Dashboard → Classroom Manager.</p>}
+            {publishMessage && <p className={`mt-3 text-sm font-medium ${publishMessage.startsWith('Published') ? 'text-emerald-400' : 'text-rose-400'}`}>{publishMessage}</p>}
+            <div className="flex gap-3 mt-6">
+              <button type="button" onClick={() => !publishing && setShowPublishModal(false)} className="flex-1 py-2.5 rounded-xl border border-[#2d3548] text-slate-300 text-sm font-bold hover:bg-slate-800 transition-colors">Cancel</button>
+              <button type="button" onClick={handlePublish} disabled={publishing || classes.length === 0} className="flex-1 py-2.5 rounded-xl bg-[#256af4] text-white text-sm font-bold disabled:opacity-50 hover:brightness-110 transition-all">
+                {publishing ? 'Publishing…' : 'Publish to class'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

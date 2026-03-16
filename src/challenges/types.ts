@@ -45,12 +45,18 @@ export interface ChallengeRecord {
   created_at?: string;
 }
 
+/** Optional media for question types (image, video, or audio URL) */
+export type MediaType = 'image' | 'video' | 'audio';
+
 /** Parsed content per type */
 export interface MultipleChoiceContent {
   question: string;
   multiple: boolean;
   options: { text: string; correct: boolean; feedback?: string }[];
   partialScoring?: boolean;
+  /** Optional media URL (image, video, or audio) shown with the question */
+  mediaUrl?: string;
+  mediaType?: MediaType;
 }
 
 export interface FillInBlankContent {
@@ -98,6 +104,8 @@ export interface ShortAnswerContent {
   question: string;
   accept: string[];
   caseSensitive?: boolean;
+  mediaUrl?: string;
+  mediaType?: MediaType;
 }
 
 export interface MultiQuestionContent {

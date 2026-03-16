@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Image, Video, Mic, Check, Circle, Trash2 } from 'lucide-react';
-import type { MultipleChoiceContent, ChallengeContent } from '../types';
+import { Image, Video, Mic, Check, Circle, Trash2, Link } from 'lucide-react';
+import type { MultipleChoiceContent, ChallengeContent, MediaType } from '../types';
 
 export const defaultContent = (): MultipleChoiceContent => ({
   question: '',
@@ -51,7 +51,7 @@ export function MultipleChoiceEditor({
 }) {
   const c = content as MultipleChoiceContent;
   const update = (patch: Partial<MultipleChoiceContent>) => onChange({ ...c, ...patch });
-  const [linkedImage, setLinkedImage] = useState<string | null>(null);
+  const [showMediaInput, setShowMediaInput] = useState(false);
 
   const setCorrect = (index: number) => {
     const opts = c.options.map((o, j) => ({ ...o, correct: j === index }));
@@ -66,25 +66,63 @@ export function MultipleChoiceEditor({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-      {/* Left: Prompt + Rewards (mockup MCQ) */}
-      <div className="lg:col-span-7 flex flex-col gap-6">
+      {/* Left: Prompt + Rewards (mockup MCQ) - wider for readability */}
+      <div className="lg:col-span-8 flex flex-col gap-6">
         <div className="bg-slate-900/50 border border-[#2d3548] rounded-xl p-6 shadow-xl">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <h3 className="text-lg font-bold flex items-center gap-2 text-[#256af4]">
               <span className="text-xl">Challenge Prompt</span>
             </h3>
-            <div className="flex gap-2">
-              <button type="button" className="p-2 rounded-lg bg-slate-800 text-slate-500 hover:text-[#256af4] transition-colors" title="Add image">
-                <Image className="w-5 h-5" />
-              </button>
-              <button type="button" className="p-2 rounded-lg bg-slate-800 text-slate-500 hover:text-[#256af4] transition-colors" title="Add video">
-                <Video className="w-5 h-5" />
-              </button>
-              <button type="button" className="p-2 rounded-lg bg-slate-800 text-slate-500 hover:text-[#256af4] transition-colors" title="Add audio">
-                <Mic className="w-5 h-5" />
-              </button>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Media (optional)</span>
+              {(['image', 'video', 'audio'] as MediaType[]).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => { setShowMediaInput(true); update({ mediaType: type, mediaUrl: c.mediaType === type ? c.mediaUrl : '' }); }}
+                  className={`p-2 rounded-lg transition-colors ${c.mediaType === type ? 'bg-[#256af4]/20 text-[#256af4]' : 'bg-slate-800 text-slate-500 hover:text-[#256af4]'}`}
+                  title={`Add ${type}`}
+                >
+                  {type === 'image' && <Image className="w-5 h-5" />}
+                  {type === 'video' && <Video className="w-5 h-5" />}
+                  {type === 'audio' && <Mic className="w-5 h-5" />}
+                </button>
+              ))}
+              {c.mediaUrl && (
+                <button type="button" onClick={() => update({ mediaUrl: undefined, mediaType: undefined })} className="p-2 rounded-lg text-slate-400 hover:text-red-500 transition-colors" title="Remove media">
+                  <Trash2 className="w-5 h-5" />
+                </button>
+              )}
             </div>
           </div>
+          {(showMediaInput || c.mediaType) && (
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <Link className="w-4 h-4 text-slate-500 shrink-0" />
+              <input
+                type="url"
+                value={c.mediaUrl ?? ''}
+                onChange={(e) => update({ mediaUrl: e.target.value.trim() || undefined })}
+                placeholder="Paste image, video, or audio URL..."
+                className="flex-1 min-w-[200px] bg-slate-950 border border-[#2d3548] rounded-lg px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:ring-2 focus:ring-[#256af4]/50 focus:border-[#256af4] outline-none"
+              />
+              <button type="button" onClick={() => setShowMediaInput(false)} className="text-slate-500 hover:text-slate-300 text-xs font-bold">Done</button>
+            </div>
+          )}
+          {c.mediaUrl && (
+            <div className="mb-4 rounded-xl overflow-hidden border border-[#2d3548] bg-slate-950">
+              {c.mediaType === 'image' && (
+                <img src={c.mediaUrl} alt="Question media" className="w-full max-h-64 object-contain" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+              )}
+              {c.mediaType === 'video' && (
+                <video src={c.mediaUrl} controls className="w-full max-h-64" />
+              )}
+              {c.mediaType === 'audio' && (
+                <div className="p-4">
+                  <audio src={c.mediaUrl} controls className="w-full" />
+                </div>
+              )}
+            </div>
+          )}
           <textarea
             value={c.question}
             onChange={(e) => update({ question: e.target.value })}
@@ -92,20 +130,6 @@ export function MultipleChoiceEditor({
             className="w-full min-h-[160px] bg-slate-950 border border-[#2d3548] rounded-xl p-4 text-lg text-slate-100 placeholder:text-slate-500 focus:ring-2 focus:ring-[#256af4]/50 focus:border-[#256af4] outline-none resize-none"
             rows={4}
           />
-          {linkedImage && (
-            <div className="mt-6 flex items-center gap-4 p-4 rounded-xl bg-[#256af4]/5 border border-dashed border-[#256af4]/30">
-              <div className="size-20 rounded-lg bg-slate-800 flex items-center justify-center overflow-hidden border border-slate-700">
-                <Image className="w-10 h-10 text-slate-500" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-slate-200 truncate">Linked Visual Asset</p>
-                <p className="text-xs text-slate-500">Optional</p>
-              </div>
-              <button type="button" onClick={() => setLinkedImage(null)} className="text-slate-400 hover:text-red-500 transition-colors">
-                <Trash2 className="w-5 h-5" />
-              </button>
-            </div>
-          )}
           <div className="mt-4 flex items-center gap-2">
             <label className="flex items-center gap-2 text-sm text-slate-400">
               <input type="checkbox" checked={c.multiple} onChange={(e) => update({ multiple: e.target.checked })} className="rounded border-slate-500 text-[#256af4]" />
@@ -162,7 +186,7 @@ export function MultipleChoiceEditor({
       </div>
 
       {/* Right: Data Pods (Answers) - mockup */}
-      <div className="lg:col-span-5 flex flex-col gap-4">
+      <div className="lg:col-span-4 flex flex-col gap-4">
         <h3 className="text-lg font-bold flex items-center gap-2 text-[#256af4] px-1">
           Data Pods (Answers)
         </h3>
@@ -255,6 +279,17 @@ export function MultipleChoicePlayer({
   };
   return (
     <div className="space-y-4">
+      {c.mediaUrl && (
+        <div className="rounded-xl overflow-hidden border border-slate-600 bg-slate-800/50">
+          {c.mediaType === 'image' && (
+            <img src={c.mediaUrl} alt="" className="w-full max-h-72 object-contain" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+          )}
+          {c.mediaType === 'video' && <video src={c.mediaUrl} controls className="w-full max-h-72" />}
+          {c.mediaType === 'audio' && (
+            <div className="p-4"><audio src={c.mediaUrl} controls className="w-full" /></div>
+          )}
+        </div>
+      )}
       <p className="text-slate-200 font-medium">{c.question}</p>
       <div className="space-y-2">
         {c.options.map((opt, i) => (
