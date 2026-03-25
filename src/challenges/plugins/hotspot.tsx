@@ -99,7 +99,11 @@ export function HotspotEditor({
           <div className="flex items-center gap-1 pl-2 border-l border-[#2d3548]">
             <button
               type="button"
-              onClick={() => selectedIndex >= 0 && regions.length && update({ regions: regions.filter((_, i) => i !== selectedIndex) }) && setSelectedIndex(0)}
+              onClick={() => {
+                if (selectedIndex < 0 || !regions.length) return;
+                update({ regions: regions.filter((_, i) => i !== selectedIndex) });
+                setSelectedIndex(0);
+              }}
               className="p-2 rounded-lg text-red-500 hover:bg-red-500/10"
               title="Delete selected"
             >

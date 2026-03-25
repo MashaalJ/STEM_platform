@@ -7,7 +7,13 @@ services:
     runtime: node
     buildCommand: npm install && npm run build
     startCommand: npm start
+    disk:
+      name: stemverse-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
+      - key: DB_PATH
+        value: /var/data/stemverse.db
       # Add SESSION_SECRET in Dashboard (Environment) - required for production

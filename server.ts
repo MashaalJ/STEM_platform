@@ -6,13 +6,16 @@ import { fileURLToPath } from "url";
 import bcrypt from "bcryptjs";
 import cookieSession from "cookie-session";
 import dotenv from "dotenv";
+import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin, hasSupabaseAdmin } from "./lib/supabaseAdmin";
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const db = new Database("stemverse.db");
+const DB_PATH = process.env.DB_PATH || "stemverse.db";
+const db = new Database(DB_PATH);
 
 const hashPassword = (plain: string) => bcrypt.hashSync(plain, 12);
 
@@ -188,6 +191,14 @@ db.exec(`
     xp_change INTEGER
   );
 `);
+
+// Add Supabase linkage columns without requiring a destructive migration.
+try {
+  db.exec("ALTER TABLE students ADD COLUMN supabase_user_id TEXT");
+} catch {}
+try {
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_students_supabase_user_id ON students(supabase_user_id)");
+} catch {}
 
 // Migration: add join_code to classes if missing
 try {
@@ -367,7 +378,7 @@ async function startServer() {
       }
     }
     // Allow existing safe iframe as-is if it contains only one iframe with safe src (simple check)
-    if (/<iframe\s[^>]*src\s*=\s*["']https?:\/\/[^"']+["'][^>]*>/i.test(s) && !/</(script|object|embed)/i.test(s)) {
+    if (/<iframe\s[^>]*src\s*=\s*["']https?:\/\/[^"']+["'][^>]*>/i.test(s) && !/<(script|object|embed)/i.test(s)) {
       const srcMatch = s.match(/src\s*=\s*["'](https?:\/\/[^"']+)["']/i);
       if (srcMatch) {
         const url = toEmbeddableUrl(srcMatch[1]).replace(/["'<>]/g, "");
@@ -377,10 +388,112 @@ async function startServer() {
     return null;
   };
 
-  const requireAuth: express.RequestHandler = (req, res, next) => {
-    if (!req.session || !(req.session as any).user) {
+  // --- AI Infrastructure (server-side only; never expose keys to frontend) ---
+  const AI_API_KEY = process.env.OPENAI_API_KEY || process.env.AI_API_KEY || "";
+  const AI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const AI_BASE_URL = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
+
+  const safeJsonParse = <T = unknown>(raw: string): T | null => {
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
+  };
+
+  const callAiJson = async <T = unknown>(system: string, user: string): Promise<T | null> => {
+    if (!AI_API_KEY) return null;
+    try {
+      const res = await fetch(`${AI_BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${AI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: AI_MODEL,
+          temperature: 0.6,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+        }),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as any;
+      const content = data?.choices?.[0]?.message?.content;
+      if (!content || typeof content !== "string") return null;
+      return safeJsonParse<T>(content);
+    } catch {
+      return null;
+    }
+  };
+
+  /** Map Supabase user + metadata to a local SQLite students row (numeric id) for existing app APIs. */
+  const linkSupabaseUserToLocalStudent = (
+    sbUser: { id: string; email?: string | null },
+    metadata: Record<string, any>,
+  ): SessionUser | undefined => {
+    const email = sbUser.email || null;
+    const rawRole = String(metadata.role || "student").toLowerCase();
+    const desiredRole =
+      rawRole === "teacher" || rawRole === "educator" ? "teacher" : rawRole === "admin" ? "admin" : "student";
+    const displayName = String(
+      metadata.display_name || metadata.full_name || metadata.name || (email ? email.split("@")[0] : "Student"),
+    ).trim();
+    const avatarSeed = encodeURIComponent(displayName.toLowerCase().replace(/\s+/g, "-"));
+
+    let localUser = db
+      .prepare(
+        "SELECT id, name, role FROM students WHERE supabase_user_id = ? OR (email IS NOT NULL AND email = ?) LIMIT 1",
+      )
+      .get(sbUser.id, email) as SessionUser | undefined;
+
+    if (!localUser) {
+      const inserted = db
+        .prepare(
+          `INSERT INTO students
+           (name, password, level, xp, avatar_url, role, email, supabase_user_id)
+           VALUES (?, ?, 1, 0, ?, ?, ?, ?)`,
+        )
+        .run(
+          displayName,
+          hashPassword(String(Math.random())),
+          `https://picsum.photos/seed/${avatarSeed}/200`,
+          desiredRole,
+          email,
+          sbUser.id,
+        );
+      localUser = db.prepare("SELECT id, name, role FROM students WHERE id = ?").get(inserted.lastInsertRowid) as SessionUser | undefined;
+    } else {
+      db.prepare("UPDATE students SET supabase_user_id = ?, email = COALESCE(email, ?) WHERE id = ?").run(sbUser.id, email, localUser.id);
+    }
+    return localUser;
+  };
+
+  const requireAuth: express.RequestHandler = async (req, res, next) => {
+    const sessionUser = (req.session as any)?.user as SessionUser | undefined;
+    if (sessionUser) return next();
+
+    // Supabase bearer auth fallback for API routes (production-safe, key stays server-side).
+    const authHeader = req.headers.authorization || "";
+    const tokenMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+    const token = tokenMatch?.[1];
+    if (!token || !hasSupabaseAdmin || !supabaseAdmin) {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
+
+    const { data, error } = await supabaseAdmin.auth.getUser(token);
+    if (error || !data?.user) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+    const sbUser = data.user;
+    const metadata = (sbUser.user_metadata || {}) as Record<string, any>;
+    const localUser = linkSupabaseUserToLocalStudent(sbUser, metadata);
+
+    if (!localUser) return res.status(401).json({ success: false, message: "Unauthorized" });
+    (req.session as any).user = { id: localUser.id, name: localUser.name, role: localUser.role };
     next();
   };
 
@@ -496,7 +609,7 @@ async function startServer() {
     res.json({ success: true, id: result.lastInsertRowid });
   });
 
-  app.post("/api/signup", rateLimitAuth, (req, res) => {
+  app.post("/api/signup", rateLimitAuth, async (req, res) => {
     const {
       name,
       password,
@@ -520,6 +633,109 @@ async function startServer() {
 
     const avatarSeed = encodeURIComponent(name.trim().toLowerCase().replace(/\s+/g, "-"));
     const avatar_url = `https://picsum.photos/seed/${avatarSeed}/200`;
+
+    // Supabase-first signup path
+    if (hasSupabaseAdmin && supabaseAdmin) {
+      const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+      const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
+      if (!supabaseUrl || !supabaseAnonKey) {
+        return res.status(500).json({ success: false, message: "Supabase environment is not configured." });
+      }
+      const supabasePublic = createClient(supabaseUrl, supabaseAnonKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const mappedRole = role === "teacher" ? "educator" : role;
+      const signUp = await supabasePublic.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            role,
+            display_name: name,
+            age: age || null,
+            grade_level: grade || null,
+            school: school || null,
+            city: city || null,
+            parent_email: parent_email || null,
+            contact_number: contact_number || null,
+          },
+        },
+      });
+      if (signUp.error || !signUp.data.user) {
+        return res.status(400).json({ success: false, message: signUp.error?.message || "Signup failed" });
+      }
+      const sbNew = signUp.data.user;
+      await supabaseAdmin.from("profiles").upsert({
+        id: sbNew.id,
+        role: mappedRole,
+        display_name: name,
+        school: school || null,
+        grade_level: grade || null,
+        avatar_url,
+      });
+      if (!signUp.data.session?.access_token) {
+        return res.json({
+          success: true,
+          needs_email_confirmation: true,
+          access_token: null,
+          message: "Check your email to verify your account, then sign in.",
+        });
+      }
+      let localUser = db
+        .prepare("SELECT id, name, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number FROM students WHERE supabase_user_id = ? OR (email IS NOT NULL AND email = ?) LIMIT 1")
+        .get(sbNew.id, email) as Record<string, unknown> | undefined;
+      if (!localUser) {
+        const inserted = db
+          .prepare(
+            `INSERT INTO students
+             (name, password, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number, supabase_user_id)
+             VALUES (?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            name,
+            hashPassword(String(Math.random())),
+            avatar_url,
+            role,
+            age || null,
+            grade || null,
+            school || null,
+            city || null,
+            email || null,
+            parent_email || null,
+            contact_number || null,
+            sbNew.id,
+          );
+        localUser = db
+          .prepare(
+            "SELECT id, name, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number FROM students WHERE id = ?",
+          )
+          .get(inserted.lastInsertRowid) as Record<string, unknown>;
+      } else {
+        db.prepare(
+          "UPDATE students SET name = ?, role = ?, avatar_url = ?, age = ?, grade = ?, school = ?, city = ?, email = ?, parent_email = ?, contact_number = ?, supabase_user_id = ? WHERE id = ?",
+        ).run(
+          name,
+          role,
+          avatar_url,
+          age || null,
+          grade || null,
+          school || null,
+          city || null,
+          email || null,
+          parent_email || null,
+          contact_number || null,
+          sbNew.id,
+          localUser.id,
+        );
+        localUser = db
+          .prepare(
+            "SELECT id, name, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number FROM students WHERE id = ?",
+          )
+          .get(localUser.id) as Record<string, unknown>;
+      }
+      (req.session as any).user = { id: (localUser as any).id, name: (localUser as any).name, role: (localUser as any).role };
+      return res.json({ success: true, access_token: signUp.data.session.access_token, user: sanitizeUser(localUser) });
+    }
 
     const insert = db.prepare(
       `INSERT INTO students
@@ -552,9 +768,81 @@ async function startServer() {
     res.json({ success: true, user });
   });
 
-  app.post("/api/login", rateLimitAuth, (req, res) => {
-    const { name, password } = req.body;
-    console.log(`Login attempt for: ${name}`);
+  app.post("/api/login", rateLimitAuth, async (req, res) => {
+    const { name, email, password } = req.body;
+    const identifier = email || name;
+    console.log(`Login attempt for: ${identifier}`);
+
+    if (hasSupabaseAdmin && supabaseAdmin) {
+      const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+      const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
+      if (!supabaseUrl || !supabaseAnonKey) {
+        return res.status(500).json({ success: false, message: "Supabase environment is not configured." });
+      }
+      if (!email || !password) {
+        return res.status(400).json({ success: false, message: "Email and password are required." });
+      }
+      const supabasePublic = createClient(supabaseUrl, supabaseAnonKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const signIn = await supabasePublic.auth.signInWithPassword({ email, password });
+      if (signIn.error || !signIn.data.user) {
+        return res.status(401).json({ success: false, message: signIn.error?.message || "Invalid credentials" });
+      }
+      const sbUser = signIn.data.user;
+      const meta = (sbUser.user_metadata || {}) as Record<string, any>;
+      const metaRole = String(meta.role || "student").toLowerCase();
+      let roleFromMeta =
+        metaRole === "educator" || metaRole === "teacher" ? "teacher" : metaRole === "admin" ? "admin" : "student";
+      let prof: { role?: string; display_name?: string } | null = null;
+      const { data: profRow } = await supabaseAdmin
+        .from("profiles")
+        .select("role, display_name")
+        .eq("id", sbUser.id)
+        .maybeSingle();
+      prof = profRow;
+      if (prof?.role) {
+        const pr = String(prof.role).toLowerCase();
+        roleFromMeta = pr === "educator" || pr === "teacher" ? "teacher" : pr === "admin" ? "admin" : "student";
+      }
+      const metaForLink: Record<string, any> = { ...meta, role: roleFromMeta };
+      if (prof?.display_name) metaForLink.display_name = prof.display_name;
+
+      const linked = linkSupabaseUserToLocalStudent(sbUser, metaForLink);
+      if (!linked) {
+        return res.status(500).json({ success: false, message: "Could not link account to local profile." });
+      }
+
+      const displayName = String(
+        metaForLink.display_name || metaForLink.full_name || metaForLink.name || (sbUser.email ? sbUser.email.split("@")[0] : "User"),
+      );
+      const avatar = `https://picsum.photos/seed/${encodeURIComponent(displayName.toLowerCase().replace(/\s+/g, "-"))}/200`;
+
+      db.prepare("UPDATE students SET name = ?, role = ?, avatar_url = ?, email = COALESCE(email, ?), supabase_user_id = ? WHERE id = ?").run(
+        displayName,
+        roleFromMeta,
+        avatar,
+        sbUser.email || null,
+        sbUser.id,
+        linked.id,
+      );
+
+      const fullUser = db
+        .prepare(
+          "SELECT id, name, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number FROM students WHERE id = ?",
+        )
+        .get(linked.id);
+      if (!fullUser) {
+        return res.status(500).json({ success: false, message: "Could not load user profile." });
+      }
+
+      (req.session as any).user = { id: (fullUser as any).id, name: (fullUser as any).name, role: (fullUser as any).role };
+      return res.json({
+        success: true,
+        access_token: signIn.data.session?.access_token || null,
+        user: sanitizeUser(fullUser),
+      });
+    }
 
     const user = db
       .prepare(
@@ -613,6 +901,236 @@ async function startServer() {
   app.get("/api/missions", (req, res) => {
     const missions = db.prepare("SELECT * FROM missions").all();
     res.json(missions);
+  });
+
+  // AI-style quiz generation for a completed mission (unique per student/request)
+  app.post("/api/missions/:id/generate-quiz", requireAuth, requireRole(["student"]), (req, res) => {
+    const sessionUser = (req.session as any)?.user as SessionUser;
+    const missionId = Number(req.params.id);
+    if (!Number.isInteger(missionId) || missionId < 1) {
+      return res.status(400).json({ success: false, message: "Invalid mission id" });
+    }
+    const mission = db.prepare("SELECT id, sector_id, title, description FROM missions WHERE id = ?").get(missionId) as
+      | { id: number; sector_id: number; title: string; description: string | null }
+      | undefined;
+    if (!mission) return res.status(404).json({ success: false, message: "Mission not found" });
+
+    const sector = db.prepare("SELECT name, description FROM sectors WHERE id = ?").get(mission.sector_id) as
+      | { name: string; description: string | null }
+      | undefined;
+    const topic = `${sector?.name || "STEM"} ${mission.title} ${mission.description || ""}`.trim();
+
+    const conceptPool = [
+      "core concept",
+      "application",
+      "analysis",
+      "evaluation",
+      "real-world transfer",
+      "vocabulary",
+      "data interpretation",
+      "problem-solving strategy",
+    ];
+    const wrongPool = [
+      "an unrelated claim",
+      "a common misconception",
+      "an overgeneralized statement",
+      "a reversed relationship",
+      "an unsupported conclusion",
+      "a distractor with similar wording",
+    ];
+    const random = (seed: number) => {
+      let x = Math.sin(seed) * 10000;
+      return x - Math.floor(x);
+    };
+    const seedBase = Date.now() + sessionUser.id * 997 + missionId * 151;
+    const pick = <T,>(arr: T[], seed: number) => arr[Math.floor(random(seed) * arr.length)];
+    const shuffle = <T,>(arr: T[], seed: number) =>
+      [...arr].sort((a, b) => (random(seed + String(a).length) - random(seed + String(b).length)));
+
+    const fallbackQuestions = Array.from({ length: 5 }).map((_, i) => {
+      const concept = pick(conceptPool, seedBase + i * 17);
+      const prompt = `In the mission "${mission.title}", which statement best reflects the ${concept} for topic: ${topic}?`;
+      const correct = `The best answer connects ${topic} to ${concept} using evidence from the mission context.`;
+      const wrongs = shuffle(
+        [
+          `It focuses only on memorization and ignores ${concept}.`,
+          `It claims ${topic} has no relation to ${concept}.`,
+          `It chooses ${pick(wrongPool, seedBase + i * 31)}.`,
+        ],
+        seedBase + i * 73
+      );
+      const options = shuffle(
+        [
+          { text: correct, correct: true },
+          { text: wrongs[0], correct: false },
+          { text: wrongs[1], correct: false },
+          { text: wrongs[2], correct: false },
+        ],
+        seedBase + i * 97
+      );
+      return {
+        type: "multiple_choice",
+        content: {
+          question: prompt,
+          multiple: false,
+          options,
+          partialScoring: false,
+        },
+      };
+    });
+
+    const finalizeAndSave = (questions: any[]) => {
+      const normalized = (Array.isArray(questions) ? questions : [])
+        .filter((q) => q && q.type === "multiple_choice" && q.content?.question && Array.isArray(q.content?.options))
+        .slice(0, 5);
+      const useQuestions = normalized.length === 5 ? normalized : fallbackQuestions;
+      const title = `${mission.title} · Auto Quiz`;
+      const result = db
+        .prepare("INSERT INTO quizzes (title, questions) VALUES (?, ?)")
+        .run(title, JSON.stringify(useQuestions));
+      res.json({ success: true, id: Number(result.lastInsertRowid), title, question_count: useQuestions.length });
+    };
+
+    const studentStats = db.prepare(
+      `SELECT
+         COALESCE(AVG(CAST(score AS FLOAT) / NULLIF(total_questions,0)) * 100, 0) as avg_score,
+         COUNT(*) as quizzes_completed
+       FROM student_quizzes WHERE student_id = ?`
+    ).get(sessionUser.id) as { avg_score: number; quizzes_completed: number };
+
+    const aiSystem = `You generate adaptive STEM multiple-choice quizzes.
+Return ONLY valid JSON with this exact shape:
+{
+  "questions": [
+    {
+      "type": "multiple_choice",
+      "content": {
+        "question": "string",
+        "multiple": false,
+        "options": [{"text":"string","correct":true|false}],
+        "partialScoring": false
+      }
+    }
+  ]
+}
+Rules:
+- Exactly 5 questions.
+- Each question has exactly 4 options and exactly 1 correct option.
+- Difficulty should adapt to the student's profile.
+- Avoid unsafe content.`;
+    const aiUser = `Mission: ${mission.title}
+Mission description: ${mission.description || ""}
+Sector: ${sector?.name || "STEM"}
+Topic: ${topic}
+Student profile:
+- avg_score_percent: ${Math.round(Number(studentStats?.avg_score || 0))}
+- quizzes_completed: ${Number(studentStats?.quizzes_completed || 0)}
+Create the quiz now.`;
+
+    callAiJson<{ questions?: any[] }>(aiSystem, aiUser)
+      .then((ai) => {
+        if (ai?.questions && Array.isArray(ai.questions)) return finalizeAndSave(ai.questions);
+        return finalizeAndSave(fallbackQuestions);
+      })
+      .catch(() => finalizeAndSave(fallbackQuestions));
+  });
+
+  // AI mission recommendations (adaptive next-skill path)
+  app.get("/api/students/:id/recommendations", requireAuth, requireStudentAccess, async (req, res) => {
+    const studentId = Number(req.params.id);
+    if (!Number.isInteger(studentId) || studentId < 1) return res.status(400).json({ success: false, message: "Invalid student id" });
+
+    const assigned = db.prepare(`
+      SELECT m.*, s.name as sector_name
+      FROM missions m
+      JOIN class_missions cm ON cm.mission_id = m.id
+      JOIN class_students cs ON cs.class_id = cm.class_id
+      JOIN sectors s ON s.id = m.sector_id
+      WHERE cs.student_id = ?
+      ORDER BY m.id ASC
+    `).all(studentId) as Array<any>;
+    const completedSet = new Set<number>(
+      (db.prepare(`SELECT mission_id FROM student_mission_completions WHERE student_id = ?`).all(studentId) as Array<{ mission_id: number }>).map(r => r.mission_id)
+    );
+    const pending = assigned.filter((m) => !completedSet.has(m.id));
+    const stats = db.prepare(`
+      SELECT
+        COALESCE(AVG(CAST(score AS FLOAT) / NULLIF(total_questions,0)) * 100, 0) as avg_score,
+        COUNT(*) as quizzes_completed
+      FROM student_quizzes
+      WHERE student_id = ?
+    `).get(studentId) as { avg_score: number; quizzes_completed: number };
+
+    const bySector = new Map<number, { sector_name: string; total: number; completed: number }>();
+    for (const m of assigned) {
+      const cur = bySector.get(m.sector_id) || { sector_name: m.sector_name, total: 0, completed: 0 };
+      cur.total += 1;
+      if (completedSet.has(m.id)) cur.completed += 1;
+      bySector.set(m.sector_id, cur);
+    }
+    const sectorProgress = [...bySector.entries()].map(([sector_id, p]) => ({
+      sector_id,
+      sector_name: p.sector_name,
+      completion_rate: p.total ? p.completed / p.total : 0,
+      total: p.total,
+      completed: p.completed,
+    }));
+    const weakest = [...sectorProgress].sort((a, b) => a.completion_rate - b.completion_rate)[0];
+    const strongest = [...sectorProgress].sort((a, b) => b.completion_rate - a.completion_rate)[0];
+
+    // Heuristic baseline recommendations from pending missions
+    const easierFirst = pending
+      .filter((m) => weakest ? m.sector_id === weakest.sector_id : true)
+      .sort((a, b) => (a.difficulty || "").localeCompare(b.difficulty || "") || a.id - b.id)
+      .slice(0, 2)
+      .map((m) => ({ mission_id: m.id, title: m.title, difficulty: m.difficulty, sector: m.sector_name, reason: `Build fundamentals in ${m.sector_name} progressively.` }));
+    const strongerStretch = pending
+      .filter((m) => strongest ? m.sector_id === strongest.sector_id : true)
+      .sort((a, b) => (b.difficulty || "").localeCompare(a.difficulty || "") || a.id - b.id)
+      .slice(0, 2)
+      .map((m) => ({ mission_id: m.id, title: m.title, difficulty: m.difficulty, sector: m.sector_name, reason: `Stretch in your stronger area: ${m.sector_name}.` }));
+    let recommendations = [...easierFirst, ...strongerStretch].slice(0, 4);
+
+    // AI refinement if key exists
+    const aiSystem = `You are a learning-path recommender for STEM games.
+Return ONLY valid JSON: {"recommendations":[{"mission_id":number,"reason":"string","difficulty_target":"easy|medium|hard"}]}
+Prefer adaptive progression: easier for weaker domains, harder for stronger domains.`;
+    const aiUser = JSON.stringify({
+      student_id: studentId,
+      avg_score_percent: Math.round(Number(stats?.avg_score || 0)),
+      quizzes_completed: Number(stats?.quizzes_completed || 0),
+      sector_progress: sectorProgress,
+      pending_missions: pending.map((m) => ({ mission_id: m.id, title: m.title, sector: m.sector_name, difficulty: m.difficulty })),
+    });
+    const ai = await callAiJson<{ recommendations?: Array<{ mission_id: number; reason?: string; difficulty_target?: string }> }>(aiSystem, aiUser);
+    if (ai?.recommendations?.length) {
+      const byId = new Map<number, any>(pending.map((m) => [m.id, m]));
+      const merged = ai.recommendations
+        .map((r) => {
+          const m = byId.get(Number(r.mission_id));
+          if (!m) return null;
+          return {
+            mission_id: m.id,
+            title: m.title,
+            difficulty: m.difficulty,
+            sector: m.sector_name,
+            reason: r.reason || `Recommended next step for ${m.sector_name}.`,
+          };
+        })
+        .filter(Boolean) as any[];
+      if (merged.length) recommendations = merged.slice(0, 4);
+    }
+
+    res.json({
+      success: true,
+      profile: {
+        avg_score_percent: Math.round(Number(stats?.avg_score || 0)),
+        quizzes_completed: Number(stats?.quizzes_completed || 0),
+        weakest_sector: weakest?.sector_name || null,
+        strongest_sector: strongest?.sector_name || null,
+      },
+      recommendations,
+    });
   });
 
   app.post("/api/quizzes", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
@@ -1193,15 +1711,49 @@ async function startServer() {
 
   app.get("/api/report-card/:classId", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
     const classId = req.params.classId;
-    const report = db.prepare(`
+    const base = db.prepare(`
       SELECT s.id, s.name, s.level, s.xp,
       (SELECT COUNT(*) FROM student_quizzes WHERE student_id = s.id) as quizzes_completed,
       (SELECT AVG(CAST(score AS FLOAT)/total_questions) * 100 FROM student_quizzes WHERE student_id = s.id) as avg_quiz_score
       FROM students s
       JOIN class_students cs ON s.id = cs.student_id
       WHERE cs.class_id = ?
-    `).all(classId);
-    res.json(report);
+    `).all(classId) as any[];
+
+    const mkRow = (row: any) => {
+      const avg = Number(row.avg_quiz_score || 0);
+      const quizzes = Number(row.quizzes_completed || 0);
+      const level = Number(row.level || 1);
+      const xp = Number(row.xp || 0);
+      const masteryDomains = avg >= 80 ? ["Core problem solving", "Scientific reasoning"] : ["Core problem solving"];
+      const skillsLearned = [
+        "Perseverance on multi-step problems",
+        avg >= 70 ? "Conceptual understanding" : "Foundational recall",
+        quizzes >= 5 ? "Assessment stamina" : "Early assessment practice",
+      ];
+      const topicsCovered = [
+        "STEMverse missions and quizzes completed in this class",
+        "Teacher-created challenges mapped to current units",
+      ];
+      let band = "Developing";
+      if (avg >= 85 && level >= 20) band = "Exceeds expectations";
+      else if (avg >= 70) band = "On track";
+      const aiAssessment = `
+${row.name} is currently level ${level} with ${xp} XP in this class. 
+They have completed ${quizzes} recorded simulations/quizzes with an average score of ${Math.round(avg)}%.
+Overall performance band: ${band}. Students in this band typically show ${band === "Exceeds expectations" ? "strong independent problem solving and can transfer skills to new contexts" : band === "On track" ? "solid understanding of the core objectives and are ready to deepen their skills" : "emerging skills and benefit from more guided practice and feedback"}.
+Key focus for next term: continue to strengthen conceptual reasoning while applying skills across different mission types.
+`.trim();
+      return {
+        ...row,
+        mastery_domains: masteryDomains,
+        skills_learned: skillsLearned,
+        topics_covered: topicsCovered,
+        ai_assessment: aiAssessment,
+      };
+    };
+
+    res.json(base.map(mkRow));
   });
 
   app.post("/api/logs", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
@@ -1218,11 +1770,8 @@ async function startServer() {
     res.json({ success: true, id: result.lastInsertRowid });
   });
 
-  app.get("/api/me", (req, res) => {
+  app.get("/api/me", requireAuth, (req, res) => {
     const sessionUser = (req.session as any)?.user as { id: number } | undefined;
-    if (!sessionUser) {
-      return res.status(401).json({ authenticated: false });
-    }
     const user = db
       .prepare(
         "SELECT id, name, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number FROM students WHERE id = ?",

@@ -38,17 +38,24 @@ import {
   X,
   ChevronDown,
   Copy,
+  Sparkles,
   LogIn,
   Layers,
   LayoutGrid
 } from 'lucide-react';
 import { ChallengeBuilder, ChallengeRenderer } from './challenges';
+import { QuizPlayer } from './challenges/QuizPlayer';
+import { supabase } from '../lib/supabaseClient';
 
 // --- Types ---
 
 const safeFetch = async (url: string, options?: RequestInit) => {
   try {
-    const res = await fetch(url, { ...options, credentials: options?.credentials ?? 'include' });
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    const headers = new Headers(options?.headers || {});
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const res = await fetch(url, { ...options, headers, credentials: options?.credentials ?? 'include' });
     if (!res.ok) {
       const text = await res.text();
       console.error(`Fetch error for ${url}: ${res.status} ${text}`);
@@ -59,6 +66,23 @@ const safeFetch = async (url: string, options?: RequestInit) => {
     console.error(`Network error for ${url}:`, err);
     return null;
   }
+};
+
+// Same as safeFetch, but returns the raw Response so callers can inspect `ok` / `status`.
+const fetchWithAuth = async (url: string, options?: RequestInit) => {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  const headers = new Headers(options?.headers || {});
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  return fetch(url, { ...options, headers, credentials: options?.credentials ?? 'include' });
+};
+
+const authFetch = async (input: string, init?: RequestInit) => {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  const headers = new Headers(init?.headers || {});
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  return fetch(input, { ...init, headers, credentials: init?.credentials ?? 'include' });
 };
 
 interface Sector {
@@ -115,6 +139,14 @@ interface Student {
   contact_number?: string;
 }
 
+interface MissionRecommendation {
+  mission_id: number;
+  title: string;
+  difficulty?: string;
+  sector?: string;
+  reason: string;
+}
+
 interface SystemLog {
   id: number;
   timestamp: string;
@@ -151,26 +183,26 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
    });
 
   const handleQuickAccess = (acc: typeof quickAccess[0]) => {
-    setName(acc.name);
+    setName(acc.email);
     setPassword(acc.pass);
-    performLogin(acc.name, acc.pass);
+    performLogin(acc.email, acc.pass);
   };
 
   const performLogin = async (n: string, p: string) => {
     setError('');
     try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: n, password: p })
-      });
-      const data = await res.json();
-      if (data.success) {
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email: n, password: p });
+      if (signInError) {
+        setError(signInError.message || 'Invalid credentials');
+        return;
+      }
+      const data = await safeFetch('/api/me');
+      if (data?.authenticated && data?.user) {
         onLogin(data.user);
       } else {
-        setError(data.message);
+        setError('Could not load account.');
       }
-    } catch (err) {
+    } catch {
       setError('Connection failed');
     }
   };
@@ -187,29 +219,53 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
   const performSignup = async () => {
     setError('');
     try {
-      const res = await fetch('/api/signup', {
-        method: 'POST',
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: signupData.email,
+        password: signupData.password,
+        options: {
+          data: {
+            full_name: signupData.name,
+            name: signupData.name,
+            role: signupData.role,
+          },
+        },
+      });
+      if (signUpError) {
+        setError(signUpError.message || 'Signup failed');
+        return;
+      }
+      // If email confirmation is enabled, session may be null until verification.
+      if (!data?.session) {
+        setError('Signup created. Check your email to verify your account, then sign in.');
+        return;
+      }
+      await safeFetch('/api/me', { method: 'GET' });
+      await safeFetch('/api/me', {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...signupData,
+          name: signupData.name,
           age: signupData.age ? parseInt(signupData.age) : undefined,
+          grade: signupData.grade || undefined,
+          school: signupData.school || undefined,
+          city: signupData.city || undefined,
+          email: signupData.email || undefined,
+          parent_email: signupData.parent_email || undefined,
+          contact_number: signupData.contact_number || undefined,
         }),
       });
-      const data = await res.json();
-      if (data.success) {
-        onLogin(data.user);
-      } else {
-        setError(data.message || 'Signup failed');
-      }
-    } catch (err) {
+      const me = await safeFetch('/api/me');
+      if (me?.authenticated && me?.user) onLogin(me.user);
+      else setError('Signup completed but profile could not be loaded.');
+    } catch {
       setError('Connection failed');
     }
   };
 
   const quickAccess = [
-    { name: 'Alex Rivera', pass: 'student123', role: 'Student' },
-    { name: 'Professor Nova', pass: 'teacher123', role: 'Teacher' },
-    { name: 'Admin Core', pass: 'admin123', role: 'Admin' }
+    { email: 'student@example.com', pass: 'student123', role: 'Student' },
+    { email: 'teacher@example.com', pass: 'teacher123', role: 'Teacher' },
+    { email: 'admin@example.com', pass: 'admin123', role: 'Admin' }
   ];
 
   const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } };
@@ -287,14 +343,14 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
           {!isSignup ? (
             <motion.div variants={container} initial="hidden" animate="show" className="space-y-6">
               <motion.div variants={item} className="space-y-2">
-                <label className="text-[10px] uppercase font-black text-cyan-300 tracking-widest">Operator Name</label>
+                <label className="text-[10px] uppercase font-black text-cyan-300 tracking-widest">Email</label>
                 <input
                   type="text"
                   required
                   value={name}
                   onChange={e => setName(e.target.value)}
                   className="w-full bg-white/10 border-2 border-cyan-400/40 rounded-xl px-4 py-3.5 text-white placeholder:text-slate-400 focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30 transition-all font-mono text-sm"
-                  placeholder="e.g. Alex Rivera"
+                  placeholder="you@example.com"
                 />
               </motion.div>
               <motion.div variants={item} className="space-y-2">
@@ -429,7 +485,7 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
                 <div className="grid grid-cols-1 gap-3">
                   {quickAccess.map((acc, i) => (
                     <motion.button
-                      key={acc.name}
+                      key={acc.email}
                       initial={{ opacity: 0, x: -8 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: 0.5 + i * 0.08 }}
@@ -439,7 +495,7 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
                       className="flex items-center justify-between p-3.5 bg-white/10 border border-cyan-400/30 rounded-xl transition-all group text-left hover:bg-white/15"
                     >
                       <div>
-                        <p className="text-xs font-bold text-white group-hover:text-cyan-300 transition-colors italic uppercase tracking-tight">{acc.name}</p>
+                        <p className="text-xs font-bold text-white group-hover:text-cyan-300 transition-colors italic tracking-tight">{acc.email}</p>
                         <p className="text-[8px] uppercase font-black text-slate-400 tracking-widest">{acc.role}</p>
                       </div>
                       <p className="text-[8px] font-mono text-cyan-300/80">KEY: {acc.pass}</p>
@@ -757,27 +813,41 @@ const GalaxyMap = ({ sectors, onSelectSector }: { sectors: Sector[], onSelectSec
             className="absolute -translate-x-1/2 -translate-y-1/2 z-10"
           >
             <div className="relative group">
-              {/* Pulse Effect for Active Sectors */}
+              {/* Reactor pulse for active sectors */}
               {!isLocked && (
-                <div className="absolute -inset-4 bg-brand-blue/10 rounded-full animate-ping opacity-20" />
+                <>
+                  <div className="absolute -inset-5 bg-cyan-500/10 blur-xl animate-pulse" />
+                  <div className="absolute -inset-3 border border-cyan-400/20 [clip-path:polygon(14px_0,100%_0,100%_calc(100%-14px),calc(100%-14px)_100%,0_100%,0_14px)] animate-pulse" />
+                </>
               )}
               
               <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
+                whileHover={{ scale: 1.06, y: -4 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={() => !isLocked && onSelectSector(sector)}
-                className={`relative size-24 rounded-full border-4 flex flex-col items-center justify-center transition-all shadow-2xl ${
+                className={`relative w-28 h-24 border-2 flex flex-col items-center justify-center transition-all shadow-2xl overflow-hidden [clip-path:polygon(16px_0,100%_0,100%_calc(100%-16px),calc(100%-16px)_100%,0_100%,0_16px)] ${
                   isLocked 
-                    ? 'bg-slate-700/50 border-slate-600/50 grayscale' 
-                    : 'bg-white border-brand-blue shadow-brand-blue/20 hover:shadow-brand-blue/40'
+                    ? 'bg-slate-800/70 border-slate-600/60 grayscale' 
+                    : 'bg-slate-900/85 border-cyan-400/60 shadow-cyan-500/20 hover:shadow-cyan-400/40'
                 }`}
               >
                 {isLocked ? (
                   <Lock className="size-8 text-slate-300" />
                 ) : (
-                  <div className="size-full rounded-full overflow-hidden relative">
-                    <img src={sector.image_url} className="size-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" alt="" />
-                    <div className="absolute inset-0 bg-brand-blue/10 group-hover:bg-transparent transition-colors" />
+                  <div className="size-full overflow-hidden relative">
+                    <img src={sector.image_url} className="size-full object-cover opacity-75 group-hover:opacity-95 transition-opacity" alt="" />
+                    <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/10 via-transparent to-slate-950/60" />
+                    {/* Scan sweep animation */}
+                    <motion.div
+                      className="absolute inset-y-0 -left-1/2 w-1/2 bg-gradient-to-r from-transparent via-cyan-300/20 to-transparent"
+                      animate={{ x: ['-60%', '220%'] }}
+                      transition={{ duration: 2.2, repeat: Infinity, ease: 'linear' }}
+                    />
+                    {/* Core reactor glyph */}
+                    <div className="absolute bottom-2 left-2 flex items-center gap-1">
+                      <div className="size-2 bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.9)] [clip-path:polygon(50%_0,100%_50%,50%_100%,0_50%)]" />
+                      <span className="text-[8px] font-black uppercase tracking-widest text-cyan-300">Core</span>
+                    </div>
                   </div>
                 )}
               </motion.button>
@@ -881,12 +951,12 @@ const JourneyMap = ({
                   type="button"
                   onClick={() => unlocked && onSelectMission(mission)}
                   disabled={!unlocked}
-                  className={`relative flex flex-col items-center gap-2 rounded-2xl border-2 p-4 w-[120px] transition-all ${
+                  className={`relative flex flex-col items-center gap-2 border-2 p-4 w-[124px] transition-all [clip-path:polygon(12px_0,100%_0,100%_calc(100%-12px),calc(100%-12px)_100%,0_100%,0_12px)] ${
                     completed
-                      ? "border-brand-blue/60 bg-brand-blue/20 shadow-lg shadow-brand-blue/20"
+                      ? "border-cyan-400/70 bg-cyan-500/15 shadow-[0_0_18px_rgba(34,211,238,0.25)]"
                       : isCurrent
-                        ? "border-brand-blue bg-brand-blue/10 hover:border-cyan-400 hover:bg-brand-blue/20 cursor-pointer shadow-lg shadow-brand-blue/20"
-                        : "border-slate-600/50 bg-slate-800/60 cursor-not-allowed opacity-70"
+                        ? "border-cyan-400/60 bg-slate-900/80 hover:border-cyan-300 hover:bg-slate-800/90 cursor-pointer shadow-[0_0_20px_rgba(34,211,238,0.18)]"
+                        : "border-slate-600/60 bg-slate-900/70 cursor-not-allowed opacity-70"
                   }`}
                   whileHover={unlocked ? { scale: 1.05 } : {}}
                   whileTap={unlocked ? { scale: 0.98 } : {}}
@@ -895,9 +965,9 @@ const JourneyMap = ({
                     {index + 1}
                   </span>
                   {completed ? (
-                    <CheckCircle2 className="size-10 text-brand-blue shrink-0" />
+                    <CheckCircle2 className="size-10 text-cyan-400 shrink-0" />
                   ) : unlocked ? (
-                    <Play className="size-10 text-brand-blue shrink-0" />
+                    <Play className="size-10 text-cyan-400 shrink-0" />
                   ) : (
                     <Lock className="size-10 text-slate-500 shrink-0" />
                   )}
@@ -905,7 +975,7 @@ const JourneyMap = ({
                     {mission.title}
                   </span>
                   {unlocked && !completed && (
-                    <span className="text-[8px] text-brand-blue font-black uppercase tracking-widest">Play</span>
+                    <span className="text-[8px] text-cyan-400 font-black uppercase tracking-widest">Engage</span>
                   )}
                 </motion.button>
               </div>
@@ -1030,12 +1100,12 @@ const SectorView = ({ sector, onBack, onPlayMission, allUnlocked = false }: { se
                 <motion.div 
                   key={mission.id} 
                   whileHover={{ y: -8 }}
-                  className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 rounded-2xl overflow-hidden border border-slate-600/40 group hover:border-brand-blue/30 transition-all flex flex-col shadow-xl"
+                  className="bg-slate-900/70 backdrop-blur-xl border border-slate-600/50 overflow-hidden group hover:border-cyan-400/40 transition-all flex flex-col shadow-xl [clip-path:polygon(18px_0,100%_0,100%_calc(100%-18px),calc(100%-18px)_100%,0_100%,0_18px)]"
                 >
                   <div className="h-48 overflow-hidden relative">
-                    <img src={mission.image_url || 'https://picsum.photos/seed/mission/400/300'} alt={mission.title} className="w-full h-full object-cover opacity-40 transition-transform duration-1000 group-hover:scale-110" referrerPolicy="no-referrer" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-white/80 to-transparent" />
-                    <div className={`absolute top-6 right-6 px-3 py-1 bg-white rounded-xl border text-[9px] font-black uppercase tracking-widest shadow-sm ${
+                    <img src={mission.image_url || 'https://picsum.photos/seed/mission/400/300'} alt={mission.title} className="w-full h-full object-cover opacity-80 transition-transform duration-1000 group-hover:scale-105" referrerPolicy="no-referrer" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-900/40 to-transparent" />
+                    <div className={`absolute top-6 right-6 px-3 py-1 bg-slate-900/80 border rounded-lg text-[9px] font-black uppercase tracking-widest shadow-sm ${
                       mission.difficulty === 'Hard' ? 'border-red-500/50 text-red-600' : 'border-brand-blue/50 text-brand-blue'
                     }`}>
                       {mission.difficulty}
@@ -1620,10 +1690,9 @@ const TeacherHub = ({ sectors, students, student, refetchStudents }: { sectors: 
     const mission = libraryMissions.find((m: Mission) => m.id === missionId);
     const cls = classes.find(c => c.id === classId);
     try {
-      const res = await fetch(`/api/classes/${classId}/missions`, {
+      const res = await fetchWithAuth(`/api/classes/${classId}/missions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ mission_id: missionId })
       });
       if (res.ok && mission && cls) {
@@ -1817,7 +1886,7 @@ const TeacherHub = ({ sectors, students, student, refetchStudents }: { sectors: 
       )}
 
       {activeTab === 'missions' && (
-        <MissionSetup sectors={sectors} canEmbed={false} />
+        <MissionSetup sectors={sectors} canEmbed={false} assignClassId={selectedClassId} />
       )}
 
       {activeTab === 'reports' && (
@@ -1858,7 +1927,7 @@ const ClassroomManager = ({ teacherId, students, onStudentsAdded }: { teacherId:
 
   const fetchClasses = async (): Promise<Class[]> => {
     setClassesLoadError(null);
-    const res = await fetch('/api/classes', { credentials: 'include' });
+    const res = await fetchWithAuth('/api/classes');
     let list: Class[] = [];
     if (res.ok) {
       const data = await res.json().catch(() => null);
@@ -1898,10 +1967,9 @@ const ClassroomManager = ({ teacherId, students, onStudentsAdded }: { teacherId:
         setClasses(prev => prev.map(c => c.id === selectedClass.id ? { ...c, join_code: data.join_code } : c));
         return;
       }
-      const res = await fetch('/api/classes/ensure-join-code', {
+      const res = await fetchWithAuth('/api/classes/ensure-join-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ class_id: selectedClass.id })
       });
       const json = await res.json().catch(() => ({}));
@@ -1915,10 +1983,9 @@ const ClassroomManager = ({ teacherId, students, onStudentsAdded }: { teacherId:
     setCreateError(null);
     setCreating(true);
     try {
-      const res = await fetch('/api/classes', {
+      const res = await fetchWithAuth('/api/classes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ name: newClassName.trim(), teacher_id: teacherId, description: '' })
       });
       const data = await res.json().catch(() => ({}));
@@ -1984,10 +2051,9 @@ const ClassroomManager = ({ teacherId, students, onStudentsAdded }: { teacherId:
     setPasteLoading(true);
     setPasteResult(null);
     try {
-      const res = await fetch('/api/classes/add-students-by-names', {
+      const res = await fetchWithAuth('/api/classes/add-students-by-names', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ class_id: selectedClass.id, names })
       });
       const data = await res.json().catch(() => ({}));
@@ -2010,10 +2076,9 @@ const ClassroomManager = ({ teacherId, students, onStudentsAdded }: { teacherId:
     if (!selectedClass) return;
     setSyncFeedback(null);
     try {
-      const res = await fetch(`/api/classes/${selectedClass.id}/students`, {
+      const res = await fetchWithAuth(`/api/classes/${selectedClass.id}/students`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ student_id: studentId })
       });
       const data = await res.json().catch(() => ({}));
@@ -2031,10 +2096,9 @@ const ClassroomManager = ({ teacherId, students, onStudentsAdded }: { teacherId:
 
   const assignMissionToClass = async (missionId: number) => {
     if (!selectedClass) return;
-    await fetch(`/api/classes/${selectedClass.id}/missions`, {
+    await fetchWithAuth(`/api/classes/${selectedClass.id}/missions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify({ mission_id: missionId })
     });
     fetchClassContent(selectedClass.id);
@@ -2042,10 +2106,9 @@ const ClassroomManager = ({ teacherId, students, onStudentsAdded }: { teacherId:
 
   const assignQuizToClass = async (quizId: number) => {
     if (!selectedClass) return;
-    await fetch(`/api/classes/${selectedClass.id}/quizzes`, {
+    await fetchWithAuth(`/api/classes/${selectedClass.id}/quizzes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify({ quiz_id: quizId })
     });
     fetchClassContent(selectedClass.id);
@@ -2053,19 +2116,17 @@ const ClassroomManager = ({ teacherId, students, onStudentsAdded }: { teacherId:
 
   const unassignMissionFromClass = async (missionId: number) => {
     if (!selectedClass) return;
-    await fetch(`/api/classes/${selectedClass.id}/missions/${missionId}`, {
+    await fetchWithAuth(`/api/classes/${selectedClass.id}/missions/${missionId}`, {
       method: 'DELETE',
-      credentials: 'include'
     });
     fetchClassContent(selectedClass.id);
   };
 
   const assignChallengeToClass = async (challengeId: number) => {
     if (!selectedClass) return;
-    await fetch(`/api/classes/${selectedClass.id}/challenges`, {
+    await fetchWithAuth(`/api/classes/${selectedClass.id}/challenges`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify({ challenge_id: challengeId })
     });
     fetchClassContent(selectedClass.id);
@@ -2073,9 +2134,8 @@ const ClassroomManager = ({ teacherId, students, onStudentsAdded }: { teacherId:
 
   const unassignChallengeFromClass = async (challengeId: number) => {
     if (!selectedClass) return;
-    await fetch(`/api/classes/${selectedClass.id}/challenges/${challengeId}`, {
+    await fetchWithAuth(`/api/classes/${selectedClass.id}/challenges/${challengeId}`, {
       method: 'DELETE',
-      credentials: 'include'
     });
     fetchClassContent(selectedClass.id);
   };
@@ -2182,10 +2242,9 @@ const ClassroomManager = ({ teacherId, students, onStudentsAdded }: { teacherId:
                         setGenerateCodeError(null);
                         setGenerateCodeLoading(true);
                         try {
-                          const res = await fetch('/api/classes/ensure-join-code', {
+                          const res = await fetchWithAuth('/api/classes/ensure-join-code', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            credentials: 'include',
                             body: JSON.stringify({ class_id: selectedClass.id })
                           });
                           const json = await res.json().catch(() => ({}));
@@ -2405,11 +2464,10 @@ const StudentDashboard = ({ student, onOpenSettings, setActiveView }: { student:
     setJoinError(null);
     setJoinLoading(true);
     try {
-      const res = await fetch('/api/classes/join', {
+      const res = await fetchWithAuth('/api/classes/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ join_code: code }),
-        credentials: 'include'
+        body: JSON.stringify({ join_code: code })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -2705,12 +2763,22 @@ const StudentDashboard = ({ student, onOpenSettings, setActiveView }: { student:
 };
 const ReportCard = ({ classId }: { classId: number }) => {
   const [report, setReport] = useState<any[]>([]);
+  const [selectedStudent, setSelectedStudent] = useState<any | null>(null);
 
   useEffect(() => {
     safeFetch(`/api/report-card/${classId}`).then(data => {
       if (data) setReport(data);
     });
   }, [classId]);
+
+  const handleDownloadSquad = () => {
+    window.print();
+  };
+
+  const handleDownloadStudent = (student: any) => {
+    setSelectedStudent(student);
+    setTimeout(() => window.print(), 100);
+  };
 
   return (
     <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 p-10 rounded-2xl border border-slate-600/40 shadow-xl">
@@ -2719,15 +2787,20 @@ const ReportCard = ({ classId }: { classId: number }) => {
           <div className="size-10 rounded-xl bg-brand-blue/10 flex items-center justify-center text-brand-blue border border-brand-blue/20">
             <ClipboardList className="size-5" />
           </div>
-          <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter italic">
-            Squad Performance Log
-          </h3>
+          <div>
+            <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter italic">
+              Squad Performance Log
+            </h3>
+            <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em]">
+              Class-wide and individual report cards
+            </p>
+          </div>
         </div>
         <button
-          onClick={() => window.print()}
+          onClick={handleDownloadSquad}
           className="px-4 py-2 rounded-xl border border-slate-600/50 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-brand-blue hover:border-brand-blue/40 bg-slate-800/70 shadow-sm"
         >
-          Download PDF
+          Download squad report
         </button>
       </div>
       <div className="overflow-x-auto">
@@ -2739,16 +2812,17 @@ const ReportCard = ({ classId }: { classId: number }) => {
               <th className="pb-6">Simulations</th>
               <th className="pb-6">Sync Rate</th>
               <th className="pb-6">Status</th>
+              <th className="pb-6 text-right">Report</th>
             </tr>
           </thead>
           <tbody className="text-sm font-mono">
             {report.map(r => (
               <tr key={r.id} className="border-b border-slate-600/50 last:border-0 group hover:bg-brand-blue/5 transition-colors">
-                <td className="py-6 font-black text-slate-100 uppercase tracking-tight italic">{r.name}</td>
-                <td className="py-6 text-brand-blue font-black">LVL {r.level}</td>
-                <td className="py-6 text-slate-500">{r.quizzes_completed}</td>
-                <td className="py-6 text-slate-100 font-black">{Math.round(r.avg_quiz_score || 0)}%</td>
-                <td className="py-6">
+                <td className="py-4 font-black text-slate-100 uppercase tracking-tight italic">{r.name}</td>
+                <td className="py-4 text-brand-blue font-black">LVL {r.level}</td>
+                <td className="py-4 text-slate-500">{r.quizzes_completed}</td>
+                <td className="py-4 text-slate-100 font-black">{Math.round(r.avg_quiz_score || 0)}%</td>
+                <td className="py-4">
                   <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${
                     (r.avg_quiz_score || 0) >= 70 
                       ? 'bg-brand-blue/10 text-brand-blue border-brand-blue/20' 
@@ -2757,11 +2831,84 @@ const ReportCard = ({ classId }: { classId: number }) => {
                     {(r.avg_quiz_score || 0) >= 70 ? 'OPTIMAL' : 'SYNC REQUIRED'}
                   </span>
                 </td>
+                <td className="py-4 text-right">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedStudent(r)}
+                    className="text-[10px] font-black uppercase tracking-widest text-cyan-400 hover:text-cyan-300 mr-3"
+                  >
+                    View
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadStudent(r)}
+                    className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-200"
+                  >
+                    Download
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {selectedStudent && (
+        <div className="mt-10 bg-slate-900/70 border border-slate-700/60 rounded-2xl p-8 space-y-6">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-black mb-1">Individual Report Card</p>
+              <h4 className="text-2xl font-black text-slate-100 uppercase tracking-tighter">
+                {selectedStudent.name}
+              </h4>
+              <p className="text-[11px] text-slate-400 font-mono">
+                Level {selectedStudent.level} · {Math.round(selectedStudent.avg_quiz_score || 0)}% average · {selectedStudent.quizzes_completed} simulations
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-black mb-1">Domains mastered</p>
+              <div className="flex flex-wrap gap-2 justify-end">
+                {(selectedStudent.mastery_domains || []).map((d: string) => (
+                  <span key={d} className="px-3 py-1 rounded-full bg-brand-blue/10 border border-brand-blue/30 text-[10px] font-black uppercase tracking-widest text-brand-blue">
+                    {d}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="space-y-3">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-black">Skills learned</p>
+              <ul className="space-y-1.5 text-sm text-slate-200">
+                {(selectedStudent.skills_learned || []).map((s: string) => (
+                  <li key={s} className="flex items-start gap-2">
+                    <span className="mt-1 size-1.5 rounded-full bg-brand-blue" />
+                    <span>{s}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="space-y-3">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-black">Topics covered</p>
+              <ul className="space-y-1.5 text-sm text-slate-200">
+                {(selectedStudent.topics_covered || []).map((t: string) => (
+                  <li key={t} className="flex items-start gap-2">
+                    <span className="mt-1 size-1.5 rounded-full bg-emerald-400" />
+                    <span>{t}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="space-y-3">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-black">AI assessment</p>
+              <p className="text-sm text-slate-200 whitespace-pre-line leading-relaxed">
+                {selectedStudent.ai_assessment}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -2784,32 +2931,29 @@ function toEmbeddableUrl(rawUrl: string): string {
   return url;
 }
 
-/** Normalize + sanitize game URL/embed for display: plain URL -> safe iframe; iframe snippet -> keep only safe iframe src. */
-function normalizeEmbedForDisplay(embed: string | null | undefined): string | null {
+/** Normalize + sanitize game URL/embed and return a safe src URL. */
+function extractEmbedSrc(embed: string | null | undefined): string | null {
   if (!embed || typeof embed !== 'string') return null;
   const s = embed.trim();
   if (!s) return null;
 
   // Plain URL (http/https)
   if (/^https?:\/\/[^\s<>"']+$/i.test(s)) {
-    const url = toEmbeddableUrl(s).replace(/["'<>]/g, '');
-    return `<iframe src="${url}" class="w-full h-full min-h-[400px]" allowfullscreen></iframe>`;
+    return toEmbeddableUrl(s).replace(/["'<>]/g, '');
   }
 
   // Iframe snippet: extract src (src may have no leading space in markup)
   const srcMatch = s.match(/<iframe[^>]*\s*src\s*=\s*["']([^"']+)["'][^>]*>/i);
   const src = (srcMatch?.[1] || '').trim();
   if (src && /^https?:\/\//i.test(src)) {
-    const url = toEmbeddableUrl(src).replace(/["'<>]/g, '');
-    return `<iframe src="${url}" class="w-full h-full min-h-[400px]" allowfullscreen></iframe>`;
+    return toEmbeddableUrl(src).replace(/["'<>]/g, '');
   }
 
   // Already a single safe iframe (e.g. stored from server)
-  if (/<iframe\s*[^>]*\s*src\s*=\s*["']https?:\/\/[^"']+["'][^>]*>/i.test(s) && !/</(script|object)/i.test(s)) {
+  if (/<iframe\s*[^>]*\s*src\s*=\s*["']https?:\/\/[^"']+["'][^>]*>/i.test(s) && !/<(script|object)/i.test(s)) {
     const one = s.match(/src\s*=\s*["'](https?:\/\/[^"']+)["']/i);
     if (one?.[1]) {
-      const url = toEmbeddableUrl(one[1]).replace(/["'<>]/g, '');
-      return `<iframe src="${url}" class="w-full h-full min-h-[400px]" allowfullscreen></iframe>`;
+      return toEmbeddableUrl(one[1]).replace(/["'<>]/g, '');
     }
   }
 
@@ -2817,14 +2961,18 @@ function normalizeEmbedForDisplay(embed: string | null | undefined): string | nu
 }
 
 const GamePlayer = ({ mission, onComplete }: { mission: Mission, onComplete: () => void }) => {
-  const embedHtml = normalizeEmbedForDisplay(mission.embed_code);
+  const embedSrc = extractEmbedSrc(mission.embed_code);
   return (
     <div className="space-y-8">
       <div className="bg-black rounded-2xl border border-brand-blue/30 overflow-hidden aspect-video relative shadow-2xl shadow-brand-blue/10 min-h-[400px]">
-        {embedHtml ? (
-          <div 
+        {embedSrc ? (
+          <iframe
+            src={embedSrc}
             className="size-full min-h-[400px]"
-            dangerouslySetInnerHTML={{ __html: embedHtml }}
+            allowFullScreen
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            title={mission.title}
           />
         ) : (
           <div className="size-full flex flex-col items-center justify-center p-12 text-center relative">
@@ -2881,8 +3029,17 @@ const GamePlayer = ({ mission, onComplete }: { mission: Mission, onComplete: () 
     </div>
   );
 };
-const MissionSetup = ({ sectors, canEmbed = false }: { sectors: Sector[], canEmbed?: boolean }) => {
+const MissionSetup = ({
+  sectors,
+  canEmbed = false,
+  assignClassId = null,
+}: {
+  sectors: Sector[],
+  canEmbed?: boolean,
+  assignClassId?: number | null,
+}) => {
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success'>('idle');
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: '',
     sector_id: sectors[0]?.id || 1,
@@ -2895,19 +3052,32 @@ const MissionSetup = ({ sectors, canEmbed = false }: { sectors: Sector[], canEmb
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatus('submitting');
+    setInfoMessage(null);
     const embed = formData.embed_code?.trim();
     const payload = {
       ...formData,
       embed_code: embed || undefined,
     };
     try {
-      const response = await fetch('/api/missions', {
+      const response = await fetchWithAuth('/api/missions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       
       if (response.ok) {
+        const json = await response.json().catch(() => ({}));
+        const missionId = Number(json?.id || 0);
+        if (assignClassId && Number.isInteger(assignClassId) && assignClassId > 0 && missionId > 0) {
+          await fetchWithAuth(`/api/classes/${assignClassId}/missions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mission_id: missionId }),
+          });
+          setInfoMessage('Mission deployed and assigned to selected class.');
+        } else {
+          setInfoMessage('Mission deployed. Assign it to a class from Mission Library or Classroom Manager.');
+        }
         setStatus('success');
         setFormData({
           title: '',
@@ -2942,6 +3112,15 @@ const MissionSetup = ({ sectors, canEmbed = false }: { sectors: Sector[], canEmb
       </div>
 
       <form className="space-y-10" onSubmit={handleSubmit}>
+        {assignClassId ? (
+          <p className="text-[11px] text-cyan-400 font-bold uppercase tracking-wider">
+            This mission will auto-assign to the currently selected class.
+          </p>
+        ) : (
+          <p className="text-[11px] text-slate-400">
+            Tip: Students only see missions that are assigned to their class.
+          </p>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
           <div className="space-y-3">
             <label className="text-[10px] uppercase font-black text-slate-400 tracking-[0.2em] ml-2">Mission Designation</label>
@@ -3066,6 +3245,9 @@ const MissionSetup = ({ sectors, canEmbed = false }: { sectors: Sector[], canEmb
             )}
           </button>
         </div>
+        {infoMessage && (
+          <p className="text-sm font-bold text-cyan-400">{infoMessage}</p>
+        )}
       </form>
     </div>
   );
@@ -3510,10 +3692,9 @@ const SettingsModal = ({
     setProfileMessage(null);
     setSavingProfile(true);
     try {
-      const res = await fetch('/api/me', {
+      const res = await authFetch('/api/me', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           name: profileForm.name,
           avatar_url: profileForm.avatar_url || undefined,
@@ -3553,21 +3734,31 @@ const SettingsModal = ({
     }
     setSavingPassword(true);
     try {
-      const res = await fetch('/api/me/change-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          current_password: passwordForm.current,
-          new_password: passwordForm.new,
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setPasswordForm({ current: '', new: '', confirm: '' });
-        setPasswordMessage({ type: 'success', text: 'Password changed.' });
+      const { data: sess } = await supabase.auth.getSession();
+      if (sess.session) {
+        const { error } = await supabase.auth.updateUser({ password: passwordForm.new });
+        if (error) {
+          setPasswordMessage({ type: 'error', text: error.message || 'Change failed.' });
+        } else {
+          setPasswordForm({ current: '', new: '', confirm: '' });
+          setPasswordMessage({ type: 'success', text: 'Password updated for your account.' });
+        }
       } else {
-        setPasswordMessage({ type: 'error', text: data.message || 'Change failed.' });
+        const res = await authFetch('/api/me/change-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            current_password: passwordForm.current,
+            new_password: passwordForm.new,
+          }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          setPasswordForm({ current: '', new: '', confirm: '' });
+          setPasswordMessage({ type: 'success', text: 'Password changed.' });
+        } else {
+          setPasswordMessage({ type: 'error', text: data.message || 'Change failed.' });
+        }
       }
     } catch {
       setPasswordMessage({ type: 'error', text: 'Network error.' });
@@ -3770,7 +3961,13 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [assignedChallenges, setAssignedChallenges] = useState<{ id: number; title: string; type: string; xp_reward: number }[]>([]);
   const [activeChallengeId, setActiveChallengeId] = useState<number | null>(null);
+  const [generatedQuizId, setGeneratedQuizId] = useState<number | null>(null);
+  const [generatedQuizTitle, setGeneratedQuizTitle] = useState<string>('');
+  const [quizPromptMission, setQuizPromptMission] = useState<Mission | null>(null);
+  const [generatingQuiz, setGeneratingQuiz] = useState(false);
+  const [quizGenerateError, setQuizGenerateError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [missionRecommendations, setMissionRecommendations] = useState<MissionRecommendation[]>([]);
 
   useEffect(() => {
     safeFetch('/api/sectors').then(data => data && setSectors(data));
@@ -3789,9 +3986,13 @@ export default function App() {
     if (student?.role === 'student' && student?.id) {
       safeFetch(`/api/students/${student.id}/assigned-challenges`).then(data => setAssignedChallenges(Array.isArray(data) ? data : []));
       safeFetch('/api/notifications').then((data) => setNotifications(Array.isArray(data) ? data : []));
+      safeFetch(`/api/students/${student.id}/recommendations`).then((data) =>
+        setMissionRecommendations(Array.isArray(data?.recommendations) ? data.recommendations : [])
+      );
     } else {
       setAssignedChallenges([]);
       setNotifications([]);
+      setMissionRecommendations([]);
     }
   }, [student?.id, student?.role]);
 
@@ -3802,6 +4003,14 @@ export default function App() {
     }, 15000);
     return () => window.clearInterval(t);
   }, [student?.role]);
+
+  useEffect(() => {
+    (window as any).__studentId = student?.id ?? 0;
+  }, [student?.id]);
+
+  useEffect(() => {
+    (window as any).__studentId = student?.id ?? 0;
+  }, [student?.id]);
 
   const markNotificationRead = async (id: number) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: 1 } : n)));
@@ -3867,6 +4076,36 @@ export default function App() {
         xp_change: xp,
       }),
     });
+    if (student.role === "student") {
+      setQuizPromptMission(mission);
+      setQuizGenerateError(null);
+    }
+  };
+
+  const handleGenerateQuizFromMission = async () => {
+    if (!quizPromptMission) return;
+    setGeneratingQuiz(true);
+    setQuizGenerateError(null);
+    try {
+      const res = await fetch(`/api/missions/${quizPromptMission.id}/generate-quiz`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.id) {
+        setQuizGenerateError(data.message || data.error || 'Could not generate quiz.');
+        return;
+      }
+      setGeneratedQuizId(Number(data.id));
+      setGeneratedQuizTitle(String(data.title || `${quizPromptMission.title} Quiz`));
+      setQuizPromptMission(null);
+      setActiveView('dashboard');
+      setActiveChallengeId(null);
+    } catch {
+      setQuizGenerateError('Network error while generating quiz.');
+    } finally {
+      setGeneratingQuiz(false);
+    }
   };
 
   if (!isLoggedIn) {
@@ -3937,7 +4176,29 @@ export default function App() {
                 </div>
               </div>
 
-              {activeChallengeId ? (
+              {generatedQuizId ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setGeneratedQuizId(null)}
+                      className="flex items-center gap-2 text-slate-400 hover:text-cyan-400 font-black text-sm uppercase"
+                    >
+                      <ArrowLeft className="size-4" />
+                      Back to assignments
+                    </button>
+                    <span className="text-[10px] text-cyan-400 font-black uppercase tracking-widest">
+                      {generatedQuizTitle || 'Auto Quiz'}
+                    </span>
+                  </div>
+                  <QuizPlayer
+                    quizId={generatedQuizId}
+                    onComplete={() => {
+                      setGeneratedQuizId(null);
+                    }}
+                  />
+                </div>
+              ) : activeChallengeId ? (
                 <div className="space-y-4">
                   <button
                     type="button"
@@ -3961,6 +4222,41 @@ export default function App() {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Left: Quizzes & Challenges (unified) */}
                 <div className="lg:col-span-2 space-y-6">
+                  <div className="glass-panel p-8 rounded-2xl card-hover-glow border-glow">
+                    <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter mb-4 flex items-center gap-3">
+                      <Sparkles className="text-cyan-400" />
+                      AI Mission Recommendations
+                    </h3>
+                    {missionRecommendations.length === 0 ? (
+                      <p className="text-slate-400 text-sm">
+                        Complete a few missions or quizzes to unlock adaptive recommendations.
+                      </p>
+                    ) : (
+                      <div className="space-y-3">
+                        {missionRecommendations.map((rec) => (
+                          <div key={rec.mission_id} className="rounded-xl border border-slate-700/60 bg-slate-900/60 p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-black text-slate-100 uppercase tracking-tight">{rec.title}</p>
+                                <p className="text-[10px] uppercase tracking-widest text-cyan-400 mt-1">
+                                  {(rec.sector || 'STEM')} {rec.difficulty ? `• ${rec.difficulty}` : ''}
+                                </p>
+                                <p className="text-sm text-slate-300 mt-2">{rec.reason}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setActiveView('galaxy')}
+                                className="shrink-0 px-3 py-2 rounded-lg border border-cyan-500/40 text-cyan-300 text-[10px] font-black uppercase tracking-widest hover:bg-cyan-500/10"
+                              >
+                                Open map
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   <div className="glass-panel p-8 rounded-2xl card-hover-glow border-glow">
                     <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter mb-4 flex items-center gap-3">
                       <ClipboardList className="text-cyan-400" />
@@ -4190,6 +4486,44 @@ export default function App() {
         </div>
       )}
 
+      {quizPromptMission && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl" onClick={() => !generatingQuiz && setQuizPromptMission(null)} />
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="relative w-full max-w-xl bg-slate-900 border border-slate-700 rounded-3xl p-8 shadow-2xl"
+          >
+            <h3 className="text-2xl font-black text-slate-100 uppercase tracking-tight mb-2">Mission Complete</h3>
+            <p className="text-slate-300 mb-1">
+              <span className="font-black text-cyan-400">{quizPromptMission.title}</span> completed.
+            </p>
+            <p className="text-slate-400 text-sm mb-6">
+              Generate an AI-style quiz with 5 random questions based on this mission topic.
+            </p>
+            {quizGenerateError && <p className="text-rose-400 text-sm mb-4">{quizGenerateError}</p>}
+            <div className="flex flex-wrap gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setQuizPromptMission(null)}
+                disabled={generatingQuiz}
+                className="px-4 py-2 rounded-xl border border-slate-600 text-slate-300 font-black text-xs uppercase tracking-widest hover:border-slate-400"
+              >
+                Not now
+              </button>
+              <button
+                type="button"
+                onClick={handleGenerateQuizFromMission}
+                disabled={generatingQuiz}
+                className="px-5 py-2 rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 font-black text-xs uppercase tracking-widest hover:bg-cyan-500/30 disabled:opacity-60"
+              >
+                {generatingQuiz ? 'Generating…' : 'Generate Quiz'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {/* Bottom Navigation */}
       <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-40 glass-panel border-glow rounded-2xl px-8 py-4 flex gap-10 box-glow-cyan">
         <button 
@@ -4248,6 +4582,7 @@ export default function App() {
         
         <button 
           onClick={async () => { 
+            await supabase.auth.signOut();
             await fetch('/api/logout', { method: 'POST' });
             setIsLoggedIn(false); 
             setStudent(null); 
