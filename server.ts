@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import Database from "better-sqlite3";
@@ -5,11 +6,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import bcrypt from "bcryptjs";
 import cookieSession from "cookie-session";
-import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin, hasSupabaseAdmin } from "./lib/supabaseAdmin";
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -111,6 +109,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS students (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
+    username TEXT,
     password TEXT DEFAULT 'password123',
     level INTEGER DEFAULT 1,
     xp INTEGER DEFAULT 0,
@@ -190,6 +189,18 @@ db.exec(`
     type TEXT,
     xp_change INTEGER
   );
+
+  CREATE TABLE IF NOT EXISTS ai_usage_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    endpoint TEXT NOT NULL,
+    user_id INTEGER,
+    success INTEGER DEFAULT 1,
+    reason TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_created_at ON ai_usage_logs(created_at);
+  CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_endpoint_created ON ai_usage_logs(endpoint, created_at);
+  CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_user_created ON ai_usage_logs(user_id, created_at);
 `);
 
 // Add Supabase linkage columns without requiring a destructive migration.
@@ -199,6 +210,79 @@ try {
 try {
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_students_supabase_user_id ON students(supabase_user_id)");
 } catch {}
+try {
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_students_username_nocase ON students(username COLLATE NOCASE)");
+} catch {}
+
+const ALLOWED_GENDERS = new Set(["female", "male", "non_binary", "prefer_not_say", "other"]);
+
+const normalizeGender = (raw: unknown): string | null => {
+  const s = String(raw || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!s) return null;
+  if (s === "nonbinary") return "non_binary";
+  if (ALLOWED_GENDERS.has(s)) return s;
+  return null;
+};
+
+const normalizeCountryCode = (raw: unknown): string | null => {
+  const s = String(raw || "").trim().toUpperCase();
+  if (s.length === 2 && /^[A-Z]{2}$/.test(s)) return s;
+  return null;
+};
+
+/** Idempotent column adds for analytics / billing (existing DBs). */
+const STUDENT_ANALYTICS_ALTER = [
+  "ALTER TABLE students ADD COLUMN created_at DATETIME",
+  "ALTER TABLE students ADD COLUMN gender TEXT",
+  "ALTER TABLE students ADD COLUMN country_code TEXT",
+  "ALTER TABLE students ADD COLUMN region TEXT",
+  "ALTER TABLE students ADD COLUMN timezone TEXT",
+  "ALTER TABLE students ADD COLUMN subscription_status TEXT DEFAULT 'free'",
+  "ALTER TABLE students ADD COLUMN subscription_plan TEXT DEFAULT 'free'",
+  "ALTER TABLE students ADD COLUMN billing_provider TEXT DEFAULT 'none'",
+  "ALTER TABLE students ADD COLUMN mrr_cents INTEGER DEFAULT 0",
+  "ALTER TABLE students ADD COLUMN ltv_cents INTEGER DEFAULT 0",
+  "ALTER TABLE students ADD COLUMN last_active_at DATETIME",
+];
+for (const stmt of STUDENT_ANALYTICS_ALTER) {
+  try {
+    db.exec(stmt);
+  } catch (e: any) {
+    if (!/duplicate column name/i.test(e?.message || "")) {
+      console.warn("students migration:", stmt, e?.message);
+    }
+  }
+}
+
+try {
+  db.exec(`UPDATE students SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL`);
+} catch {
+  /* ignore */
+}
+
+const STUDENT_SELECT_PUBLIC =
+  "id, name, username, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number, created_at, gender, country_code, region, timezone, subscription_status, subscription_plan, billing_provider, mrr_cents, ltv_cents, last_active_at";
+
+const STUDENT_SELECT_LOGIN = `${STUDENT_SELECT_PUBLIC.replace(
+  "role, age",
+  "role, password, age",
+)}`;
+
+const lastActiveThrottle = new Map<number, number>();
+const LAST_ACTIVE_MIN_MS = 15 * 60 * 1000;
+
+const bumpLastActive = (userId: number) => {
+  if (!Number.isInteger(userId) || userId < 1) return;
+  const now = Date.now();
+  const prev = lastActiveThrottle.get(userId) || 0;
+  if (now - prev < LAST_ACTIVE_MIN_MS) return;
+  lastActiveThrottle.set(userId, now);
+  try {
+    db.prepare("UPDATE students SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?").run(userId);
+  } catch {
+    /* ignore */
+  }
+};
 
 // Migration: add join_code to classes if missing
 try {
@@ -220,6 +304,22 @@ const ensureUniqueJoinCode = (): string => {
   const exists = db.prepare("SELECT 1 FROM classes WHERE join_code = ?").get(code);
   if (exists) return ensureUniqueJoinCode();
   return code;
+};
+
+const normalizeUsername = (raw: string): string => {
+  const base = raw.toLowerCase().trim().replace(/\s+/g, "").replace(/[^a-z0-9_]/g, "");
+  return base || "player";
+};
+
+const ensureUniqueUsername = (raw: string): string => {
+  const base = normalizeUsername(raw);
+  let candidate = base;
+  let i = 1;
+  while (db.prepare("SELECT 1 FROM students WHERE username = ? COLLATE NOCASE LIMIT 1").get(candidate)) {
+    i += 1;
+    candidate = `${base}${i}`;
+  }
+  return candidate;
 };
 
 // Backfill join_code for existing classes
@@ -245,6 +345,7 @@ try {
 
 // Migration: Add additional profile fields if they don't exist
 for (const column of [
+  "username TEXT",
   "age INTEGER",
   "grade TEXT",
   "school TEXT",
@@ -284,21 +385,63 @@ if (studentCount.count === 0) {
 
 // Ensure demo accounts always have correct bcrypt passwords (fixes DBs created before hashing or with plain-text default)
 const DEMO_ACCOUNTS = [
-  { name: "Alex Rivera", password: "student123" },
-  { name: "Professor Nova", password: "teacher123" },
-  { name: "Admin Core", password: "admin123" },
+  { name: "Alex Rivera", username: "alexrivera", email: "student@example.com", role: "student", password: "student123" },
+  { name: "Professor Nova", username: "professornova", email: "teacher@example.com", role: "teacher", password: "teacher123" },
+  { name: "Admin Core", username: "admincore", email: "admin@example.com", role: "admin", password: "admin123" },
 ] as const;
 const isBcryptHash = (s: string | null) => typeof s === "string" && /^\$2[aby]\$\d+\$/.test(s);
 const updatePasswordById = db.prepare("UPDATE students SET password = ? WHERE id = ?");
-for (const { name, password } of DEMO_ACCOUNTS) {
-  const row = db.prepare("SELECT id, password FROM students WHERE name = ? COLLATE NOCASE").get(name) as { id: number; password: string } | undefined;
-  if (row && !isBcryptHash(row.password)) {
-    updatePasswordById.run(hashPassword(password), row.id);
+for (const { name, username, email, role, password } of DEMO_ACCOUNTS) {
+  const row = db
+    .prepare("SELECT id, password FROM students WHERE name = ? COLLATE NOCASE OR email = ? COLLATE NOCASE LIMIT 1")
+    .get(name, email) as { id: number; password: string } | undefined;
+  if (!row) {
+    const insertStudent = db.prepare(
+      "INSERT INTO students (name, username, password, level, xp, avatar_url, role, email) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    );
+    insertStudent.run(
+      name,
+      username,
+      hashPassword(password),
+      role === "admin" ? 99 : role === "teacher" ? 50 : 24,
+      role === "admin" ? 99999 : role === "teacher" ? 10000 : 2400,
+      `https://picsum.photos/seed/${encodeURIComponent(username)}/200`,
+      role,
+      email,
+    );
+    continue;
   }
+  if (!isBcryptHash(row.password)) updatePasswordById.run(hashPassword(password), row.id);
+  db.prepare("UPDATE students SET name = ?, username = COALESCE(username, ?), email = COALESCE(email, ?), role = ? WHERE id = ?")
+    .run(name, username, email, role, row.id);
+}
+
+/** Sample demographics / billing for dev quick-access accounts (idempotent). */
+try {
+  db.prepare(
+    `UPDATE students SET gender = 'male', country_code = 'US', region = 'CA', created_at = COALESCE(created_at, CURRENT_TIMESTAMP),
+     subscription_status = 'trial', subscription_plan = 'pro', billing_provider = 'manual', mrr_cents = 0
+     WHERE email = 'student@example.com' COLLATE NOCASE`,
+  ).run();
+  db.prepare(
+    `UPDATE students SET gender = 'female', country_code = 'CA', region = 'ON', created_at = COALESCE(created_at, CURRENT_TIMESTAMP),
+     subscription_status = 'active', subscription_plan = 'school', billing_provider = 'manual', mrr_cents = 2999, ltv_cents = 8997
+     WHERE email = 'teacher@example.com' COLLATE NOCASE`,
+  ).run();
+  db.prepare(
+    `UPDATE students SET country_code = 'US', subscription_status = 'free', subscription_plan = 'free', billing_provider = 'none', mrr_cents = 0
+     WHERE email = 'admin@example.com' COLLATE NOCASE`,
+  ).run();
+} catch {
+  /* ignore */
 }
 
 async function startServer() {
   const isProduction = process.env.NODE_ENV === "production";
+  const ENABLE_TEST_ACCOUNTS =
+    String(process.env.ENABLE_TEST_ACCOUNTS || "true").toLowerCase() === "true";
+  const ALLOW_LOCAL_AUTH_FALLBACK =
+    String(process.env.ALLOW_LOCAL_AUTH_FALLBACK || (isProduction ? "false" : "true")).toLowerCase() === "true";
   const SESSION_SECRET = process.env.SESSION_SECRET || "dev-change-me-please";
   if (isProduction && (!SESSION_SECRET || SESSION_SECRET === "dev-change-me-please")) {
     console.error("FATAL: Set SESSION_SECRET to a long random string in production (e.g. 32+ chars).");
@@ -334,9 +477,15 @@ async function startServer() {
 
   type SessionUser = { id: number; name: string; role: string };
 
-  const sanitizeUser = (user: any) => {
+  /** Drop revenue fields for non-admin viewers (admin UI loads full rows via session). */
+  const sanitizeUser = (user: any, viewerRole?: string) => {
     if (!user) return null;
     const { password: _pw, ...rest } = user;
+    if (viewerRole !== "admin") {
+      delete rest.mrr_cents;
+      delete rest.ltv_cents;
+      delete rest.billing_provider;
+    }
     return rest;
   };
 
@@ -392,6 +541,9 @@ async function startServer() {
   const AI_API_KEY = process.env.OPENAI_API_KEY || process.env.AI_API_KEY || "";
   const AI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
   const AI_BASE_URL = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
+  const AI_DAILY_GLOBAL_LIMIT = Number(process.env.AI_DAILY_GLOBAL_LIMIT || 500);
+  const AI_DAILY_QUIZ_LIMIT_PER_USER = Number(process.env.AI_DAILY_QUIZ_LIMIT_PER_USER || 3);
+  const AI_DAILY_RECOMMEND_LIMIT_PER_USER = Number(process.env.AI_DAILY_RECOMMEND_LIMIT_PER_USER || 5);
 
   const safeJsonParse = <T = unknown>(raw: string): T | null => {
     try {
@@ -430,6 +582,63 @@ async function startServer() {
     }
   };
 
+  const getAiUsageCountToday = (endpoint?: string, userId?: number) => {
+    if (endpoint && userId != null) {
+      const row = db
+        .prepare(
+          `SELECT COUNT(*) as count
+           FROM ai_usage_logs
+           WHERE date(created_at) = date('now')
+             AND endpoint = ?
+             AND user_id = ?`,
+        )
+        .get(endpoint, userId) as { count: number };
+      return Number(row?.count || 0);
+    }
+    if (endpoint) {
+      const row = db
+        .prepare(
+          `SELECT COUNT(*) as count
+           FROM ai_usage_logs
+           WHERE date(created_at) = date('now')
+             AND endpoint = ?`,
+        )
+        .get(endpoint) as { count: number };
+      return Number(row?.count || 0);
+    }
+    const row = db
+      .prepare(`SELECT COUNT(*) as count FROM ai_usage_logs WHERE date(created_at) = date('now')`)
+      .get() as { count: number };
+    return Number(row?.count || 0);
+  };
+
+  const logAiUsage = (endpoint: "generate_quiz" | "recommendations", userId: number, success: 0 | 1, reason?: string) => {
+    db.prepare("INSERT INTO ai_usage_logs (endpoint, user_id, success, reason) VALUES (?, ?, ?, ?)")
+      .run(endpoint, userId, success, reason || null);
+  };
+
+  const checkAndLogAiQuota = (endpoint: "generate_quiz" | "recommendations", userId: number) => {
+    const globalCount = getAiUsageCountToday();
+    if (globalCount >= AI_DAILY_GLOBAL_LIMIT) {
+      logAiUsage(endpoint, userId, 0, "global_limit");
+      return {
+        ok: false,
+        message: "AI daily platform limit reached. Please try again tomorrow.",
+      } as const;
+    }
+    const perUserLimit = endpoint === "generate_quiz" ? AI_DAILY_QUIZ_LIMIT_PER_USER : AI_DAILY_RECOMMEND_LIMIT_PER_USER;
+    const userCount = getAiUsageCountToday(endpoint, userId);
+    if (userCount >= perUserLimit) {
+      logAiUsage(endpoint, userId, 0, "user_limit");
+      return {
+        ok: false,
+        message: `Daily AI limit reached for this feature (${perUserLimit}/day). Please try again tomorrow.`,
+      } as const;
+    }
+    logAiUsage(endpoint, userId, 1, "accepted");
+    return { ok: true, message: "" } as const;
+  };
+
   /** Map Supabase user + metadata to a local SQLite students row (numeric id) for existing app APIs. */
   const linkSupabaseUserToLocalStudent = (
     sbUser: { id: string; email?: string | null },
@@ -442,35 +651,128 @@ async function startServer() {
     const displayName = String(
       metadata.display_name || metadata.full_name || metadata.name || (email ? email.split("@")[0] : "Student"),
     ).trim();
+    const preferredUsername = ensureUniqueUsername(displayName);
     const avatarSeed = encodeURIComponent(displayName.toLowerCase().replace(/\s+/g, "-"));
 
     let localUser = db
       .prepare(
-        "SELECT id, name, role FROM students WHERE supabase_user_id = ? OR (email IS NOT NULL AND email = ?) LIMIT 1",
+        "SELECT id, name, role, username FROM students WHERE supabase_user_id = ? OR (email IS NOT NULL AND email = ?) LIMIT 1",
       )
-      .get(sbUser.id, email) as SessionUser | undefined;
+      .get(sbUser.id, email) as (SessionUser & { username?: string | null }) | undefined;
 
     if (!localUser) {
       const inserted = db
         .prepare(
           `INSERT INTO students
-           (name, password, level, xp, avatar_url, role, email, supabase_user_id)
-           VALUES (?, ?, 1, 0, ?, ?, ?, ?)`,
+           (name, username, password, level, xp, avatar_url, role, email, supabase_user_id, created_at, subscription_status, subscription_plan, billing_provider, mrr_cents, ltv_cents)
+           VALUES (?, ?, ?, 1, 0, ?, ?, ?, ?, CURRENT_TIMESTAMP, 'free', 'free', 'none', 0, 0)`,
         )
         .run(
           displayName,
+          preferredUsername,
           hashPassword(String(Math.random())),
           `https://picsum.photos/seed/${avatarSeed}/200`,
           desiredRole,
           email,
           sbUser.id,
         );
-      localUser = db.prepare("SELECT id, name, role FROM students WHERE id = ?").get(inserted.lastInsertRowid) as SessionUser | undefined;
+      localUser = db.prepare("SELECT id, name, role, username FROM students WHERE id = ?").get(inserted.lastInsertRowid) as (SessionUser & { username?: string | null }) | undefined;
     } else {
       db.prepare("UPDATE students SET supabase_user_id = ?, email = COALESCE(email, ?) WHERE id = ?").run(sbUser.id, email, localUser.id);
+      if (!localUser.username) {
+        const generated = ensureUniqueUsername(displayName);
+        db.prepare("UPDATE students SET username = ? WHERE id = ?").run(generated, localUser.id);
+      }
     }
-    return localUser;
+    return localUser ? { id: localUser.id, name: localUser.name, role: localUser.role } : undefined;
   };
+
+  const ensureBuiltinTestAccounts = async () => {
+    if (!hasSupabaseAdmin || !supabaseAdmin) return;
+    if (String(process.env.ENABLE_TEST_ACCOUNTS || "true").toLowerCase() === "false") return;
+
+    const accounts = [
+      { email: "student@example.com", password: "student123", role: "student", name: "Alex Rivera" },
+      { email: "teacher@example.com", password: "teacher123", role: "teacher", name: "Professor Nova" },
+      { email: "admin@example.com", password: "admin123", role: "admin", name: "Admin Core" },
+    ] as const;
+
+    const asSupabaseRole = (role: string) => (role === "teacher" ? "educator" : role);
+
+    const listed = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    const byEmail = new Map<string, string>();
+    for (const u of listed.data?.users || []) {
+      if (u.email) byEmail.set(u.email.toLowerCase(), u.id);
+    }
+
+    for (const account of accounts) {
+      const email = account.email.toLowerCase();
+      const userId = byEmail.get(email);
+      let finalId: string | null = null;
+
+      if (userId) {
+        const updated = await supabaseAdmin.auth.admin.updateUserById(userId, {
+          password: account.password,
+          email_confirm: true,
+          user_metadata: {
+            role: asSupabaseRole(account.role),
+            display_name: account.name,
+            name: account.name,
+          },
+        });
+        if (!updated.error && updated.data?.user) finalId = updated.data.user.id;
+      } else {
+        const created = await supabaseAdmin.auth.admin.createUser({
+          email,
+          password: account.password,
+          email_confirm: true,
+          user_metadata: {
+            role: asSupabaseRole(account.role),
+            display_name: account.name,
+            name: account.name,
+          },
+        });
+        if (!created.error && created.data?.user) finalId = created.data.user.id;
+      }
+
+      if (!finalId) continue;
+
+      const linked = linkSupabaseUserToLocalStudent(
+        { id: finalId, email },
+        { role: asSupabaseRole(account.role), display_name: account.name, name: account.name },
+      );
+      if (linked) {
+        const username = ensureUniqueUsername(account.name);
+        db.prepare(
+          `UPDATE students
+           SET name = ?, role = ?, email = COALESCE(email, ?), username = COALESCE(username, ?), password = ?, supabase_user_id = ?
+           WHERE id = ?`,
+        ).run(account.name, account.role, email, username, hashPassword(account.password), finalId, linked.id);
+      }
+    }
+  };
+
+  await ensureBuiltinTestAccounts();
+
+  app.get("/api/auth/health", (_req, res) => {
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
+    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+    const hasSessionSecret = Boolean(process.env.SESSION_SECRET && String(process.env.SESSION_SECRET).trim().length > 0);
+    res.json({
+      success: true,
+      auth: {
+        mode: hasSupabaseAdmin ? "supabase" : "local",
+        has_supabase_admin: hasSupabaseAdmin,
+        has_supabase_url: Boolean(supabaseUrl),
+        has_supabase_anon_key: Boolean(supabaseAnonKey),
+        has_supabase_service_role_key: Boolean(supabaseServiceRoleKey),
+        has_session_secret: hasSessionSecret,
+        allow_local_auth_fallback: ALLOW_LOCAL_AUTH_FALLBACK,
+        enable_test_accounts: String(process.env.ENABLE_TEST_ACCOUNTS || "true").toLowerCase() === "true",
+      },
+    });
+  });
 
   const requireAuth: express.RequestHandler = async (req, res, next) => {
     const sessionUser = (req.session as any)?.user as SessionUser | undefined;
@@ -591,6 +893,11 @@ async function startServer() {
   });
 
   app.get("/api/students", requireAuth, (req, res) => {
+    const sessionUser = (req.session as any)?.user as SessionUser;
+    if (sessionUser.role === "admin") {
+      const students = db.prepare("SELECT " + STUDENT_SELECT_PUBLIC + " FROM students ORDER BY id").all();
+      return res.json(students);
+    }
     const students = db.prepare("SELECT id, name, level, xp, avatar_url, role FROM students").all();
     res.json(students);
   });
@@ -621,7 +928,21 @@ async function startServer() {
       email,
       parent_email,
       contact_number,
+      gender: genderRaw,
+      country_code: countryRaw,
+      region: regionRaw,
+      timezone: timezoneRaw,
     } = req.body;
+    const gender = normalizeGender(genderRaw);
+    if (genderRaw != null && String(genderRaw).trim() !== "" && gender === null) {
+      return res.status(400).json({ success: false, message: "Invalid gender value" });
+    }
+    const country_code = normalizeCountryCode(countryRaw);
+    if (countryRaw != null && String(countryRaw).trim() !== "" && country_code === null) {
+      return res.status(400).json({ success: false, message: "country_code must be ISO 3166-1 alpha-2 (e.g. US)" });
+    }
+    const region = regionRaw != null ? String(regionRaw).trim() || null : null;
+    const timezone = timezoneRaw != null ? String(timezoneRaw).trim() || null : null;
 
     if (!name || !password || !email || !role) {
       return res.status(400).json({ success: false, message: "Missing required fields" });
@@ -633,6 +954,7 @@ async function startServer() {
 
     const avatarSeed = encodeURIComponent(name.trim().toLowerCase().replace(/\s+/g, "-"));
     const avatar_url = `https://picsum.photos/seed/${avatarSeed}/200`;
+    const username = ensureUniqueUsername(name);
 
     // Supabase-first signup path
     if (hasSupabaseAdmin && supabaseAdmin) {
@@ -650,7 +972,8 @@ async function startServer() {
         password,
         options: {
           data: {
-            role,
+            role: mappedRole,
+            username,
             display_name: name,
             age: age || null,
             grade_level: grade || null,
@@ -658,11 +981,43 @@ async function startServer() {
             city: city || null,
             parent_email: parent_email || null,
             contact_number: contact_number || null,
+            gender: gender || null,
+            country_code: country_code || null,
+            region,
+            timezone,
           },
         },
       });
       if (signUp.error || !signUp.data.user) {
-        return res.status(400).json({ success: false, message: signUp.error?.message || "Signup failed" });
+        const msg = String(signUp.error?.message || "Signup failed");
+        if (/already|exists|registered/i.test(msg)) {
+          // If account exists, allow immediate sign-in with provided password to avoid signup/login loops.
+          const existingSignIn = await supabasePublic.auth.signInWithPassword({ email, password });
+          if (!existingSignIn.error && existingSignIn.data.user) {
+            const existingMeta = (existingSignIn.data.user.user_metadata || {}) as Record<string, any>;
+            const linked = linkSupabaseUserToLocalStudent(existingSignIn.data.user, existingMeta);
+            const fullUser = linked
+              ? db
+                  .prepare(
+                    "SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE id = ?",
+                  )
+                  .get(linked.id)
+              : null;
+            if (linked && fullUser) {
+              (req.session as any).user = { id: (fullUser as any).id, name: (fullUser as any).name, role: (fullUser as any).role };
+              bumpLastActive((fullUser as any).id);
+              return res.json({
+                success: true,
+                already_exists: true,
+                message: "Account already existed. You are now signed in.",
+                access_token: existingSignIn.data.session?.access_token || null,
+                user: sanitizeUser(fullUser, (fullUser as any).role),
+              });
+            }
+          }
+          return res.status(409).json({ success: false, message: "User already exists. Please sign in instead." });
+        }
+        return res.status(400).json({ success: false, message: msg });
       }
       const sbNew = signUp.data.user;
       await supabaseAdmin.from("profiles").upsert({
@@ -672,6 +1027,15 @@ async function startServer() {
         school: school || null,
         grade_level: grade || null,
         avatar_url,
+        gender: gender || null,
+        country_code: country_code || null,
+        region,
+        timezone,
+        subscription_status: "free",
+        subscription_plan: "free",
+        billing_provider: "none",
+        mrr_cents: 0,
+        ltv_cents: 0,
       });
       if (!signUp.data.session?.access_token) {
         return res.json({
@@ -682,17 +1046,18 @@ async function startServer() {
         });
       }
       let localUser = db
-        .prepare("SELECT id, name, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number FROM students WHERE supabase_user_id = ? OR (email IS NOT NULL AND email = ?) LIMIT 1")
+        .prepare("SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE supabase_user_id = ? OR (email IS NOT NULL AND email = ?) LIMIT 1")
         .get(sbNew.id, email) as Record<string, unknown> | undefined;
       if (!localUser) {
         const inserted = db
           .prepare(
             `INSERT INTO students
-             (name, password, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number, supabase_user_id)
-             VALUES (?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             (name, username, password, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number, supabase_user_id, created_at, gender, country_code, region, timezone)
+             VALUES (?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?)`,
           )
           .run(
             name,
+            username,
             hashPassword(String(Math.random())),
             avatar_url,
             role,
@@ -704,17 +1069,22 @@ async function startServer() {
             parent_email || null,
             contact_number || null,
             sbNew.id,
+            gender,
+            country_code,
+            region,
+            timezone,
           );
         localUser = db
           .prepare(
-            "SELECT id, name, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number FROM students WHERE id = ?",
+            "SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE id = ?",
           )
           .get(inserted.lastInsertRowid) as Record<string, unknown>;
       } else {
         db.prepare(
-          "UPDATE students SET name = ?, role = ?, avatar_url = ?, age = ?, grade = ?, school = ?, city = ?, email = ?, parent_email = ?, contact_number = ?, supabase_user_id = ? WHERE id = ?",
+          "UPDATE students SET name = ?, username = COALESCE(username, ?), role = ?, avatar_url = ?, age = ?, grade = ?, school = ?, city = ?, email = ?, parent_email = ?, contact_number = ?, supabase_user_id = ?, gender = COALESCE(?, gender), country_code = COALESCE(?, country_code), region = COALESCE(?, region), timezone = COALESCE(?, timezone), created_at = COALESCE(created_at, CURRENT_TIMESTAMP) WHERE id = ?",
         ).run(
           name,
+          username,
           role,
           avatar_url,
           age || null,
@@ -725,26 +1095,32 @@ async function startServer() {
           parent_email || null,
           contact_number || null,
           sbNew.id,
+          gender,
+          country_code,
+          region,
+          timezone,
           localUser.id,
         );
         localUser = db
           .prepare(
-            "SELECT id, name, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number FROM students WHERE id = ?",
+            "SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE id = ?",
           )
           .get(localUser.id) as Record<string, unknown>;
       }
       (req.session as any).user = { id: (localUser as any).id, name: (localUser as any).name, role: (localUser as any).role };
-      return res.json({ success: true, access_token: signUp.data.session.access_token, user: sanitizeUser(localUser) });
+      bumpLastActive((localUser as any).id);
+      return res.json({ success: true, access_token: signUp.data.session.access_token, username: (localUser as any).username, user: sanitizeUser(localUser) });
     }
 
     const insert = db.prepare(
       `INSERT INTO students
-        (name, password, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number)
-       VALUES (?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (name, username, password, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number, created_at, gender, country_code, region, timezone)
+       VALUES (?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?)`,
     );
 
     const result = insert.run(
       name,
+      username,
       hashPassword(password),
       avatar_url,
       role,
@@ -755,22 +1131,27 @@ async function startServer() {
       email || null,
       parent_email || null,
       contact_number || null,
+      gender,
+      country_code,
+      region,
+      timezone,
     );
 
     const user = db
       .prepare(
-        "SELECT id, name, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number FROM students WHERE id = ?",
+        "SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE id = ?",
       )
       .get(result.lastInsertRowid);
 
     (req.session as any).user = { id: (user as any).id, name: (user as any).name, role: (user as any).role };
 
-    res.json({ success: true, user });
+    bumpLastActive((user as any).id);
+    res.json({ success: true, username: (user as any).username, user });
   });
 
   app.post("/api/login", rateLimitAuth, async (req, res) => {
-    const { name, email, password } = req.body;
-    const identifier = email || name;
+    const { name, username, email, password } = req.body;
+    const identifier = String(email || username || name || "").trim();
     console.log(`Login attempt for: ${identifier}`);
 
     if (hasSupabaseAdmin && supabaseAdmin) {
@@ -779,15 +1160,42 @@ async function startServer() {
       if (!supabaseUrl || !supabaseAnonKey) {
         return res.status(500).json({ success: false, message: "Supabase environment is not configured." });
       }
-      if (!email || !password) {
-        return res.status(400).json({ success: false, message: "Email and password are required." });
+      if (!identifier || !password) {
+        return res.status(400).json({ success: false, message: "Username/email and password are required." });
+      }
+      let emailForAuth = identifier.includes("@") ? identifier : "";
+      if (!emailForAuth) {
+        const row = db
+          .prepare("SELECT email FROM students WHERE username = ? COLLATE NOCASE OR name = ? COLLATE NOCASE LIMIT 1")
+          .get(identifier, identifier) as { email?: string | null } | undefined;
+        emailForAuth = String(row?.email || "").trim();
+      }
+      if (!emailForAuth) {
+        return res.status(401).json({ success: false, message: "No account found for this username. Try email login once." });
       }
       const supabasePublic = createClient(supabaseUrl, supabaseAnonKey, {
         auth: { autoRefreshToken: false, persistSession: false },
       });
-      const signIn = await supabasePublic.auth.signInWithPassword({ email, password });
+      const signIn = await supabasePublic.auth.signInWithPassword({ email: emailForAuth, password });
       if (signIn.error || !signIn.data.user) {
-        return res.status(401).json({ success: false, message: signIn.error?.message || "Invalid credentials" });
+        if (!ALLOW_LOCAL_AUTH_FALLBACK) {
+          return res.status(401).json({
+            success: false,
+            message: signIn.error?.message || "Invalid credentials",
+          });
+        }
+        // Local fallback for testing and resilience when Supabase user store is out of sync.
+        const localUser = db
+          .prepare(
+            "SELECT " + STUDENT_SELECT_LOGIN + " FROM students WHERE username = ? COLLATE NOCASE OR name = ? COLLATE NOCASE OR email = ? COLLATE NOCASE LIMIT 1",
+          )
+          .get(identifier, identifier, identifier) as any;
+        if (!localUser || !bcrypt.compareSync(password, localUser.password)) {
+          return res.status(401).json({ success: false, message: signIn.error?.message || "Invalid credentials" });
+        }
+        (req.session as any).user = { id: localUser.id, name: localUser.name, role: localUser.role };
+        bumpLastActive(localUser.id);
+        return res.json({ success: true, access_token: null, user: sanitizeUser(localUser) });
       }
       const sbUser = signIn.data.user;
       const meta = (sbUser.user_metadata || {}) as Record<string, any>;
@@ -829,7 +1237,7 @@ async function startServer() {
 
       const fullUser = db
         .prepare(
-          "SELECT id, name, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number FROM students WHERE id = ?",
+          "SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE id = ?",
         )
         .get(linked.id);
       if (!fullUser) {
@@ -837,6 +1245,7 @@ async function startServer() {
       }
 
       (req.session as any).user = { id: (fullUser as any).id, name: (fullUser as any).name, role: (fullUser as any).role };
+      bumpLastActive((fullUser as any).id);
       return res.json({
         success: true,
         access_token: signIn.data.session?.access_token || null,
@@ -846,23 +1255,23 @@ async function startServer() {
 
     const user = db
       .prepare(
-        "SELECT id, name, level, xp, avatar_url, role, password, age, grade, school, city, email, parent_email, contact_number FROM students WHERE name = ? COLLATE NOCASE",
+        "SELECT " + STUDENT_SELECT_LOGIN + " FROM students WHERE username = ? COLLATE NOCASE OR name = ? COLLATE NOCASE OR email = ? COLLATE NOCASE",
       )
-      .get(name);
+      .get(identifier, identifier, identifier);
 
     if (!user) {
-      console.log(`Login failed: ${name} (no such user)`);
+      console.log(`Login failed: ${identifier} (no such user)`);
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
     const matches = bcrypt.compareSync(password, (user as any).password);
 
     if (!matches) {
-      console.log(`Login failed: ${name} (bad password)`);
+      console.log(`Login failed: ${identifier} (bad password)`);
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
-    console.log(`Login success: ${name} (${(user as any).role})`);
+    console.log(`Login success: ${identifier} (${(user as any).role})`);
 
     (req.session as any).user = { id: (user as any).id, name: (user as any).name, role: (user as any).role };
 
@@ -906,6 +1315,10 @@ async function startServer() {
   // AI-style quiz generation for a completed mission (unique per student/request)
   app.post("/api/missions/:id/generate-quiz", requireAuth, requireRole(["student"]), (req, res) => {
     const sessionUser = (req.session as any)?.user as SessionUser;
+    const quota = checkAndLogAiQuota("generate_quiz", sessionUser.id);
+    if (!quota.ok) {
+      return res.status(429).json({ success: false, message: quota.message });
+    }
     const missionId = Number(req.params.id);
     if (!Number.isInteger(missionId) || missionId < 1) {
       return res.status(400).json({ success: false, message: "Invalid mission id" });
@@ -1037,6 +1450,11 @@ Create the quiz now.`;
 
   // AI mission recommendations (adaptive next-skill path)
   app.get("/api/students/:id/recommendations", requireAuth, requireStudentAccess, async (req, res) => {
+    const sessionUser = (req.session as any)?.user as SessionUser;
+    const quota = checkAndLogAiQuota("recommendations", sessionUser.id);
+    if (!quota.ok) {
+      return res.status(429).json({ success: false, message: quota.message, recommendations: [] });
+    }
     const studentId = Number(req.params.id);
     if (!Number.isInteger(studentId) || studentId < 1) return res.status(400).json({ success: false, message: "Invalid student id" });
 
@@ -1257,6 +1675,7 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
     db.prepare(
       "INSERT INTO challenge_attempts (student_id, challenge_id, attempt_number, score, correct, response_json, time_ms) VALUES (?, ?, ?, ?, ?, ?, ?)"
     ).run(sessionUser.id, challengeId, attemptNumber, scoreNum, correctNum, typeof response === "string" ? response : JSON.stringify(response ?? {}), time_ms ?? null);
+    bumpLastActive(sessionUser.id);
     let xpEarned = 0;
     if (correctNum) {
       xpEarned = challenge.xp_reward + (attemptNumber === 1 ? (challenge.xp_bonus_first_try || 0) : 0) - (attemptNumber > 1 ? (challenge.xp_retry_penalty || 0) * (attemptNumber - 1) : 0);
@@ -1361,6 +1780,248 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
   app.get("/api/logs", requireAuth, requireRole(["admin"]), (req, res) => {
     const logs = db.prepare("SELECT * FROM logs ORDER BY timestamp DESC LIMIT 20").all();
     res.json(logs);
+  });
+
+  app.get("/api/admin/metrics", requireAuth, requireRole(["admin"]), (_req, res) => {
+    const byRole = db.prepare("SELECT role, COUNT(*) as n FROM students GROUP BY role").all() as { role: string; n: number }[];
+    const bySubscriptionStatus = db
+      .prepare(
+        "SELECT COALESCE(NULLIF(TRIM(subscription_status), ''), 'free') as subscription_status, COUNT(*) as n FROM students GROUP BY 1",
+      )
+      .all() as { subscription_status: string; n: number }[];
+    const byPlan = db
+      .prepare(
+        "SELECT COALESCE(NULLIF(TRIM(subscription_plan), ''), 'free') as subscription_plan, COUNT(*) as n FROM students GROUP BY 1",
+      )
+      .all() as { subscription_plan: string; n: number }[];
+    const byGender = db
+      .prepare(
+        `SELECT CASE WHEN gender IS NULL OR TRIM(gender) = '' THEN 'unspecified' ELSE gender END as gender, COUNT(*) as n
+         FROM students GROUP BY 1`,
+      )
+      .all() as { gender: string; n: number }[];
+    const byCountry = db
+      .prepare(
+        `SELECT CASE WHEN country_code IS NULL OR TRIM(country_code) = '' THEN 'unspecified' ELSE country_code END as country_code, COUNT(*) as n
+         FROM students GROUP BY 1 ORDER BY n DESC LIMIT 20`,
+      )
+      .all() as { country_code: string; n: number }[];
+    const byCity = db
+      .prepare(
+        `SELECT CASE WHEN city IS NULL OR TRIM(city) = '' THEN 'unspecified' ELSE city END as city, COUNT(*) as n
+         FROM students GROUP BY 1 ORDER BY n DESC LIMIT 15`,
+      )
+      .all() as { city: string; n: number }[];
+    const ageBuckets = db
+      .prepare(
+        `SELECT bucket, COUNT(*) as n FROM (
+           SELECT CASE
+             WHEN age IS NULL THEN 'unspecified'
+             WHEN age < 13 THEN 'under_13'
+             WHEN age <= 17 THEN '13_17'
+             ELSE '18_plus'
+           END as bucket
+           FROM students
+         ) GROUP BY bucket`,
+      )
+      .all() as { bucket: string; n: number }[];
+    const gradeDist = db
+      .prepare(
+        "SELECT CASE WHEN grade IS NULL OR TRIM(grade) = '' THEN 'unspecified' ELSE grade END as grade, COUNT(*) as n FROM students GROUP BY 1 ORDER BY n DESC LIMIT 12",
+      )
+      .all() as { grade: string; n: number }[];
+
+    const signups30 = db
+      .prepare(
+        `SELECT date(created_at) as day, COUNT(*) as n FROM students
+         WHERE created_at IS NOT NULL AND date(created_at) >= date('now', '-30 days')
+         GROUP BY date(created_at) ORDER BY day`,
+      )
+      .all() as { day: string; n: number }[];
+
+    const studentRoleCount = (byRole.find((r) => r.role === "student")?.n ?? 0) as number;
+    const activatedRow = db
+      .prepare(
+        `SELECT COUNT(DISTINCT s.id) as n FROM students s
+         WHERE s.role = 'student' AND EXISTS (
+           SELECT 1 FROM student_mission_completions smc WHERE smc.student_id = s.id
+         )`,
+      )
+      .get() as { n: number };
+    const activationRatePct =
+      studentRoleCount > 0 ? Math.round((Number(activatedRow.n) / studentRoleCount) * 1000) / 10 : 0;
+
+    const dau = db.prepare(`SELECT COUNT(*) as n FROM students WHERE last_active_at >= datetime('now', '-1 day')`).get() as { n: number };
+    const wau = db.prepare(`SELECT COUNT(*) as n FROM students WHERE last_active_at >= datetime('now', '-7 day')`).get() as { n: number };
+    const mau = db.prepare(`SELECT COUNT(*) as n FROM students WHERE last_active_at >= datetime('now', '-30 day')`).get() as { n: number };
+
+    const activeLast7 = Number((db.prepare(`SELECT COUNT(*) as n FROM students WHERE last_active_at >= datetime('now', '-7 day')`).get() as { n: number }).n);
+    const returningWeekly = Number(
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) as n FROM students WHERE last_active_at >= datetime('now', '-7 day')
+             AND created_at IS NOT NULL AND datetime(created_at) <= datetime('now', '-7 day')`,
+          )
+          .get() as { n: number }
+      ).n,
+    );
+    const weeklyReturningSharePct = activeLast7 > 0 ? Math.round((returningWeekly / activeLast7) * 1000) / 10 : 0;
+
+    const classCount = Number((db.prepare("SELECT COUNT(*) as n FROM classes").get() as { n: number }).n);
+    const avgMissionsPerClass =
+      classCount > 0
+        ? Math.round(
+            (Number((db.prepare("SELECT COUNT(*) as n FROM class_missions").get() as { n: number }).n) / classCount) * 100,
+          ) / 100
+        : 0;
+    const avgQuizzesPerClass =
+      classCount > 0
+        ? Math.round(
+            (Number((db.prepare("SELECT COUNT(*) as n FROM class_quizzes").get() as { n: number }).n) / classCount) * 100,
+          ) / 100
+        : 0;
+    const avgChallengesPerClass =
+      classCount > 0
+        ? Math.round(
+            (Number((db.prepare("SELECT COUNT(*) as n FROM class_challenges").get() as { n: number }).n) / classCount) * 100,
+          ) / 100
+        : 0;
+
+    const aiByDay = db
+      .prepare(
+        `SELECT date(created_at) as day, endpoint, SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as ok, COUNT(*) as total
+         FROM ai_usage_logs WHERE date(created_at) >= date('now', '-14 days')
+         GROUP BY date(created_at), endpoint ORDER BY day, endpoint`,
+      )
+      .all() as { day: string; endpoint: string; ok: number; total: number }[];
+
+    const mrrRow = db
+      .prepare(`SELECT COALESCE(SUM(mrr_cents), 0) as mrr FROM students WHERE subscription_status = 'active'`)
+      .get() as { mrr: number };
+    const mrrCents = Number(mrrRow.mrr || 0);
+    const payingUsers = Number(
+      (db.prepare(`SELECT COUNT(*) as n FROM students WHERE subscription_status = 'active' AND mrr_cents > 0`).get() as { n: number }).n,
+    );
+    const trialUsers = Number(
+      (db.prepare(`SELECT COUNT(*) as n FROM students WHERE subscription_status = 'trial'`).get() as { n: number }).n,
+    );
+    const pastDueUsers = Number(
+      (db.prepare(`SELECT COUNT(*) as n FROM students WHERE subscription_status = 'past_due'`).get() as { n: number }).n,
+    );
+    const freeOrNone = Number(
+      (db.prepare(`SELECT COUNT(*) as n FROM students WHERE subscription_status IS NULL OR subscription_status IN ('free','none')`).get() as { n: number }).n,
+    );
+    const arpuCents = payingUsers > 0 ? Math.round(mrrCents / payingUsers) : 0;
+    const ltvSumCents = Number((db.prepare(`SELECT COALESCE(SUM(ltv_cents), 0) as s FROM students`).get() as { s: number }).s);
+
+    res.json({
+      byRole,
+      bySubscriptionStatus,
+      byPlan,
+      byGender,
+      byCountry,
+      byCity,
+      ageBuckets,
+      gradeDistribution: gradeDist,
+      signupsLast30Days: signups30,
+      monetization: {
+        mrrCents,
+        arpuCents,
+        payingUsers,
+        trialUsers,
+        pastDueUsers,
+        freeOrUnpaidUsers: freeOrNone,
+        ltvSumCents,
+      },
+      product: {
+        studentCount: studentRoleCount,
+        activatedStudents: Number(activatedRow.n),
+        activationRatePct,
+        dau: Number(dau.n),
+        wau: Number(wau.n),
+        mau: Number(mau.n),
+        weeklyReturningSharePct,
+        classCount,
+        avgMissionsPerClass,
+        avgQuizzesPerClass,
+        avgChallengesPerClass,
+      },
+      aiUsageByDay: aiByDay,
+    });
+  });
+
+  app.patch("/api/admin/students/:id", requireAuth, requireRole(["admin"]), (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ success: false, message: "Invalid id" });
+    const row = db.prepare("SELECT id FROM students WHERE id = ?").get(id);
+    if (!row) return res.status(404).json({ success: false, message: "User not found" });
+
+    const allowed = [
+      "subscription_status",
+      "subscription_plan",
+      "billing_provider",
+      "mrr_cents",
+      "ltv_cents",
+      "gender",
+      "country_code",
+      "region",
+      "timezone",
+    ] as const;
+    const updates: Record<string, unknown> = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+    if (updates.subscription_status !== undefined) {
+      const s = String(updates.subscription_status || "").trim().toLowerCase();
+      const ok = ["none", "free", "trial", "active", "past_due", "canceled"].includes(s);
+      if (!ok) return res.status(400).json({ success: false, message: "Invalid subscription_status" });
+      updates.subscription_status = s;
+    }
+    if (updates.subscription_plan !== undefined) {
+      updates.subscription_plan = String(updates.subscription_plan || "free").trim() || "free";
+    }
+    if (updates.billing_provider !== undefined) {
+      const b = String(updates.billing_provider || "none").trim().toLowerCase();
+      if (!["none", "manual", "stripe"].includes(b)) {
+        return res.status(400).json({ success: false, message: "Invalid billing_provider" });
+      }
+      updates.billing_provider = b;
+    }
+    if (updates.mrr_cents !== undefined) {
+      const n = Number(updates.mrr_cents);
+      if (!Number.isFinite(n) || n < 0) return res.status(400).json({ success: false, message: "Invalid mrr_cents" });
+      updates.mrr_cents = Math.round(n);
+    }
+    if (updates.ltv_cents !== undefined) {
+      const n = Number(updates.ltv_cents);
+      if (!Number.isFinite(n) || n < 0) return res.status(400).json({ success: false, message: "Invalid ltv_cents" });
+      updates.ltv_cents = Math.round(n);
+    }
+    if (updates.gender !== undefined) {
+      const g = normalizeGender(updates.gender);
+      if (req.body.gender != null && String(req.body.gender).trim() !== "" && g === null) {
+        return res.status(400).json({ success: false, message: "Invalid gender" });
+      }
+      updates.gender = g;
+    }
+    if (updates.country_code !== undefined) {
+      const cc = normalizeCountryCode(updates.country_code);
+      if (req.body.country_code != null && String(req.body.country_code).trim() !== "" && cc === null) {
+        return res.status(400).json({ success: false, message: "Invalid country_code" });
+      }
+      updates.country_code = cc;
+    }
+    if (updates.region !== undefined) updates.region = String(updates.region || "").trim() || null;
+    if (updates.timezone !== undefined) updates.timezone = String(updates.timezone || "").trim() || null;
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, message: "No valid fields" });
+    }
+    const setClause = Object.keys(updates).map((k) => `${k} = ?`).join(", ");
+    db.prepare(`UPDATE students SET ${setClause} WHERE id = ?`).run(...Object.values(updates), id);
+    const user = db.prepare("SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE id = ?").get(id);
+    res.json({ success: true, user: sanitizeUser(user) });
   });
 
   app.post("/api/missions", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
@@ -1486,6 +2147,7 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
       return res.status(400).json({ error: "Already in this class" });
     }
     db.prepare("INSERT INTO class_students (class_id, student_id) VALUES (?, ?)").run(cls.id, sessionUser.id);
+    bumpLastActive(sessionUser.id);
     res.json({ success: true, class_id: cls.id, class_name: cls.name });
   });
 
@@ -1633,8 +2295,11 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
       JOIN quizzes q ON sq.quiz_id = q.id 
       WHERE sq.student_id = ?
     `).all(studentId);
-    
-    res.json({ badges, quizzes });
+    const missionRow = db
+      .prepare("SELECT COUNT(*) as n FROM student_mission_completions WHERE student_id = ?")
+      .get(studentId) as { n: number };
+
+    res.json({ badges, quizzes, missions_completed: Number(missionRow?.n ?? 0) });
   });
 
   app.get("/api/students/:id/assigned-quizzes", requireAuth, requireStudentAccess, (req, res) => {
@@ -1658,6 +2323,7 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
     db.prepare(
       "INSERT OR IGNORE INTO student_mission_completions (student_id, mission_id) VALUES (?, ?)"
     ).run(studentId, missionId);
+    bumpLastActive(studentId);
     res.json({ success: true });
   });
 
@@ -1706,6 +2372,7 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
     }
     const insert = db.prepare("INSERT INTO student_quizzes (student_id, quiz_id, score, total_questions) VALUES (?, ?, ?, ?)");
     insert.run(student_id, quiz_id, score, total_questions);
+    bumpLastActive(Number(student_id));
     res.json({ success: true });
   });
 
@@ -1774,21 +2441,56 @@ Key focus for next term: continue to strengthen conceptual reasoning while apply
     const sessionUser = (req.session as any)?.user as { id: number } | undefined;
     const user = db
       .prepare(
-        "SELECT id, name, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number FROM students WHERE id = ?",
+        "SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE id = ?",
       )
       .get(sessionUser.id);
     if (!user) {
       return res.status(401).json({ authenticated: false });
     }
+    bumpLastActive(sessionUser.id);
     res.json({ authenticated: true, user });
   });
 
   app.patch("/api/me", requireAuth, (req, res) => {
     const sessionUser = (req.session as any)?.user as SessionUser;
-    const allowed = ["name", "avatar_url", "age", "grade", "school", "city", "email", "parent_email", "contact_number"];
+    const allowed = [
+      "name",
+      "avatar_url",
+      "age",
+      "grade",
+      "school",
+      "city",
+      "email",
+      "parent_email",
+      "contact_number",
+      "gender",
+      "country_code",
+      "region",
+      "timezone",
+    ];
     const updates: Record<string, unknown> = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+    if (updates.gender !== undefined) {
+      const g = normalizeGender(updates.gender);
+      if (req.body.gender != null && String(req.body.gender).trim() !== "" && g === null) {
+        return res.status(400).json({ success: false, message: "Invalid gender value" });
+      }
+      updates.gender = g;
+    }
+    if (updates.country_code !== undefined) {
+      const cc = normalizeCountryCode(updates.country_code);
+      if (req.body.country_code != null && String(req.body.country_code).trim() !== "" && cc === null) {
+        return res.status(400).json({ success: false, message: "country_code must be ISO 3166-1 alpha-2 (e.g. US)" });
+      }
+      updates.country_code = cc;
+    }
+    if (updates.region !== undefined) {
+      updates.region = String(updates.region || "").trim() || null;
+    }
+    if (updates.timezone !== undefined) {
+      updates.timezone = String(updates.timezone || "").trim() || null;
     }
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ success: false, message: "No valid fields to update" });
@@ -1798,7 +2500,7 @@ Key focus for next term: continue to strengthen conceptual reasoning while apply
     db.prepare(`UPDATE students SET ${setClause} WHERE id = ?`).run(...values, sessionUser.id);
     const user = db
       .prepare(
-        "SELECT id, name, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number FROM students WHERE id = ?",
+        "SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE id = ?",
       )
       .get(sessionUser.id);
     res.json({ success: true, user: sanitizeUser(user) });
