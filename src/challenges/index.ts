@@ -91,7 +91,7 @@ registerChallengeType({
 } as ChallengeTypePlugin);
 
 registerChallengeType({
-  meta: { id: 'flashcards', label: 'Flashcards', description: 'Front/back cards for memory reinforcement (Neural Recall)', icon: 'Layers', category: 'media' },
+  meta: { id: 'flashcards', label: 'Flashcards', description: 'Front/back cards for memory reinforcement (Memory Boost)', icon: 'Layers', category: 'media' },
   defaultContent: Flashcards.defaultContent,
   Editor: Flashcards.FlashcardsEditor,
   Player: Flashcards.FlashcardsPlayer,

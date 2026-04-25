@@ -44,7 +44,7 @@ export function FlashcardsEditor({
       <div className="flex flex-col p-4 md:p-6 overflow-auto">
         <div className="mb-6">
           <div className="flex items-center gap-2 text-[#256af4] mb-1">
-            <span className="text-xs font-bold uppercase tracking-widest">Neural Recall</span>
+            <span className="text-xs font-bold uppercase tracking-widest">Memory Boost</span>
           </div>
           <h2 className="text-xl md:text-2xl font-bold tracking-tight text-white mb-1">Flashcards</h2>
           <p className="text-slate-500 text-sm">

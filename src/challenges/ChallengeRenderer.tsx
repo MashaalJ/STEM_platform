@@ -72,7 +72,7 @@ export function ChallengeRenderer({ challengeId, onComplete }: ChallengeRenderer
 
   if (loading || !challenge) {
     return (
-      <div className="p-8 rounded-2xl bg-slate-800/60 border border-[#2d3548] text-slate-400 text-center">
+      <div className="assignment-play-surface p-8 rounded-2xl text-center">
         Loading…
       </div>
     );
@@ -83,14 +83,14 @@ export function ChallengeRenderer({ challengeId, onComplete }: ChallengeRenderer
 
   if (result) {
     return (
-      <div className="p-6 rounded-2xl border-2 border-[#2d3548] bg-slate-800/60 shadow-[0_0_20px_rgba(37,106,244,0.08)]">
-        <h4 className="text-lg font-bold text-slate-100 mb-2">{challenge.title}</h4>
-        <div className={`flex items-center gap-3 p-4 rounded-xl ${result.correct ? 'bg-[#256af4]/20 border border-[#256af4]/40' : 'bg-amber-500/20 border border-amber-500/40'}`}>
-          <span className={`text-2xl font-black ${result.correct ? 'text-[#256af4]' : 'text-amber-400'}`}>
+      <div className="assignment-play-surface p-6 rounded-2xl shadow-[0_8px_20px_rgba(10,25,47,0.08)]">
+        <h4 className="text-lg font-bold text-[var(--ca-on-surface)] mb-2">{challenge.title}</h4>
+        <div className={`flex items-center gap-3 p-4 rounded-xl ${result.correct ? 'bg-[rgba(13,28,50,0.08)] border border-[rgba(13,28,50,0.2)]' : 'bg-amber-500/15 border border-amber-500/35'}`}>
+          <span className={`text-2xl font-black ${result.correct ? 'text-[var(--ca-primary-container)]' : 'text-amber-700'}`}>
             {result.correct ? 'Nice!' : 'Try again'}
           </span>
           {result.xp_earned > 0 && (
-            <span className="text-slate-200 font-mono">+{result.xp_earned} pts</span>
+            <span className="text-[var(--ca-on-surface)] font-mono">+{result.xp_earned} pts</span>
           )}
         </div>
       </div>
@@ -99,16 +99,16 @@ export function ChallengeRenderer({ challengeId, onComplete }: ChallengeRenderer
 
   if (!Player) {
     return (
-      <div className="p-6 rounded-2xl bg-slate-800/60 border border-[#2d3548] text-slate-400">
+      <div className="assignment-play-surface p-6 rounded-2xl">
         <p>This type isn&apos;t available yet.</p>
       </div>
     );
   }
 
   return (
-    <div className="p-6 rounded-2xl bg-slate-800/60 border border-[#2d3548] shadow-[0_0_20px_rgba(37,106,244,0.08)]">
-      <h4 className="text-lg font-bold text-slate-100 mb-1">{challenge.title}</h4>
-      <p className="text-xs text-slate-500 mb-4">{challenge.xp_reward} pts</p>
+    <div className="assignment-play-surface p-6 rounded-2xl shadow-[0_8px_20px_rgba(10,25,47,0.08)]">
+      <h4 className="text-lg font-bold text-[var(--ca-on-surface)] mb-1">{challenge.title}</h4>
+      <p className="text-xs text-[var(--ca-on-surface-variant)] font-semibold mb-4">{challenge.xp_reward} pts</p>
       <Player content={content!} onComplete={handleComplete} disabled={submitting} />
     </div>
   );

@@ -1,62 +1,401 @@
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Exo+2:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 @import "tailwindcss";
 
+/* Cosmic Amber — tokens from design.md */
+:root {
+  --ca-surface: #f7f9fb;
+  --ca-surface-dim: #d8dadc;
+  --ca-surface-bright: #f7f9fb;
+  --ca-surface-container-lowest: #ffffff;
+  --ca-surface-container-low: #f2f4f6;
+  --ca-surface-container: #eceef0;
+  --ca-surface-container-high: #e6e8ea;
+  --ca-surface-container-highest: #e0e3e5;
+  --ca-on-surface: #191c1e;
+  --ca-on-surface-variant: #44474d;
+  --ca-inverse-surface: #2d3133;
+  --ca-inverse-on-surface: #eff1f3;
+  --ca-outline: #75777e;
+  --ca-outline-variant: #c5c6cd;
+  --ca-surface-tint: #515f78;
+  --ca-primary: #000000;
+  --ca-on-primary: #ffffff;
+  --ca-primary-container: #0d1c32;
+  --ca-on-primary-container: #76849f;
+  --ca-inverse-primary: #b9c7e4;
+  --ca-secondary: #8a5a00;
+  --ca-on-secondary: #ffffff;
+  /* Brighter, more vibrant stellar amber (primary actions / accents) */
+  --ca-secondary-container: #ffc933;
+  --ca-on-secondary-container: #3d2800;
+  --ca-tertiary: #705d00;
+  --ca-on-tertiary: #ffffff;
+  --ca-tertiary-container: #e6bd00;
+  --ca-on-tertiary-container: #4c3f00;
+  --ca-error: #ba1a1a;
+  --ca-on-error: #ffffff;
+  --ca-error-container: #ffdad6;
+  --ca-on-error-container: #93000a;
+  --ca-background: #f7f9fb;
+  --ca-on-background: #191c1e;
+  --ca-surface-variant: #e0e3e5;
+  --ca-radius-sm: 0.25rem;
+  --ca-radius: 0.5rem;
+  --ca-radius-md: 0.75rem;
+  --ca-radius-lg: 1rem;
+  --ca-radius-xl: 1.5rem;
+  --ca-header-height: 72px;
+  --ca-container-max: 1440px;
+  --ca-gutter: 24px;
+}
+
 @theme {
-  --font-sans: "Exo 2", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Orbitron", "Exo 2", ui-sans-serif, sans-serif;
+  --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
-  --color-brand-blue: #003c71;
-  --color-brand-yellow: #f7ba06;
+  --color-brand-blue: #0d1c32;
+  --color-brand-yellow: #ffc933;
   --color-neon-cyan: #00f5ff;
   --color-neon-blue: #0ea5e9;
   --color-neon-purple: #a855f7;
   --color-hud-green: #22c55e;
-  /* STEMverse Builder (Challenge Creator mockup) */
-  --color-primary: #256af4;
-  --color-background-dark: #0a0e17;
-  --color-twilight-panel: #161b2a;
-  --color-twilight-border: #2d3548;
+  --color-primary: #0d1c32;
+  --color-background-dark: #0d1c32;
+  --color-twilight-panel: #0d1c32;
+  --color-twilight-border: #39475f;
 }
 
 body {
-  @apply bg-slate-950 text-slate-100 antialiased;
   font-family: var(--font-sans);
+  background-color: var(--ca-background);
+  color: var(--ca-on-background);
+  background-image: linear-gradient(180deg, var(--ca-background) 0%, var(--ca-surface-container) 100%);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Slightly softer text for readability on dark */
+::selection {
+  background: rgba(255, 201, 51, 0.35);
+  color: var(--ca-on-surface);
+}
+
+h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--ca-on-surface);
+}
+
+h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.5rem, 2.5vw, 2rem);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ca-on-surface);
+}
+
+h3 {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ca-on-surface);
+}
+
+/* Dark structural surfaces: correct text contrast (command layers) */
+.cosmic-inverse {
+  color: var(--ca-inverse-on-surface);
+}
+
+.cosmic-inverse h1,
+.cosmic-inverse h2,
+.cosmic-inverse h3 {
+  color: var(--ca-inverse-on-surface);
+}
+
+.cosmic-inverse .text-slate-100,
+.cosmic-inverse .text-slate-200,
+.cosmic-inverse .text-slate-300 {
+  color: var(--ca-inverse-on-surface) !important;
+}
+
+.cosmic-inverse .text-slate-400,
+.cosmic-inverse .text-slate-500 {
+  color: var(--ca-on-primary-container) !important;
+}
+
+.cosmic-inverse .text-cyan-300,
+.cosmic-inverse .text-cyan-400,
+.cosmic-inverse .text-cyan-500 {
+  color: var(--ca-secondary-container) !important;
+}
+
+.cosmic-inverse .border-cyan-400,
+.cosmic-inverse .border-cyan-500 {
+  border-color: rgba(255, 201, 51, 0.55) !important;
+}
+
+/* Navbar / command layers: always win over legacy slate utility remaps */
+.cosmic-inverse .cosmic-brand-wordmark {
+  color: var(--ca-inverse-on-surface) !important;
+}
+.cosmic-inverse .cosmic-brand-accent {
+  color: var(--ca-secondary-container) !important;
+}
+
+.cosmic-page-shell {
+  max-width: var(--ca-container-max);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--ca-gutter);
+  padding-right: var(--ca-gutter);
+  padding-top: calc(var(--ca-header-height) + 32px);
+  padding-bottom: 8rem;
+}
+
+/* --- Cosmic Amber components (design.md) --- */
+
+.cosmic-page-heading {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ca-on-surface);
+  margin: 0;
+}
+
+.cosmic-inverse .cosmic-page-heading {
+  color: var(--ca-inverse-on-surface);
+}
+
+.cosmic-page-sub {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ca-on-surface-variant);
+  margin: 0;
+}
+
+.cosmic-h1-hero {
+  font-family: var(--font-display);
+  font-size: clamp(2.25rem, 4vw, 3rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--ca-inverse-on-surface);
+  margin: 0;
+}
+
+.cosmic-body-lg {
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1.6;
+  color: var(--ca-inverse-on-surface);
+  opacity: 0.92;
+}
+
+.cosmic-label {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ca-on-surface-variant);
+  margin-bottom: 0.35rem;
+}
+
+.cosmic-input {
+  width: 100%;
+  background: var(--ca-surface-container-lowest);
+  border: 1px solid var(--ca-outline-variant);
+  border-radius: var(--ca-radius);
+  padding: 0.75rem 1rem;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.6;
+  color: var(--ca-on-surface);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.cosmic-input::placeholder {
+  color: var(--ca-on-surface-variant);
+  opacity: 0.7;
+}
+.cosmic-input:focus {
+  border-color: var(--ca-secondary-container);
+  box-shadow: 0 0 0 2px rgba(255, 178, 4, 0.35);
+}
+
+.cosmic-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 1rem 1.25rem;
+  border: none;
+  border-radius: var(--ca-radius);
+  background: var(--ca-secondary-container);
+  color: var(--ca-on-secondary-container);
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.1s ease;
+}
+.cosmic-btn-primary:hover {
+  filter: brightness(0.97);
+}
+.cosmic-btn-primary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ca-surface-container-lowest), 0 0 0 4px var(--ca-secondary-container);
+}
+
+.cosmic-btn-primary.cosmic-btn-inline {
+  width: auto;
+}
+
+.cosmic-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.65rem 1rem;
+  border: 2px solid var(--ca-primary-container);
+  border-radius: var(--ca-radius);
+  background: transparent;
+  color: var(--ca-primary-container);
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.cosmic-btn-secondary:hover {
+  background: var(--ca-surface-container-low);
+}
+
+.cosmic-card {
+  background: var(--ca-surface-container-lowest);
+  border: 1px solid var(--ca-outline-variant);
+  border-radius: var(--ca-radius-lg);
+  box-shadow: 0 4px 20px rgba(10, 25, 47, 0.05);
+}
+
+.cosmic-login-hero {
+  background: var(--ca-primary-container);
+  color: var(--ca-inverse-on-surface);
+}
+
+.cosmic-segment {
+  display: flex;
+  padding: 0.35rem;
+  gap: 0.25rem;
+  background: var(--ca-surface-container-low);
+  border: 1px solid var(--ca-outline-variant);
+  border-radius: var(--ca-radius-md);
+}
+.cosmic-segment button {
+  flex: 1;
+  padding: 0.6rem 0.5rem;
+  border: none;
+  border-radius: var(--ca-radius);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: var(--ca-on-surface-variant);
+  background: transparent;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.cosmic-segment button[data-active="true"] {
+  background: var(--ca-secondary-container);
+  color: var(--ca-on-secondary-container);
+}
+
+.cosmic-header-bar {
+  height: var(--ca-header-height);
+  background: var(--ca-primary-container);
+  border-bottom: 1px solid rgba(118, 132, 159, 0.35);
+  box-shadow: 0 4px 20px rgba(10, 25, 47, 0.08);
+}
+
+.cosmic-bottom-nav {
+  background: rgba(13, 28, 50, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(118, 132, 159, 0.35);
+  border-radius: var(--ca-radius-lg);
+  box-shadow: 0 8px 32px rgba(10, 25, 47, 0.2);
+}
+
+.cosmic-bottom-nav button {
+  color: var(--ca-on-primary-container);
+}
+.cosmic-bottom-nav button.cosmic-nav-active,
+.cosmic-bottom-nav button.cosmic-nav-active svg {
+  color: var(--ca-secondary-container) !important;
+}
+
+.cosmic-modal-overlay {
+  background: rgba(13, 28, 50, 0.72);
+  backdrop-filter: blur(8px);
+}
+
+.cosmic-modal {
+  background: var(--ca-surface-container-lowest);
+  border: 1px solid var(--ca-outline-variant);
+  border-radius: var(--ca-radius-lg);
+  box-shadow: 0 4px 20px rgba(10, 25, 47, 0.12);
+}
+
+/* Softer readable text on light UI */
 .text-soft {
-  color: rgb(226 232 240); /* slate-200 */
+  color: var(--ca-on-surface-variant);
 }
 
-/* Futuristic utility classes */
+/* Shared decorative utility classes */
 .font-display {
   font-family: var(--font-display);
 }
 
 .text-glow-cyan {
-  text-shadow: 0 0 10px rgba(0, 245, 255, 0.6), 0 0 20px rgba(0, 245, 255, 0.4);
+  text-shadow: none;
 }
 
 .text-glow-blue {
-  text-shadow: 0 0 10px rgba(14, 165, 233, 0.6), 0 0 20px rgba(14, 165, 233, 0.3);
+  text-shadow: none;
 }
 
 .text-glow-yellow {
-  text-shadow: 0 0 10px rgba(247, 186, 6, 0.6), 0 0 20px rgba(247, 186, 6, 0.3);
+  text-shadow: none;
 }
 
 /* Game accent - primary blue for consistency */
 .box-glow-cyan {
-  box-shadow: 0 0 20px rgba(37, 106, 244, 0.15), 0 0 40px rgba(37, 106, 244, 0.08);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
 }
 
 .box-glow-blue {
-  box-shadow: 0 0 20px rgba(37, 106, 244, 0.2), 0 0 40px rgba(37, 106, 244, 0.1);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
 }
 
 .border-glow {
-  border: 1px solid rgba(37, 106, 244, 0.35);
-  box-shadow: 0 0 15px rgba(37, 106, 244, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  box-shadow: none;
 }
 
 /* Scan line overlay */
@@ -139,27 +478,142 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-slate-900/50;
+  @apply bg-slate-200;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(37, 106, 244, 0.4);
+  background: rgba(81, 95, 120, 0.4);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(37, 106, 244, 0.6);
+  background: rgba(81, 95, 120, 0.6);
 }
 
-/* Glass panel - dark theme, better contrast */
+/* Glass panel — light content surface (design.md) */
 .glass-panel {
-  @apply bg-slate-800/70 backdrop-blur-xl border border-slate-600/50 shadow-xl;
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 4px 24px rgba(0,0,0,0.2);
+  background: var(--ca-surface-container-lowest);
+  border: 1px solid var(--ca-outline-variant);
+  border-radius: var(--ca-radius-lg);
+  box-shadow: 0 4px 20px rgba(10, 25, 47, 0.05);
 }
 
-/* Page cards - consistent dark panels */
+/* Galaxy Sector Hub (reference: STEMverse hub mockup) */
+.ca-starfield {
+  background-image: radial-gradient(circle at 50% 50%, #0a192f 0%, #020617 100%);
+}
+.ca-orbit-line {
+  border: 1px solid rgba(245, 158, 11, 0.15);
+  border-radius: 50%;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.ca-glass-hud {
+  background: rgba(10, 25, 47, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(148, 163, 184, 0.1);
+}
+.ca-galaxy-view {
+  border-radius: var(--ca-radius-lg);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  background-image: radial-gradient(circle at 50% 40%, rgba(10, 25, 47, 0.92) 0%, #020617 100%);
+}
+.ca-galaxy-view .cosmic-page-heading {
+  color: #ffffff;
+}
+.ca-galaxy-view .cosmic-page-sub {
+  color: #94a3b8;
+}
+
+/* Teacher dashboard: HQ terminal theme */
+.teacher-hq {
+  background: radial-gradient(circle at 20% 30%, rgba(255, 215, 0, 0.05) 0%, transparent 40%),
+    radial-gradient(circle at 80% 70%, rgba(0, 150, 255, 0.05) 0%, transparent 40%),
+    #0a192f;
+  border-radius: var(--ca-radius-lg);
+  padding: 1rem;
+}
+.teacher-hq .bg-slate-900,
+.teacher-hq .bg-slate-800,
+.teacher-hq .bg-slate-700,
+.teacher-hq .bg-slate-800\/60,
+.teacher-hq .bg-slate-800\/70,
+.teacher-hq .bg-slate-700\/50,
+.teacher-hq .bg-slate-700\/40,
+.teacher-hq .bg-slate-900\/50 {
+  background-color: rgba(10, 25, 47, 0.75) !important;
+  border-color: rgba(185, 199, 228, 0.2) !important;
+  backdrop-filter: blur(20px);
+}
+.teacher-hq .text-slate-100,
+.teacher-hq .text-slate-200,
+.teacher-hq .text-slate-300,
+.teacher-hq .text-slate-400 {
+  color: #eff1f3 !important;
+}
+.teacher-hq .text-slate-500 {
+  color: #b9c7e4 !important;
+}
+.teacher-hq .text-brand-blue,
+.teacher-hq .text-cyan-400,
+.teacher-hq .text-cyan-500 {
+  color: #ffc933 !important;
+}
+.teacher-hq .border-brand-blue,
+.teacher-hq .border-cyan-500,
+.teacher-hq .border-slate-600,
+.teacher-hq .border-slate-700 {
+  border-color: rgba(185, 199, 228, 0.28) !important;
+}
+.teacher-hq .teacher-tactical {
+  position: relative;
+}
+.teacher-hq .teacher-tactical::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  border-top: 2px solid #ffc933;
+  border-left: 2px solid #ffc933;
+}
+.teacher-hq .teacher-tactical::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  border-right: 2px solid #ffc933;
+  border-bottom: 2px solid #ffc933;
+}
+
+/* Challenge/assignment player readability on light surfaces */
+.assignment-play-surface {
+  background: var(--ca-surface-container-lowest);
+  border: 1px solid var(--ca-outline-variant);
+  color: var(--ca-on-surface);
+}
+.assignment-play-surface .text-slate-100,
+.assignment-play-surface .text-slate-200,
+.assignment-play-surface .text-slate-300 {
+  color: var(--ca-on-surface) !important;
+}
+.assignment-play-surface .text-slate-400,
+.assignment-play-surface .text-slate-500 {
+  color: var(--ca-on-surface-variant) !important;
+}
+
+/* Page cards */
 .page-card {
-  @apply bg-slate-800/60 backdrop-blur-xl border border-slate-600/40 rounded-2xl shadow-xl;
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.02), 0 4px 20px rgba(0,0,0,0.15);
+  background: var(--ca-surface-container-lowest);
+  border: 1px solid var(--ca-outline-variant);
+  border-radius: var(--ca-radius-lg);
+  box-shadow: 0 4px 20px rgba(10, 25, 47, 0.05);
 }
 
 /* Card hover glow */
@@ -167,18 +621,18 @@ body {
   transition: box-shadow 0.3s ease, border-color 0.3s ease;
 }
 .card-hover-glow:hover {
-  box-shadow: 0 0 25px rgba(0, 245, 255, 0.12), 0 0 50px rgba(0, 245, 255, 0.06);
-  border-color: rgba(0, 245, 255, 0.25);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  border-color: rgba(148, 163, 184, 0.35);
 }
 
 /* STEMverse Builder: glass + glow (primary #256af4) */
 .builder-glass {
-  background: rgba(22, 27, 42, 0.7);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(45, 53, 72, 0.5);
+  background: rgba(13, 28, 50, 0.72);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(118, 132, 159, 0.35);
 }
 .glow-accent {
-  box-shadow: 0 0 15px rgba(37, 106, 244, 0.3);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
 }
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
@@ -187,6 +641,44 @@ body {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #2d3548;
+  background: #76849f;
   border-radius: 10px;
+}
+
+/* Global light-mode remap for legacy dark utility classes used in App.tsx */
+@layer utilities {
+  .bg-slate-950 { background-color: #2d3133 !important; }
+  .bg-slate-900 { background-color: #0d1c32 !important; }
+  .bg-slate-800 { background-color: #f2f4f6 !important; }
+  .bg-slate-700 { background-color: #eceef0 !important; }
+  .bg-brand-blue { background-color: #0d1c32 !important; }
+  .bg-brand-yellow { background-color: #ffc933 !important; }
+  .text-brand-blue { color: #0d1c32 !important; }
+  .text-brand-yellow { color: #6a4800 !important; }
+  .border-slate-700 { border-color: #c5c6cd !important; }
+  .border-slate-600 { border-color: #c5c6cd !important; }
+  .border-brand-blue { border-color: #76849f !important; }
+  .border-brand-yellow { border-color: #ffc933 !important; }
+  .text-slate-100 { color: #191c1e !important; }
+  .text-slate-200 { color: #44474d !important; }
+  .text-slate-300 { color: #51545a !important; }
+  .text-white { color: #eff1f3 !important; }
+  .text-white\/90 { color: rgba(239, 241, 243, 0.9) !important; }
+  .text-white\/80 { color: rgba(239, 241, 243, 0.8) !important; }
+  .text-white\/70 { color: rgba(239, 241, 243, 0.7) !important; }
+  .placeholder\:text-slate-400::placeholder { color: rgb(100 116 139) !important; }
+  /* Accent on light surfaces: amber / navy tint per Cosmic Amber */
+  .text-cyan-300 { color: #515f78 !important; }
+  .text-cyan-400 { color: #8a5a00 !important; }
+  .text-cyan-500 { color: #6a4800 !important; }
+  .border-cyan-400 { border-color: rgba(255, 201, 51, 0.65) !important; }
+  .border-cyan-500 { border-color: rgba(255, 201, 51, 0.75) !important; }
+  .bg-cyan-400\/20 { background-color: rgba(118, 132, 159, 0.2) !important; }
+  .bg-cyan-400\/30 { background-color: rgba(118, 132, 159, 0.3) !important; }
+  .bg-sky-100 { background-color: #f2f4f6 !important; }
+  .bg-sky-200 { background-color: #e6e8ea !important; }
+  .bg-purple-100 { background-color: #e0e3e5 !important; }
+  .bg-amber-100 { background-color: #ffdead !important; }
+  .bg-green-100 { background-color: #ffe16d !important; }
+  .hover\:text-white:hover { color: #eff1f3 !important; }
 }
