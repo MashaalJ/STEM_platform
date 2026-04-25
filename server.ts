@@ -450,6 +450,8 @@ async function startServer() {
 
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
+  // Required on platforms like Render/Cloud Run so secure cookies work behind a reverse proxy.
+  app.set("trust proxy", 1);
 
   // Security headers (reduce XSS, clickjacking, MIME sniffing)
   app.use((_req, res, next) => {
