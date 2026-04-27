@@ -175,24 +175,27 @@ export function QuizPlayer({ quizId, onComplete }: QuizPlayerProps) {
   if (result) {
     const pct = Math.round((result.score / result.total) * 100);
     return (
-      <div className="p-6 rounded-2xl border-2 border-emerald-400/40 bg-gradient-to-br from-slate-900/80 via-[#0c223f]/70 to-[#0a3148]/70">
-        <h4 className="text-lg font-black text-slate-100 uppercase mb-2">{quiz.title}</h4>
-        <p className="text-[10px] uppercase tracking-widest text-emerald-300 mb-3 font-black">Quiz completed</p>
-        <div className="flex items-center justify-between gap-3 p-4 rounded-xl bg-emerald-500/20 border border-emerald-400/40">
-          <span className="text-2xl font-black text-emerald-300">
-            {result.score} / {result.total}
-          </span>
-          <span className="text-slate-100 font-black text-xl">
-            {pct}%
-          </span>
+      <div className="relative min-h-screen w-full flex items-center justify-center px-4 sm:px-8 py-12 overflow-y-auto">
+        <div className="absolute inset-0 z-[-1] bg-[radial-gradient(circle_at_50%_35%,_#112a4a_0%,_#081a34_45%,_#030b1d_100%)]" />
+        <div className="w-full max-w-4xl rounded-3xl border-2 border-emerald-400/40 bg-gradient-to-br from-slate-900/90 via-[#0c223f]/80 to-[#0a3148]/80 p-6 sm:p-8">
+          <h4 className="text-xl sm:text-3xl font-black text-slate-100 uppercase mb-2">{quiz.title}</h4>
+          <p className="text-[10px] uppercase tracking-widest text-emerald-300 mb-3 font-black">Quiz completed</p>
+          <div className="flex items-center justify-between gap-3 p-4 sm:p-5 rounded-xl bg-emerald-500/20 border border-emerald-400/40">
+            <span className="text-3xl sm:text-5xl font-black text-emerald-300">
+              {result.score} / {result.total}
+            </span>
+            <span className="text-slate-100 font-black text-2xl sm:text-4xl">
+              {pct}%
+            </span>
+          </div>
+          <div className="mt-4 h-3 w-full rounded-full bg-slate-700/60 overflow-hidden border border-slate-600/40">
+            <div
+              className="h-full bg-gradient-to-r from-emerald-400 to-cyan-400"
+              style={{ width: `${Math.max(8, pct)}%` }}
+            />
+          </div>
+          <p className="mt-3 text-sm text-slate-200">Score saved. This quiz is now marked done in your Command Console.</p>
         </div>
-        <div className="mt-4 h-3 w-full rounded-full bg-slate-700/60 overflow-hidden border border-slate-600/40">
-          <div
-            className="h-full bg-gradient-to-r from-emerald-400 to-cyan-400"
-            style={{ width: `${Math.max(8, pct)}%` }}
-          />
-        </div>
-        <p className="mt-3 text-xs text-slate-300">Score saved. This quiz is now marked done in your Command Console.</p>
       </div>
     );
   }

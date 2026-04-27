@@ -592,6 +592,43 @@ h3 {
   border-bottom: 2px solid #ffc933;
 }
 
+/* Global readability boost for text on dark surfaces */
+:where(
+  .bg-slate-950,
+  .bg-slate-900,
+  .bg-\[\#0d1c32\],
+  .bg-\[\#0A192F\],
+  .bg-\[\#0c1f3a\],
+  .ca-starfield,
+  .ca-galaxy-view
+) .text-slate-400 {
+  color: #d1d5db !important;
+}
+
+:where(
+  .bg-slate-950,
+  .bg-slate-900,
+  .bg-\[\#0d1c32\],
+  .bg-\[\#0A192F\],
+  .bg-\[\#0c1f3a\],
+  .ca-starfield,
+  .ca-galaxy-view
+) .text-slate-500 {
+  color: #cbd5e1 !important;
+}
+
+:where(
+  .bg-slate-950,
+  .bg-slate-900,
+  .bg-\[\#0d1c32\],
+  .bg-\[\#0A192F\],
+  .bg-\[\#0c1f3a\],
+  .ca-starfield,
+  .ca-galaxy-view
+) .text-\[var\(--ca-on-surface-variant\)\] {
+  color: #d1d5db !important;
+}
+
 /* Challenge/assignment player readability on light surfaces */
 .assignment-play-surface {
   background: var(--ca-surface-container-lowest);

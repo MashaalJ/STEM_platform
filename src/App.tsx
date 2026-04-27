@@ -289,18 +289,18 @@ interface StudentProgressPayload {
 }
 
 const STUDENT_INTEREST_OPTIONS = [
-  { key: 'robotics', label: 'Robotics', emoji: '🤖' },
-  { key: 'ai_ml', label: 'AI & ML', emoji: '🧠' },
-  { key: 'space_tech', label: 'Space Tech', emoji: '🚀' },
-  { key: 'game_dev', label: 'Game Dev', emoji: '🎮' },
-  { key: 'web_dev', label: 'Web Dev', emoji: '🌐' },
-  { key: 'app_dev', label: 'App Dev', emoji: '📱' },
-  { key: 'electronics', label: 'Electronics', emoji: '⚡' },
-  { key: '3d_printing', label: '3D Printing', emoji: '🧩' },
-  { key: 'biotech', label: 'Health Tech', emoji: '🧬' },
-  { key: 'fintech', label: 'FinTech', emoji: '💸' },
-  { key: 'math_puzzles', label: 'Math Puzzles', emoji: '🧮' },
-  { key: 'science_experiments', label: 'Science Experiments', emoji: '🧪' },
+  { key: 'robotics', label: 'Robotics' },
+  { key: 'ai_ml', label: 'AI & ML' },
+  { key: 'space_tech', label: 'Space Tech' },
+  { key: 'game_dev', label: 'Game Dev' },
+  { key: 'web_dev', label: 'Web Dev' },
+  { key: 'app_dev', label: 'App Dev' },
+  { key: 'electronics', label: 'Electronics' },
+  { key: '3d_printing', label: '3D Printing' },
+  { key: 'biotech', label: 'Health Tech' },
+  { key: 'fintech', label: 'FinTech' },
+  { key: 'math_puzzles', label: 'Math Puzzles' },
+  { key: 'science_experiments', label: 'Science Experiments' },
 ];
 
 const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
@@ -7430,7 +7430,8 @@ export default function App() {
           <motion.div
             initial={{ scale: 0.94, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="relative w-full max-w-2xl rounded-3xl border border-amber-400/35 bg-[#0c1f3a] p-6 sm:p-8 shadow-[0_0_40px_rgba(255,178,4,0.2)]"
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-2xl rounded-3xl border border-amber-400/35 bg-[#0c1f3a] p-6 sm:p-8 shadow-[0_0_40px_rgba(255,178,4,0.2)] pointer-events-auto"
           >
             <h3 className="text-2xl font-black text-white">What do you want to explore first?</h3>
             <p className="text-slate-300 text-sm mt-2">Pick 2 to 6 sparks. We will tailor missions and recommendations to your interests.</p>
@@ -7448,8 +7449,7 @@ export default function App() {
                         : 'bg-slate-900/50 border-slate-700 text-slate-200 hover:border-amber-300/60'
                     }`}
                   >
-                    <p className="text-xl">{option.emoji}</p>
-                    <p className="mt-2 text-xs font-black uppercase tracking-widest">{option.label}</p>
+                    <p className="text-xs font-black uppercase tracking-widest">{option.label}</p>
                   </button>
                 );
               })}
