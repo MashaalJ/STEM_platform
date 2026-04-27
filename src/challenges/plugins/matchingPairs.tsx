@@ -230,51 +230,54 @@ export function MatchingPairsPlayer({
     setMatches((m) => ({ ...m, [left]: right }));
   };
   return (
-    <div className="space-y-4">
-      <p className="text-slate-400 text-sm">Match each item on the left with the correct item on the right.</p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="space-y-2">
-          {c.pairs.map((p, i) => (
-            <div key={i} className="p-3 rounded-xl bg-slate-800/60 border border-[#2d3548] text-slate-200 font-medium">
-              {p.left}
-            </div>
-          ))}
-        </div>
-        <div className="space-y-2">
-          {shuffledRight.map((r, i) => (
-            <div key={i} className="p-3 rounded-xl bg-slate-700/50 border border-[#2d3548] text-slate-300 text-sm">
-              {r}
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="space-y-2">
-        <label className="block text-xs font-bold text-slate-400 uppercase">Your matches</label>
-        {c.pairs.map((p, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <span className="w-32 text-slate-300 text-sm">{p.left}</span>
-            <select
-              value={matches[p.left] ?? ''}
-              onChange={(e) => setMatch(p.left, e.target.value)}
-              disabled={disabled}
-              className="flex-1 bg-slate-800/60 border border-[#2d3548] rounded-lg px-3 py-2 text-slate-100 text-sm"
-            >
-              <option value="">— Select —</option>
-              {shuffledRight.map((r, j) => (
-                <option key={j} value={r}>{r}</option>
-              ))}
-            </select>
+    <div className="relative min-h-screen w-full flex items-center justify-center px-4 sm:px-8 py-12 overflow-y-auto">
+      <div className="absolute inset-0 z-[-1] bg-[radial-gradient(circle_at_50%_35%,_#112a4a_0%,_#081a34_45%,_#030b1d_100%)]" />
+      <div className="w-full max-w-5xl rounded-3xl border border-amber-400/25 bg-[rgba(13,28,50,0.68)] p-6 sm:p-8 shadow-[0_0_20px_rgba(255,178,4,0.18)] space-y-4">
+        <p className="text-slate-100 text-sm">Match each item on the left with the correct item on the right.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            {c.pairs.map((p, i) => (
+              <div key={i} className="p-3 rounded-xl bg-slate-900/70 border border-amber-400/25 text-white font-medium">
+                {p.left}
+              </div>
+            ))}
           </div>
-        ))}
+          <div className="space-y-2">
+            {shuffledRight.map((r, i) => (
+              <div key={i} className="p-3 rounded-xl bg-slate-800/70 border border-amber-400/25 text-slate-200 text-sm">
+                {r}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-2">
+          <label className="block text-xs font-bold text-amber-200 uppercase">Your matches</label>
+          {c.pairs.map((p, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="w-32 text-slate-200 text-sm">{p.left}</span>
+              <select
+                value={matches[p.left] ?? ''}
+                onChange={(e) => setMatch(p.left, e.target.value)}
+                disabled={disabled}
+                className="flex-1 bg-slate-900/80 border border-amber-400/35 rounded-lg px-3 py-2 text-white text-sm"
+              >
+                <option value="">-- Select --</option>
+                {shuffledRight.map((r, j) => (
+                  <option key={j} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => onComplete(matches)}
+          disabled={disabled || Object.keys(matches).length < c.pairs.length}
+          className="px-6 py-3 rounded-xl bg-[#ffb204] text-[#0A192F] font-black text-sm disabled:opacity-50"
+        >
+          Check Answers
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={() => onComplete(matches)}
-        disabled={disabled || Object.keys(matches).length < c.pairs.length}
-        className="px-4 py-2 rounded-xl bg-[#256af4] text-white font-bold text-sm disabled:opacity-50"
-      >
-        Check
-      </button>
     </div>
   );
 }

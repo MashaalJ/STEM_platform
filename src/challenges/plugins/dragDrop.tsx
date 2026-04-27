@@ -250,49 +250,52 @@ export function DragDropPlayer({
   const getLabel = (id: string) => items.find((i) => i.id === id)?.label ?? id;
 
   return (
-    <div className="space-y-4">
-      <p className="text-slate-400 text-sm">Drag items into the correct zones.</p>
-      <div className="flex flex-wrap gap-2 mb-4">
-        {pool.map((id) => (
-          <span
-            key={id}
-            draggable={!disabled}
-            onDragStart={(e) => e.dataTransfer.setData('text/plain', id)}
-            className="px-3 py-2 rounded-lg bg-[#256af4]/20 border border-[#256af4]/40 text-slate-200 text-sm cursor-move"
-          >
-            {getLabel(id)}
-          </span>
-        ))}
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {zones.map((z) => (
-          <div
-            key={z.id}
-            className="min-h-[80px] p-4 rounded-xl border-2 border-dashed border-[#2d3548] bg-slate-800/30"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault();
-              const id = e.dataTransfer.getData('text/plain');
-              if (id) drop(z.id, id);
-            }}
-          >
-            <p className="text-[10px] font-bold text-slate-500 uppercase mb-2">{z.label}</p>
-            <div className="flex flex-wrap gap-2">
-              {(placed[z.id] || []).map((id) => (
-                <span key={id} className="px-2 py-1 rounded bg-slate-600/50 text-slate-200 text-sm">
-                  {getLabel(id)}{' '}
-                  {!disabled && (
-                    <button type="button" onClick={() => removeFromZone(z.id, id)} className="text-rose-400 ml-1">×</button>
-                  )}
-                </span>
-              ))}
+    <div className="relative min-h-screen w-full flex items-center justify-center px-4 sm:px-8 py-12 overflow-y-auto">
+      <div className="absolute inset-0 z-[-1] bg-[radial-gradient(circle_at_50%_35%,_#112a4a_0%,_#081a34_45%,_#030b1d_100%)]" />
+      <div className="w-full max-w-5xl rounded-3xl border border-amber-400/25 bg-[rgba(13,28,50,0.68)] p-6 sm:p-8 shadow-[0_0_20px_rgba(255,178,4,0.18)] space-y-4">
+        <p className="text-slate-100 text-sm">Drag items into the correct zones.</p>
+        <div className="flex flex-wrap gap-2 mb-4">
+          {pool.map((id) => (
+            <span
+              key={id}
+              draggable={!disabled}
+              onDragStart={(e) => e.dataTransfer.setData('text/plain', id)}
+              className="px-3 py-2 rounded-lg bg-[#ffb204]/20 border border-[#ffb204]/40 text-white text-sm cursor-move"
+            >
+              {getLabel(id)}
+            </span>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {zones.map((z) => (
+            <div
+              key={z.id}
+              className="min-h-[96px] p-4 rounded-xl border-2 border-dashed border-amber-400/35 bg-slate-900/60"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const id = e.dataTransfer.getData('text/plain');
+                if (id) drop(z.id, id);
+              }}
+            >
+              <p className="text-[10px] font-bold text-amber-200 uppercase mb-2">{z.label}</p>
+              <div className="flex flex-wrap gap-2">
+                {(placed[z.id] || []).map((id) => (
+                  <span key={id} className="px-2 py-1 rounded bg-slate-700/80 text-white text-sm">
+                    {getLabel(id)}{' '}
+                    {!disabled && (
+                      <button type="button" onClick={() => removeFromZone(z.id, id)} className="text-rose-400 ml-1">x</button>
+                    )}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
+        <button type="button" onClick={() => onComplete(placed)} disabled={disabled} className="px-6 py-3 rounded-xl bg-[#ffb204] text-[#0A192F] font-black text-sm uppercase disabled:opacity-50">
+          Check Answer
+        </button>
       </div>
-      <button type="button" onClick={() => onComplete(placed)} disabled={disabled} className="px-4 py-2 rounded-xl bg-[#256af4] text-white font-bold text-sm uppercase disabled:opacity-50">
-        Check
-      </button>
     </div>
   );
 }

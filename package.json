@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "start": "tsx server.ts",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "stress:students": "node scripts/stress-test-bulk-students.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -24,11 +25,13 @@
     "cookie-session": "^2.0.0",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
+    "jspdf": "^4.2.1",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/cookie-session": "^2.0.49",

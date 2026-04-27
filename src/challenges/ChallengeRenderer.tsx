@@ -6,10 +6,26 @@
 import React, { useState, useEffect } from 'react';
 import type { ChallengeRecord, ChallengeContent } from './types';
 import { getChallengeType, evaluateResponse } from './registry';
+import { supabase } from '../../lib/supabaseClient';
+
+const authFetch = async (url: string, options?: RequestInit) => {
+  const { data } = await supabase.auth.getSession();
+  const stored = localStorage.getItem('stemverse_access_token');
+  const token = data.session?.access_token || stored;
+  const headers = new Headers(options?.headers || {});
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  let res = await fetch(url, { ...options, headers, credentials: options?.credentials ?? 'include' });
+  if (res.status === 401 && stored && !data.session?.access_token) {
+    localStorage.removeItem('stemverse_access_token');
+    const retryHeaders = new Headers(options?.headers || {});
+    res = await fetch(url, { ...options, headers: retryHeaders, credentials: options?.credentials ?? 'include' });
+  }
+  return res;
+};
 
 const safeFetch = async (url: string, options?: RequestInit) => {
   try {
-    const res = await fetch(url, { ...options, credentials: options?.credentials ?? 'include' });
+    const res = await authFetch(url, options);
     if (!res.ok) return null;
     return await res.json();
   } catch {
@@ -26,6 +42,7 @@ export function ChallengeRenderer({ challengeId, onComplete }: ChallengeRenderer
   const [challenge, setChallenge] = useState<ChallengeRecord | null>(null);
   const [content, setContent] = useState<ChallengeContent | null>(null);
   const [result, setResult] = useState<{ correct: boolean; xp_earned: number; total_xp: number } | null>(null);
+  const [resultPercent, setResultPercent] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -47,12 +64,15 @@ export function ChallengeRenderer({ challengeId, onComplete }: ChallengeRenderer
   const handleComplete = async (response: unknown) => {
     if (!challenge || content === null) return;
     const evalResult = evaluateResponse(challenge.type as import('./types').ChallengeType, content, response);
+    setResultPercent(Math.round(Math.max(0, Math.min(1, Number(evalResult.score || 0))) * 100));
+    const optimistic = { correct: evalResult.correct, xp_earned: evalResult.correct ? Number(challenge.xp_reward || 0) : 0, total_xp: 0 };
+    setResult(optimistic);
+    onComplete?.(optimistic);
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/challenges/${challengeId}/attempt`, {
+      const res = await authFetch(`/api/challenges/${challengeId}/attempt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           score: evalResult.score,
           correct: evalResult.correct,
@@ -83,15 +103,22 @@ export function ChallengeRenderer({ challengeId, onComplete }: ChallengeRenderer
 
   if (result) {
     return (
-      <div className="assignment-play-surface p-6 rounded-2xl shadow-[0_8px_20px_rgba(10,25,47,0.08)]">
-        <h4 className="text-lg font-bold text-[var(--ca-on-surface)] mb-2">{challenge.title}</h4>
-        <div className={`flex items-center gap-3 p-4 rounded-xl ${result.correct ? 'bg-[rgba(13,28,50,0.08)] border border-[rgba(13,28,50,0.2)]' : 'bg-amber-500/15 border border-amber-500/35'}`}>
-          <span className={`text-2xl font-black ${result.correct ? 'text-[var(--ca-primary-container)]' : 'text-amber-700'}`}>
-            {result.correct ? 'Nice!' : 'Try again'}
-          </span>
-          {result.xp_earned > 0 && (
-            <span className="text-[var(--ca-on-surface)] font-mono">+{result.xp_earned} pts</span>
-          )}
+      <div className="relative min-h-screen w-full flex items-center justify-center px-4 sm:px-8 py-12 overflow-y-auto">
+        <div className="absolute inset-0 z-[-1] bg-[radial-gradient(circle_at_50%_35%,_#112a4a_0%,_#081a34_45%,_#030b1d_100%)]" />
+        <div className="w-full max-w-4xl rounded-3xl p-6 sm:p-8 border border-amber-400/30 bg-gradient-to-br from-[#0b1730]/95 via-[#10233f]/90 to-[#0f1a30]/95 shadow-[0_12px_28px_rgba(10,25,47,0.35)]">
+          <h4 className="text-lg sm:text-2xl font-black text-slate-100 uppercase tracking-wide mb-3">{challenge.title}</h4>
+          <div className={`flex items-center justify-between gap-3 p-4 sm:p-5 rounded-xl ${result.correct ? 'bg-emerald-500/20 border border-emerald-400/35' : 'bg-amber-500/15 border border-amber-500/35'}`}>
+            <span className={`text-xl sm:text-3xl font-black ${result.correct ? 'text-emerald-300' : 'text-amber-300'}`}>
+              {result.correct ? 'Mission Cleared' : 'Mission Attempted'}
+            </span>
+            {result.xp_earned > 0 && (
+              <span className="text-slate-100 font-mono text-base sm:text-xl">+{result.xp_earned} pts</span>
+            )}
+          </div>
+          <p className="text-base sm:text-lg text-slate-100 mt-4 font-mono">
+            Score: {resultPercent != null ? `${resultPercent}%` : result.correct ? '100%' : '0%'}
+          </p>
+          <p className="text-sm text-slate-300 mt-2">Status saved to your Command Console.</p>
         </div>
       </div>
     );
@@ -105,10 +132,21 @@ export function ChallengeRenderer({ challengeId, onComplete }: ChallengeRenderer
     );
   }
 
+  if (challenge.type === 'multiple_choice') {
+    return <Player content={content!} onComplete={handleComplete} disabled={submitting} />;
+  }
+
   return (
-    <div className="assignment-play-surface p-6 rounded-2xl shadow-[0_8px_20px_rgba(10,25,47,0.08)]">
-      <h4 className="text-lg font-bold text-[var(--ca-on-surface)] mb-1">{challenge.title}</h4>
-      <p className="text-xs text-[var(--ca-on-surface-variant)] font-semibold mb-4">{challenge.xp_reward} pts</p>
+    <div className="rounded-3xl p-6 border border-amber-400/30 bg-gradient-to-br from-[#081325]/95 via-[#0f223d]/90 to-[#0d1830]/95 shadow-[0_12px_28px_rgba(10,25,47,0.35)]">
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div>
+          <h4 className="text-lg font-black text-slate-100 uppercase tracking-wide">{challenge.title}</h4>
+          <p className="text-xs text-amber-300/90 font-semibold uppercase tracking-wider">{challenge.xp_reward} pts</p>
+        </div>
+        <span className="px-3 py-1 rounded-full bg-amber-500/15 border border-amber-400/40 text-[10px] text-amber-300 font-black uppercase tracking-widest">
+          Mission control
+        </span>
+      </div>
       <Player content={content!} onComplete={handleComplete} disabled={submitting} />
     </div>
   );

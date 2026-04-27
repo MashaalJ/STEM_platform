@@ -40,6 +40,10 @@ db.exec(`
     status TEXT DEFAULT 'available',
     image_url TEXT,
     embed_code TEXT,
+    grade_level TEXT,
+    prerequisite_mission_id INTEGER,
+    learning_outcomes_json TEXT,
+    domains_json TEXT,
     FOREIGN KEY(sector_id) REFERENCES sectors(id)
   );
 
@@ -48,6 +52,7 @@ db.exec(`
     name TEXT NOT NULL,
     teacher_id INTEGER,
     description TEXT,
+    curriculum_track TEXT,
     FOREIGN KEY(teacher_id) REFERENCES students(id)
   );
 
@@ -100,11 +105,37 @@ db.exec(`
     student_id INTEGER,
     quiz_id INTEGER,
     score INTEGER,
+    auto_score INTEGER DEFAULT 0,
+    reviewed_score INTEGER DEFAULT 0,
+    pending_reviews INTEGER DEFAULT 0,
     total_questions INTEGER,
     completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(student_id) REFERENCES students(id),
     FOREIGN KEY(quiz_id) REFERENCES quizzes(id)
   );
+
+  CREATE TABLE IF NOT EXISTS quiz_review_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_quiz_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+    quiz_id INTEGER NOT NULL,
+    question_index INTEGER NOT NULL,
+    question_type TEXT NOT NULL,
+    prompt TEXT,
+    response_text TEXT,
+    max_score INTEGER DEFAULT 1,
+    awarded_score INTEGER DEFAULT 0,
+    review_status TEXT DEFAULT 'pending',
+    reviewed_by INTEGER,
+    reviewed_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(student_quiz_id) REFERENCES student_quizzes(id),
+    FOREIGN KEY(student_id) REFERENCES students(id),
+    FOREIGN KEY(quiz_id) REFERENCES quizzes(id),
+    FOREIGN KEY(reviewed_by) REFERENCES students(id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_quiz_review_items_pending ON quiz_review_items(review_status, created_at);
+  CREATE INDEX IF NOT EXISTS idx_quiz_review_items_student_quiz ON quiz_review_items(student_quiz_id);
 
   CREATE TABLE IF NOT EXISTS students (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,6 +158,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS quizzes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
+    grade_level TEXT,
     questions TEXT, -- JSON string
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -137,6 +169,7 @@ db.exec(`
     type TEXT NOT NULL,
     world TEXT,
     zone TEXT,
+    grade_level TEXT,
     xp_reward INTEGER DEFAULT 100,
     xp_bonus_first_try INTEGER DEFAULT 0,
     xp_retry_penalty INTEGER DEFAULT 0,
@@ -201,6 +234,16 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_created_at ON ai_usage_logs(created_at);
   CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_endpoint_created ON ai_usage_logs(endpoint, created_at);
   CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_user_created ON ai_usage_logs(user_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS student_interest_votes (
+    student_id INTEGER NOT NULL,
+    interest_key TEXT NOT NULL,
+    weight INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(student_id, interest_key),
+    FOREIGN KEY(student_id) REFERENCES students(id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_student_interest_votes_interest ON student_interest_votes(interest_key);
 `);
 
 // Add Supabase linkage columns without requiring a destructive migration.
@@ -254,6 +297,59 @@ for (const stmt of STUDENT_ANALYTICS_ALTER) {
   }
 }
 
+const STUDENT_QUIZZES_ALTER = [
+  "ALTER TABLE student_quizzes ADD COLUMN auto_score INTEGER DEFAULT 0",
+  "ALTER TABLE student_quizzes ADD COLUMN reviewed_score INTEGER DEFAULT 0",
+  "ALTER TABLE student_quizzes ADD COLUMN pending_reviews INTEGER DEFAULT 0",
+];
+for (const stmt of STUDENT_QUIZZES_ALTER) {
+  try {
+    db.exec(stmt);
+  } catch (e: any) {
+    if (!/duplicate column name/i.test(e?.message || "")) {
+      console.warn("student_quizzes migration:", stmt, e?.message);
+    }
+  }
+}
+
+const MISSIONS_ALTER = [
+  "ALTER TABLE missions ADD COLUMN prerequisite_mission_id INTEGER",
+  "ALTER TABLE missions ADD COLUMN learning_outcomes_json TEXT",
+  "ALTER TABLE missions ADD COLUMN domains_json TEXT",
+  "ALTER TABLE missions ADD COLUMN grade_level TEXT",
+];
+for (const stmt of MISSIONS_ALTER) {
+  try {
+    db.exec(stmt);
+  } catch (e: any) {
+    if (!/duplicate column name/i.test(e?.message || "")) {
+      console.warn("missions migration:", stmt, e?.message);
+    }
+  }
+}
+
+const QUIZZES_ALTER = ["ALTER TABLE quizzes ADD COLUMN grade_level TEXT"];
+for (const stmt of QUIZZES_ALTER) {
+  try {
+    db.exec(stmt);
+  } catch (e: any) {
+    if (!/duplicate column name/i.test(e?.message || "")) {
+      console.warn("quizzes migration:", stmt, e?.message);
+    }
+  }
+}
+
+const CHALLENGES_ALTER = ["ALTER TABLE challenges ADD COLUMN grade_level TEXT"];
+for (const stmt of CHALLENGES_ALTER) {
+  try {
+    db.exec(stmt);
+  } catch (e: any) {
+    if (!/duplicate column name/i.test(e?.message || "")) {
+      console.warn("challenges migration:", stmt, e?.message);
+    }
+  }
+}
+
 try {
   db.exec(`UPDATE students SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL`);
 } catch {
@@ -287,6 +383,11 @@ const bumpLastActive = (userId: number) => {
 // Migration: add join_code to classes if missing
 try {
   db.exec(`ALTER TABLE classes ADD COLUMN join_code TEXT;`);
+} catch (e: any) {
+  if (!/duplicate column name/i.test(e?.message || "")) throw e;
+}
+try {
+  db.exec(`ALTER TABLE classes ADD COLUMN curriculum_track TEXT;`);
 } catch (e: any) {
   if (!/duplicate column name/i.test(e?.message || "")) throw e;
 }
@@ -823,6 +924,24 @@ async function startServer() {
     next();
   };
 
+  const ensureClassAccess = (req: express.Request, res: express.Response, classId: number): { ok: boolean } => {
+    const user = (req.session as any)?.user as SessionUser | undefined;
+    if (!user) {
+      res.status(401).json({ success: false, message: "Unauthorized" });
+      return { ok: false };
+    }
+    const cls = db.prepare("SELECT id, teacher_id FROM classes WHERE id = ?").get(classId) as { id: number; teacher_id: number } | undefined;
+    if (!cls) {
+      res.status(404).json({ success: false, message: "Class not found" });
+      return { ok: false };
+    }
+    if (user.role === "admin" || cls.teacher_id === user.id) {
+      return { ok: true };
+    }
+    res.status(403).json({ success: false, message: "Forbidden" });
+    return { ok: false };
+  };
+
   const loginAttempts: Record<string, { count: number; windowStart: number }> = {};
   const WINDOW_MS = 15 * 60 * 1000;
   const MAX_ATTEMPTS = 20;
@@ -859,6 +978,46 @@ async function startServer() {
     res.json(sector);
   });
 
+  app.post("/api/sectors", requireAuth, requireRole(["admin"]), (req, res) => {
+    const {
+      name,
+      description,
+      xp_reward,
+      required_level,
+      mastery_percent,
+      status,
+      image_url,
+    } = req.body || {};
+
+    const trimmedName = String(name || "").trim();
+    if (!trimmedName) {
+      return res.status(400).json({ success: false, message: "Sector name is required" });
+    }
+
+    const safeDescription = String(description || "").trim();
+    const safeXp = Math.max(0, Number.isFinite(Number(xp_reward)) ? Number(xp_reward) : 0);
+    const safeRequiredLevel = Math.max(1, Number.isFinite(Number(required_level)) ? Number(required_level) : 1);
+    const safeMastery = Math.min(100, Math.max(0, Number.isFinite(Number(mastery_percent)) ? Number(mastery_percent) : 0));
+    const safeStatusRaw = String(status || "locked").toLowerCase();
+    const safeStatus = ["active", "locked", "maintenance"].includes(safeStatusRaw) ? safeStatusRaw : "locked";
+    const safeImageUrl = String(image_url || "").trim() || "https://picsum.photos/seed/sector/400/300";
+
+    const insert = db.prepare(
+      "INSERT INTO sectors (name, description, xp_reward, required_level, mastery_percent, status, image_url) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    );
+    const result = insert.run(
+      trimmedName,
+      safeDescription,
+      safeXp,
+      safeRequiredLevel,
+      safeMastery,
+      safeStatus,
+      safeImageUrl
+    );
+    const created = db.prepare("SELECT * FROM sectors WHERE id = ?").get(result.lastInsertRowid);
+    return res.json({ success: true, sector: created });
+  });
+
   /** Missions in this sector. Students see only missions assigned to their class(es); teachers/admins see all. */
   app.get("/api/sectors/:id/missions", requireAuth, (req, res) => {
     const sectorId = req.params.id;
@@ -872,14 +1031,23 @@ async function startServer() {
     if (sessionUser.role === "student") {
       const rows = db
         .prepare(
-          `SELECT DISTINCT m.*
+          `SELECT DISTINCT
+             m.*,
+             CASE
+               WHEN m.prerequisite_mission_id IS NOT NULL
+                    AND m.prerequisite_mission_id NOT IN (
+                      SELECT smc.mission_id FROM student_mission_completions smc WHERE smc.student_id = ?
+                    )
+               THEN 'locked'
+               ELSE COALESCE(m.status, 'available')
+             END AS status
            FROM missions m
            JOIN class_missions cm ON cm.mission_id = m.id
            JOIN class_students cs ON cs.class_id = cm.class_id
            WHERE cs.student_id = ? AND m.sector_id = ?
            ORDER BY m.id`
         )
-        .all(sessionUser.id, sectorId);
+        .all(sessionUser.id, sessionUser.id, sectorId);
       missions = rows;
       const completed = db
         .prepare(
@@ -918,6 +1086,18 @@ async function startServer() {
     res.json({ success: true, id: result.lastInsertRowid });
   });
 
+  app.get("/api/schools", (_req, res) => {
+    const rows = db
+      .prepare(
+        `SELECT DISTINCT TRIM(school) AS school
+         FROM students
+         WHERE school IS NOT NULL AND TRIM(school) <> ''
+         ORDER BY school COLLATE NOCASE`,
+      )
+      .all() as Array<{ school: string }>;
+    res.json(rows.map((r) => r.school));
+  });
+
   app.post("/api/signup", rateLimitAuth, async (req, res) => {
     const {
       name,
@@ -954,6 +1134,11 @@ async function startServer() {
       return res.status(400).json({ success: false, message: "Invalid role" });
     }
 
+    const normalizedSchool = String(school || "").trim();
+    if (role === "teacher" && !normalizedSchool) {
+      return res.status(400).json({ success: false, message: "Teacher signup requires a school selection." });
+    }
+
     const avatarSeed = encodeURIComponent(name.trim().toLowerCase().replace(/\s+/g, "-"));
     const avatar_url = `https://picsum.photos/seed/${avatarSeed}/200`;
     const username = ensureUniqueUsername(name);
@@ -979,7 +1164,7 @@ async function startServer() {
             display_name: name,
             age: age || null,
             grade_level: grade || null,
-            school: school || null,
+            school: normalizedSchool || null,
             city: city || null,
             parent_email: parent_email || null,
             contact_number: contact_number || null,
@@ -1026,7 +1211,7 @@ async function startServer() {
         id: sbNew.id,
         role: mappedRole,
         display_name: name,
-        school: school || null,
+        school: normalizedSchool || null,
         grade_level: grade || null,
         avatar_url,
         gender: gender || null,
@@ -1065,7 +1250,7 @@ async function startServer() {
             role,
             age || null,
             grade || null,
-            school || null,
+            normalizedSchool || null,
             city || null,
             email || null,
             parent_email || null,
@@ -1091,7 +1276,7 @@ async function startServer() {
           avatar_url,
           age || null,
           grade || null,
-          school || null,
+          normalizedSchool || null,
           city || null,
           email || null,
           parent_email || null,
@@ -1128,7 +1313,7 @@ async function startServer() {
       role,
       age || null,
       grade || null,
-      school || null,
+      normalizedSchool || null,
       city || null,
       email || null,
       parent_email || null,
@@ -1295,9 +1480,10 @@ async function startServer() {
     const id = req.params.id;
     const existing = db.prepare("SELECT id FROM quizzes WHERE id = ?").get(id);
     if (!existing) return res.status(404).json({ error: "Quiz not found" });
-    const { title, questions } = req.body;
+    const { title, questions, grade_level } = req.body;
     if (title !== undefined) db.prepare("UPDATE quizzes SET title = ? WHERE id = ?").run(title, id);
     if (questions !== undefined) db.prepare("UPDATE quizzes SET questions = ? WHERE id = ?").run(typeof questions === "string" ? questions : JSON.stringify(questions), id);
+    if (grade_level !== undefined) db.prepare("UPDATE quizzes SET grade_level = ? WHERE id = ?").run(String(grade_level || "").trim() || null, id);
     res.json({ success: true });
   });
 
@@ -1460,7 +1646,14 @@ Create the quiz now.`;
     const studentId = Number(req.params.id);
     if (!Number.isInteger(studentId) || studentId < 1) return res.status(400).json({ success: false, message: "Invalid student id" });
 
-    const assigned = db.prepare(`
+    const studentRow = db
+      .prepare("SELECT grade FROM students WHERE id = ?")
+      .get(studentId) as { grade?: string | null } | undefined;
+    const normalizedGrade = String(studentRow?.grade || "")
+      .trim()
+      .toLowerCase();
+
+    let assigned = db.prepare(`
       SELECT m.*, s.name as sector_name
       FROM missions m
       JOIN class_missions cm ON cm.mission_id = m.id
@@ -1469,10 +1662,40 @@ Create the quiz now.`;
       WHERE cs.student_id = ?
       ORDER BY m.id ASC
     `).all(studentId) as Array<any>;
+    if (assigned.length === 0) {
+      assigned = db
+        .prepare(
+          `
+          SELECT m.*, s.name as sector_name
+          FROM missions m
+          JOIN sectors s ON s.id = m.sector_id
+          WHERE m.status = 'available'
+            AND (
+              ? = ''
+              OR
+              m.grade_level IS NULL
+              OR TRIM(m.grade_level) = ''
+              OR LOWER(TRIM(m.grade_level)) = ?
+            )
+          ORDER BY m.id ASC
+          LIMIT 30
+        `,
+        )
+        .all(normalizedGrade, normalizedGrade) as Array<any>;
+    }
     const completedSet = new Set<number>(
       (db.prepare(`SELECT mission_id FROM student_mission_completions WHERE student_id = ?`).all(studentId) as Array<{ mission_id: number }>).map(r => r.mission_id)
     );
     const pending = assigned.filter((m) => !completedSet.has(m.id));
+    const interestKeys = (
+      db
+        .prepare("SELECT interest_key FROM student_interest_votes WHERE student_id = ? ORDER BY weight DESC, created_at DESC")
+        .all(studentId) as Array<{ interest_key: string }>
+    ).map((r) => String(r.interest_key || "").toLowerCase());
+    const scoreByInterest = (mission: any) => {
+      const hay = `${mission?.title || ""} ${mission?.description || ""} ${mission?.sector_name || ""}`.toLowerCase();
+      return interestKeys.reduce((acc, key) => (hay.includes(key.replace(/_/g, " ")) ? acc + 1 : acc), 0);
+    };
     const stats = db.prepare(`
       SELECT
         COALESCE(AVG(CAST(score AS FLOAT) / NULLIF(total_questions,0)) * 100, 0) as avg_score,
@@ -1501,12 +1724,12 @@ Create the quiz now.`;
     // Heuristic baseline recommendations from pending missions
     const easierFirst = pending
       .filter((m) => weakest ? m.sector_id === weakest.sector_id : true)
-      .sort((a, b) => (a.difficulty || "").localeCompare(b.difficulty || "") || a.id - b.id)
+      .sort((a, b) => scoreByInterest(b) - scoreByInterest(a) || (a.difficulty || "").localeCompare(b.difficulty || "") || a.id - b.id)
       .slice(0, 2)
       .map((m) => ({ mission_id: m.id, title: m.title, difficulty: m.difficulty, sector: m.sector_name, reason: `Build fundamentals in ${m.sector_name} progressively.` }));
     const strongerStretch = pending
       .filter((m) => strongest ? m.sector_id === strongest.sector_id : true)
-      .sort((a, b) => (b.difficulty || "").localeCompare(a.difficulty || "") || a.id - b.id)
+      .sort((a, b) => scoreByInterest(b) - scoreByInterest(a) || (b.difficulty || "").localeCompare(a.difficulty || "") || a.id - b.id)
       .slice(0, 2)
       .map((m) => ({ mission_id: m.id, title: m.title, difficulty: m.difficulty, sector: m.sector_name, reason: `Stretch in your stronger area: ${m.sector_name}.` }));
     let recommendations = [...easierFirst, ...strongerStretch].slice(0, 4);
@@ -1521,6 +1744,7 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
       quizzes_completed: Number(stats?.quizzes_completed || 0),
       sector_progress: sectorProgress,
       pending_missions: pending.map((m) => ({ mission_id: m.id, title: m.title, sector: m.sector_name, difficulty: m.difficulty })),
+      student_interests: interestKeys,
     });
     const ai = await callAiJson<{ recommendations?: Array<{ mission_id: number; reason?: string; difficulty_target?: string }> }>(aiSystem, aiUser);
     if (ai?.recommendations?.length) {
@@ -1554,9 +1778,9 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
   });
 
   app.post("/api/quizzes", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const { title, questions } = req.body;
-    const insert = db.prepare("INSERT INTO quizzes (title, questions) VALUES (?, ?)");
-    const result = insert.run(title, JSON.stringify(questions));
+    const { title, questions, grade_level } = req.body;
+    const insert = db.prepare("INSERT INTO quizzes (title, grade_level, questions) VALUES (?, ?, ?)");
+    const result = insert.run(title, String(grade_level || "").trim() || null, JSON.stringify(questions));
     res.json({ success: true, id: result.lastInsertRowid });
   });
 
@@ -1615,18 +1839,19 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
   });
 
   app.post("/api/challenges", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const { title, type, world, zone, xp_reward, xp_bonus_first_try, xp_retry_penalty, content_json } = req.body;
+    const { title, type, world, zone, grade_level, xp_reward, xp_bonus_first_try, xp_retry_penalty, content_json } = req.body;
     if (!title || !type || content_json === undefined) {
       return res.status(400).json({ error: "title, type, and content_json required" });
     }
     const insert = db.prepare(
-      "INSERT INTO challenges (title, type, world, zone, xp_reward, xp_bonus_first_try, xp_retry_penalty, content_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO challenges (title, type, world, zone, grade_level, xp_reward, xp_bonus_first_try, xp_retry_penalty, content_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     const result = insert.run(
       title,
       type,
       world || null,
       zone || null,
+      String(grade_level || "").trim() || null,
       Number(xp_reward) || 100,
       Number(xp_bonus_first_try) || 0,
       Number(xp_retry_penalty) || 0,
@@ -1639,13 +1864,14 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
     const id = req.params.id;
     const existing = db.prepare("SELECT id FROM challenges WHERE id = ?").get(id);
     if (!existing) return res.status(404).json({ error: "Challenge not found" });
-    const { title, type, world, zone, xp_reward, xp_bonus_first_try, xp_retry_penalty, content_json } = req.body;
+    const { title, type, world, zone, grade_level, xp_reward, xp_bonus_first_try, xp_retry_penalty, content_json } = req.body;
     const updates: string[] = [];
     const values: unknown[] = [];
     if (title !== undefined) { updates.push("title = ?"); values.push(title); }
     if (type !== undefined) { updates.push("type = ?"); values.push(type); }
     if (world !== undefined) { updates.push("world = ?"); values.push(world); }
     if (zone !== undefined) { updates.push("zone = ?"); values.push(zone); }
+    if (grade_level !== undefined) { updates.push("grade_level = ?"); values.push(String(grade_level || "").trim() || null); }
     if (xp_reward !== undefined) { updates.push("xp_reward = ?"); values.push(Number(xp_reward)); }
     if (xp_bonus_first_try !== undefined) { updates.push("xp_bonus_first_try = ?"); values.push(Number(xp_bonus_first_try)); }
     if (xp_retry_penalty !== undefined) { updates.push("xp_retry_penalty = ?"); values.push(Number(xp_retry_penalty)); }
@@ -1731,9 +1957,16 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
   });
 
   app.post("/api/classes/:id/challenges", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const classId = Number(req.params.id);
+    if (!Number.isInteger(classId) || classId < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!ensureClassAccess(req, res, classId).ok) return;
+    const clsTrack = db.prepare("SELECT curriculum_track FROM classes WHERE id = ?").get(req.params.id) as { curriculum_track?: string | null } | undefined;
+    if (!clsTrack) return res.status(404).json({ success: false, error: "Class not found" });
+    if (!clsTrack.curriculum_track || !String(clsTrack.curriculum_track).trim()) {
+      return res.status(400).json({ success: false, error: "Set curriculum track first before deploying challenges." });
+    }
     const { challenge_id } = req.body;
     if (!challenge_id) return res.status(400).json({ error: "challenge_id required" });
-    const classId = Number(req.params.id);
     const challengeId = Number(challenge_id);
     const r = db
       .prepare("INSERT OR IGNORE INTO class_challenges (class_id, challenge_id) VALUES (?, ?)")
@@ -1763,6 +1996,9 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
   });
 
   app.delete("/api/classes/:id/challenges/:challengeId", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const classId = Number(req.params.id);
+    if (!Number.isInteger(classId) || classId < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!ensureClassAccess(req, res, classId).ok) return;
     db.prepare("DELETE FROM class_challenges WHERE class_id = ? AND challenge_id = ?").run(req.params.id, req.params.challengeId);
     res.json({ success: true });
   });
@@ -1770,12 +2006,35 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
   app.get("/api/students/:id/assigned-challenges", requireAuth, requireStudentAccess, (req, res) => {
     const studentId = req.params.id;
     const challenges = db.prepare(`
-      SELECT DISTINCT c.* FROM challenges c
+      SELECT DISTINCT
+        c.*,
+        (
+          SELECT ca.score
+          FROM challenge_attempts ca
+          WHERE ca.student_id = ? AND ca.challenge_id = c.id
+          ORDER BY ca.created_at DESC, ca.id DESC
+          LIMIT 1
+        ) as latest_score,
+        (
+          SELECT ca.correct
+          FROM challenge_attempts ca
+          WHERE ca.student_id = ? AND ca.challenge_id = c.id
+          ORDER BY ca.created_at DESC, ca.id DESC
+          LIMIT 1
+        ) as latest_correct,
+        (
+          SELECT ca.created_at
+          FROM challenge_attempts ca
+          WHERE ca.student_id = ? AND ca.challenge_id = c.id
+          ORDER BY ca.created_at DESC, ca.id DESC
+          LIMIT 1
+        ) as latest_attempted_at
+      FROM challenges c
       JOIN class_challenges cc ON cc.challenge_id = c.id
       JOIN class_students cs ON cs.class_id = cc.class_id
       WHERE cs.student_id = ?
       ORDER BY c.created_at DESC
-    `).all(studentId);
+    `).all(studentId, studentId, studentId, studentId);
     res.json(challenges);
   });
 
@@ -1832,6 +2091,15 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
         "SELECT CASE WHEN grade IS NULL OR TRIM(grade) = '' THEN 'unspecified' ELSE grade END as grade, COUNT(*) as n FROM students GROUP BY 1 ORDER BY n DESC LIMIT 12",
       )
       .all() as { grade: string; n: number }[];
+    const interestTrends = db
+      .prepare(
+        `SELECT interest_key, COUNT(*) as n
+         FROM student_interest_votes
+         GROUP BY interest_key
+         ORDER BY n DESC, interest_key ASC
+         LIMIT 20`,
+      )
+      .all() as { interest_key: string; n: number }[];
 
     const signups30 = db
       .prepare(
@@ -1926,6 +2194,7 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
       byCity,
       ageBuckets,
       gradeDistribution: gradeDist,
+      interestTrends,
       signupsLast30Days: signups30,
       monetization: {
         mrrCents,
@@ -2027,23 +2296,30 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
   });
 
   app.post("/api/missions", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const { sector_id, title, description, difficulty, xp_reward, image_url, embed_code } = req.body;
+    const { sector_id, title, description, difficulty, grade_level, xp_reward, image_url, embed_code, prerequisite_mission_id, learning_outcomes, domains } = req.body;
     const sessionUser = (req.session as any)?.user as SessionUser | undefined;
     // Allow both teachers and admins to save embed/game URL (normalized on client or as raw string; sanitized below)
     const rawEmbed = typeof embed_code === "string" && embed_code.trim() ? embed_code.trim() : null;
     const safeEmbed = rawEmbed ? sanitizeEmbedCode(rawEmbed) : null;
 
     const insert = db.prepare(
-      "INSERT INTO missions (sector_id, title, description, difficulty, xp_reward, status, image_url, embed_code) VALUES (?, ?, ?, ?, ?, 'available', ?, ?)",
+      "INSERT INTO missions (sector_id, title, description, difficulty, grade_level, xp_reward, status, image_url, embed_code, prerequisite_mission_id, learning_outcomes_json, domains_json) VALUES (?, ?, ?, ?, ?, ?, 'available', ?, ?, ?, ?, ?)",
     );
+    const safeOutcomes = Array.isArray(learning_outcomes) ? JSON.stringify(learning_outcomes.map((x) => String(x).trim()).filter(Boolean)) : null;
+    const safeDomains = Array.isArray(domains) ? JSON.stringify(domains.map((x) => String(x).trim()).filter(Boolean)) : null;
+    const safePrereq = Number.isInteger(Number(prerequisite_mission_id)) && Number(prerequisite_mission_id) > 0 ? Number(prerequisite_mission_id) : null;
     const result = insert.run(
       sector_id,
       title,
       description,
       difficulty,
+      String(grade_level || "").trim() || null,
       xp_reward,
       image_url || "https://picsum.photos/seed/mission/400/300",
       safeEmbed,
+      safePrereq,
+      safeOutcomes,
+      safeDomains,
     );
     
     // Log the action
@@ -2087,6 +2363,7 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
   app.get("/api/classes/:id", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "Invalid class id" });
+    if (!ensureClassAccess(req, res, id).ok) return;
     const cls = db.prepare("SELECT * FROM classes WHERE id = ?").get(id);
     if (!cls) return res.status(404).json({ error: "Class not found" });
     res.json(cls);
@@ -2099,6 +2376,7 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
     if (!Number.isInteger(classId) || classId < 1) {
       return res.status(400).json({ error: "Class id required" });
     }
+    if (!ensureClassAccess(req, res, classId).ok) return;
     const row = db.prepare("SELECT id, join_code FROM classes WHERE id = ?").get(classId) as { id: number; join_code: string | null } | undefined;
     if (!row) return res.status(404).json({ error: "Class not found" });
     let code = row.join_code != null && String(row.join_code).trim() !== "" ? String(row.join_code).trim() : null;
@@ -2114,7 +2392,7 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
   app.patch("/api/classes/:id/ensure-join-code", requireAuth, requireRole(["teacher", "admin"]), handleEnsureJoinCode);
 
   app.post("/api/classes", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const { name, teacher_id, description } = req.body;
+    const { name, teacher_id, description, curriculum_track } = req.body;
     const sessionUser = (req.session as any)?.user as SessionUser;
     const effectiveTeacherId = sessionUser.role === "teacher" ? sessionUser.id : teacher_id;
 
@@ -2128,9 +2406,21 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
     }
 
     const join_code = ensureUniqueJoinCode();
-    const insert = db.prepare("INSERT INTO classes (name, teacher_id, description, join_code) VALUES (?, ?, ?, ?)");
-    const result = insert.run(trimmedName, tid, description || "", join_code);
+    const insert = db.prepare("INSERT INTO classes (name, teacher_id, description, join_code, curriculum_track) VALUES (?, ?, ?, ?, ?)");
+    const result = insert.run(trimmedName, tid, description || "", join_code, String(curriculum_track || "").trim() || null);
     res.json({ success: true, id: result.lastInsertRowid, join_code });
+  });
+
+  app.patch("/api/classes/:id/curriculum", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const classId = Number(req.params.id);
+    if (!Number.isInteger(classId) || classId < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!ensureClassAccess(req, res, classId).ok) return;
+    const cls = db.prepare("SELECT id FROM classes WHERE id = ?").get(classId);
+    if (!cls) return res.status(404).json({ success: false, error: "Class not found" });
+    const curriculumTrack = String(req.body?.curriculum_track || "").trim();
+    if (!curriculumTrack) return res.status(400).json({ success: false, error: "curriculum_track is required" });
+    db.prepare("UPDATE classes SET curriculum_track = ? WHERE id = ?").run(curriculumTrack, classId);
+    res.json({ success: true, curriculum_track: curriculumTrack });
   });
 
   app.post("/api/classes/join", requireAuth, requireRole(["student"]), (req, res) => {
@@ -2161,6 +2451,7 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
       if (!Number.isInteger(classId) || classId < 1) {
         return res.status(400).json({ success: false, error: "Invalid class id" });
       }
+      if (!ensureClassAccess(req, res, classId).ok) return;
       const { names } = req.body;
       const rawNames = Array.isArray(names) ? names.map((n: unknown) => String(n).trim()).filter(Boolean) : [];
       const seen = new Set<string>();
@@ -2207,6 +2498,9 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
 
   app.post("/api/classes/:id/students/bulk", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
     const classId = req.params.id;
+    const classIdNum = Number(classId);
+    if (!Number.isInteger(classIdNum) || classIdNum < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!ensureClassAccess(req, res, classIdNum).ok) return;
     const { student_ids } = req.body;
     const ids = Array.isArray(student_ids) ? student_ids.map((x: unknown) => Number(x)).filter((n: number) => Number.isInteger(n) && n > 0) : [];
     const insert = db.prepare("INSERT OR IGNORE INTO class_students (class_id, student_id) VALUES (?, ?)");
@@ -2219,6 +2513,9 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
   });
 
   app.post("/api/classes/:id/students", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const classId = Number(req.params.id);
+    if (!Number.isInteger(classId) || classId < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!ensureClassAccess(req, res, classId).ok) return;
     const { student_id } = req.body;
     const insert = db.prepare("INSERT OR IGNORE INTO class_students (class_id, student_id) VALUES (?, ?)");
     insert.run(req.params.id, student_id);
@@ -2226,6 +2523,14 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
   });
 
   app.post("/api/classes/:id/missions", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const classId = Number(req.params.id);
+    if (!Number.isInteger(classId) || classId < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!ensureClassAccess(req, res, classId).ok) return;
+    const cls = db.prepare("SELECT curriculum_track FROM classes WHERE id = ?").get(req.params.id) as { curriculum_track?: string | null } | undefined;
+    if (!cls) return res.status(404).json({ success: false, error: "Class not found" });
+    if (!cls.curriculum_track || !String(cls.curriculum_track).trim()) {
+      return res.status(400).json({ success: false, error: "Set curriculum track first before deploying missions." });
+    }
     const { mission_id } = req.body;
     const insert = db.prepare("INSERT OR IGNORE INTO class_missions (class_id, mission_id) VALUES (?, ?)");
     insert.run(req.params.id, mission_id);
@@ -2233,6 +2538,14 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
   });
 
   app.post("/api/classes/:id/quizzes", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const classId = Number(req.params.id);
+    if (!Number.isInteger(classId) || classId < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!ensureClassAccess(req, res, classId).ok) return;
+    const cls = db.prepare("SELECT curriculum_track FROM classes WHERE id = ?").get(req.params.id) as { curriculum_track?: string | null } | undefined;
+    if (!cls) return res.status(404).json({ success: false, error: "Class not found" });
+    if (!cls.curriculum_track || !String(cls.curriculum_track).trim()) {
+      return res.status(400).json({ success: false, error: "Set curriculum track first before deploying quizzes." });
+    }
     const { quiz_id } = req.body;
     const insert = db.prepare("INSERT OR IGNORE INTO class_quizzes (class_id, quiz_id) VALUES (?, ?)");
     insert.run(req.params.id, quiz_id);
@@ -2241,6 +2554,9 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
 
   app.get("/api/classes/:id/content", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
     const classId = req.params.id;
+    const classIdNum = Number(classId);
+    if (!Number.isInteger(classIdNum) || classIdNum < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!ensureClassAccess(req, res, classIdNum).ok) return;
     const missions = db
       .prepare(
         `
@@ -2274,6 +2590,9 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
   });
 
   app.delete("/api/classes/:id/missions/:missionId", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const classId = Number(req.params.id);
+    if (!Number.isInteger(classId) || classId < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!ensureClassAccess(req, res, classId).ok) return;
     const { id, missionId } = req.params;
     const del = db.prepare("DELETE FROM class_missions WHERE class_id = ? AND mission_id = ?");
     del.run(id, missionId);
@@ -2281,6 +2600,9 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
   });
 
   app.delete("/api/classes/:id/quizzes/:quizId", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const classId = Number(req.params.id);
+    if (!Number.isInteger(classId) || classId < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!ensureClassAccess(req, res, classId).ok) return;
     const { id, quizId } = req.params;
     const del = db.prepare("DELETE FROM class_quizzes WHERE class_id = ? AND quiz_id = ?");
     del.run(id, quizId);
@@ -2304,17 +2626,143 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
     res.json({ badges, quizzes, missions_completed: Number(missionRow?.n ?? 0) });
   });
 
+  app.get("/api/students/:id/interests", requireAuth, requireStudentAccess, (req, res) => {
+    const studentId = Number(req.params.id);
+    if (!Number.isInteger(studentId) || studentId < 1) return res.status(400).json({ success: false, message: "Invalid student id" });
+    const selected = db
+      .prepare("SELECT interest_key FROM student_interest_votes WHERE student_id = ? ORDER BY weight DESC, created_at DESC")
+      .all(studentId) as Array<{ interest_key: string }>;
+    res.json({ success: true, selected: selected.map((r) => r.interest_key) });
+  });
+
+  app.post("/api/students/:id/interests", requireAuth, requireStudentAccess, (req, res) => {
+    const studentId = Number(req.params.id);
+    if (!Number.isInteger(studentId) || studentId < 1) return res.status(400).json({ success: false, message: "Invalid student id" });
+    const incoming = Array.isArray(req.body?.selected) ? req.body.selected : [];
+    const selected = [...new Set(incoming.map((x: unknown) => String(x || "").trim().toLowerCase()).filter(Boolean))].slice(0, 6);
+    if (selected.length < 2) {
+      return res.status(400).json({ success: false, message: "Select at least 2 interests." });
+    }
+    const del = db.prepare("DELETE FROM student_interest_votes WHERE student_id = ?");
+    const ins = db.prepare("INSERT INTO student_interest_votes (student_id, interest_key, weight) VALUES (?, ?, ?)");
+    const tx = db.transaction(() => {
+      del.run(studentId);
+      selected.forEach((key: string, idx: number) => ins.run(studentId, key, Math.max(1, selected.length - idx)));
+    });
+    tx();
+    res.json({ success: true, selected });
+  });
+
   app.get("/api/students/:id/assigned-quizzes", requireAuth, requireStudentAccess, (req, res) => {
     const studentId = req.params.id;
     const quizzes = db.prepare(`
-      SELECT DISTINCT q.*
+      SELECT DISTINCT
+        q.*,
+        (
+          SELECT sq.score
+          FROM student_quizzes sq
+          WHERE sq.student_id = ? AND sq.quiz_id = q.id
+          ORDER BY sq.completed_at DESC, sq.id DESC
+          LIMIT 1
+        ) as latest_score,
+        (
+          SELECT sq.total_questions
+          FROM student_quizzes sq
+          WHERE sq.student_id = ? AND sq.quiz_id = q.id
+          ORDER BY sq.completed_at DESC, sq.id DESC
+          LIMIT 1
+        ) as latest_total_questions,
+        (
+          SELECT sq.completed_at
+          FROM student_quizzes sq
+          WHERE sq.student_id = ? AND sq.quiz_id = q.id
+          ORDER BY sq.completed_at DESC, sq.id DESC
+          LIMIT 1
+        ) as latest_completed_at,
+        (
+          SELECT sq.pending_reviews
+          FROM student_quizzes sq
+          WHERE sq.student_id = ? AND sq.quiz_id = q.id
+          ORDER BY sq.completed_at DESC, sq.id DESC
+          LIMIT 1
+        ) as latest_pending_reviews
       FROM quizzes q
       JOIN class_quizzes cq ON cq.quiz_id = q.id
       JOIN class_students cs ON cs.class_id = cq.class_id
       WHERE cs.student_id = ?
       ORDER BY q.created_at DESC
-    `).all(studentId);
+    `).all(studentId, studentId, studentId, studentId, studentId);
     res.json(quizzes);
+  });
+
+  app.get("/api/students/:id/assigned-missions", requireAuth, requireStudentAccess, (req, res) => {
+    const studentId = req.params.id;
+    let missions = db.prepare(`
+      SELECT DISTINCT
+        m.*,
+        (
+          SELECT smc.completed_at
+          FROM student_mission_completions smc
+          WHERE smc.student_id = ? AND smc.mission_id = m.id
+          ORDER BY smc.completed_at DESC
+          LIMIT 1
+        ) AS latest_completed_at
+      FROM missions m
+      JOIN class_missions cm ON cm.mission_id = m.id
+      JOIN class_students cs ON cs.class_id = cm.class_id
+      WHERE cs.student_id = ?
+        AND (
+          m.prerequisite_mission_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM student_mission_completions smc2
+            WHERE smc2.student_id = ?
+              AND smc2.mission_id = m.prerequisite_mission_id
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM student_mission_completions smc3
+            WHERE smc3.student_id = ?
+              AND smc3.mission_id = m.id
+          )
+        )
+      ORDER BY m.id DESC
+    `).all(studentId, studentId, studentId, studentId);
+    if (!Array.isArray(missions) || missions.length === 0) {
+      const studentRow = db.prepare("SELECT grade FROM students WHERE id = ?").get(studentId) as { grade?: string | null } | undefined;
+      const normalizedGrade = String(studentRow?.grade || "").trim().toLowerCase();
+      missions = db.prepare(`
+        SELECT
+          m.*,
+          (
+            SELECT smc.completed_at
+            FROM student_mission_completions smc
+            WHERE smc.student_id = ? AND smc.mission_id = m.id
+            ORDER BY smc.completed_at DESC
+            LIMIT 1
+          ) AS latest_completed_at
+        FROM missions m
+        WHERE m.status = 'available'
+          AND (
+            ? = ''
+            OR m.grade_level IS NULL
+            OR TRIM(m.grade_level) = ''
+            OR LOWER(TRIM(m.grade_level)) = ?
+          )
+          AND (
+            m.prerequisite_mission_id IS NULL
+            OR EXISTS (
+              SELECT 1
+              FROM student_mission_completions smc2
+              WHERE smc2.student_id = ?
+                AND smc2.mission_id = m.prerequisite_mission_id
+            )
+          )
+        ORDER BY m.id DESC
+        LIMIT 24
+      `).all(studentId, normalizedGrade, normalizedGrade, studentId);
+    }
+    res.json(missions);
   });
 
   app.post("/api/students/:id/missions/:missionId/complete", requireAuth, requireStudentAccess, (req, res) => {
@@ -2368,13 +2816,154 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
 
   app.post("/api/student-quizzes", requireAuth, (req, res) => {
     const sessionUser = (req.session as any)?.user as SessionUser;
-    const { student_id, quiz_id, score, total_questions } = req.body;
+    const { student_id, quiz_id, score, total_questions, auto_score, review_items } = req.body;
     if (sessionUser.role === "student" && Number(student_id) !== sessionUser.id) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
-    const insert = db.prepare("INSERT INTO student_quizzes (student_id, quiz_id, score, total_questions) VALUES (?, ?, ?, ?)");
-    insert.run(student_id, quiz_id, score, total_questions);
+    const normalizedAutoScore = Number.isFinite(Number(auto_score)) ? Number(auto_score) : Number(score) || 0;
+    const normalizedTotal = Number.isFinite(Number(total_questions)) ? Number(total_questions) : 0;
+    const pendingItems = Array.isArray(review_items) ? review_items : [];
+    const pendingCount = pendingItems.length;
+    const insert = db.prepare(
+      "INSERT INTO student_quizzes (student_id, quiz_id, score, auto_score, reviewed_score, pending_reviews, total_questions) VALUES (?, ?, ?, ?, 0, ?, ?)"
+    );
+    const insertResult = insert.run(student_id, quiz_id, normalizedAutoScore, normalizedAutoScore, pendingCount, normalizedTotal);
+    const studentQuizId = Number(insertResult.lastInsertRowid);
+
+    if (pendingItems.length > 0) {
+      const insertReview = db.prepare(
+        `INSERT INTO quiz_review_items
+         (student_quiz_id, student_id, quiz_id, question_index, question_type, prompt, response_text, max_score, awarded_score, review_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'pending')`
+      );
+      const tx = db.transaction((items: any[]) => {
+        items.forEach((item) => {
+          insertReview.run(
+            studentQuizId,
+            Number(student_id),
+            Number(quiz_id),
+            Number(item?.question_index || 0),
+            String(item?.question_type || "short_answer"),
+            String(item?.prompt || ""),
+            String(item?.response_text || ""),
+            Math.max(1, Number(item?.max_score || 1))
+          );
+        });
+      });
+      tx(pendingItems);
+    }
     bumpLastActive(Number(student_id));
+    res.json({ success: true, pending_reviews: pendingCount });
+  });
+
+  app.get("/api/teacher/quiz-reviews/pending", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const sessionUser = (req.session as any)?.user as SessionUser;
+    const classIdRaw = req.query.class_id;
+    const classId = classIdRaw != null ? Number(classIdRaw) : null;
+
+    let query = `
+      SELECT
+        qri.id,
+        qri.student_quiz_id,
+        qri.student_id,
+        s.name as student_name,
+        qri.quiz_id,
+        q.title as quiz_title,
+        qri.question_index,
+        qri.prompt,
+        qri.response_text,
+        qri.max_score,
+        qri.created_at
+      FROM quiz_review_items qri
+      JOIN students s ON s.id = qri.student_id
+      JOIN quizzes q ON q.id = qri.quiz_id
+      WHERE qri.review_status = 'pending'
+        AND EXISTS (
+          SELECT 1
+          FROM class_students cs
+          JOIN class_quizzes cq ON cq.class_id = cs.class_id AND cq.quiz_id = qri.quiz_id
+          JOIN classes c ON c.id = cs.class_id
+          WHERE cs.student_id = qri.student_id
+            AND ${sessionUser.role === "admin" ? "1=1" : "c.teacher_id = ?"}
+            ${classId ? "AND c.id = ?" : ""}
+        )
+      ORDER BY qri.created_at ASC
+    `;
+
+    const params: Array<number> = [];
+    if (sessionUser.role !== "admin") params.push(sessionUser.id);
+    if (classId) params.push(classId);
+    const rows = db.prepare(query).all(...params);
+    res.json(rows);
+  });
+
+  app.post("/api/teacher/quiz-reviews/:id/grade", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+    const sessionUser = (req.session as any)?.user as SessionUser;
+    const reviewId = Number(req.params.id);
+    const awardedRaw = Number(req.body?.awarded_score);
+    if (!Number.isInteger(reviewId) || reviewId < 1) {
+      return res.status(400).json({ success: false, message: "Invalid review id" });
+    }
+
+    const review = db
+      .prepare(
+        `SELECT qri.*, c.teacher_id
+         FROM quiz_review_items qri
+         JOIN class_students cs ON cs.student_id = qri.student_id
+         JOIN class_quizzes cq ON cq.class_id = cs.class_id AND cq.quiz_id = qri.quiz_id
+         JOIN classes c ON c.id = cs.class_id
+         WHERE qri.id = ?
+         LIMIT 1`
+      )
+      .get(reviewId) as
+      | {
+          id: number;
+          student_quiz_id: number;
+          max_score: number;
+          review_status: string;
+          teacher_id: number;
+        }
+      | undefined;
+
+    if (!review) return res.status(404).json({ success: false, message: "Review item not found" });
+    if (sessionUser.role !== "admin" && review.teacher_id !== sessionUser.id) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+    if (review.review_status !== "pending") {
+      return res.status(400).json({ success: false, message: "This item is already reviewed" });
+    }
+
+    const awarded = Math.max(0, Math.min(Number(review.max_score || 1), Number.isFinite(awardedRaw) ? awardedRaw : 0));
+    db.prepare(
+      `UPDATE quiz_review_items
+       SET awarded_score = ?, review_status = 'reviewed', reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP
+       WHERE id = ?`
+    ).run(awarded, sessionUser.id, reviewId);
+
+    const sums = db
+      .prepare(
+        `SELECT
+           COALESCE(SUM(awarded_score), 0) as reviewed_sum,
+           SUM(CASE WHEN review_status = 'pending' THEN 1 ELSE 0 END) as pending_count
+         FROM quiz_review_items
+         WHERE student_quiz_id = ?`
+      )
+      .get(review.student_quiz_id) as { reviewed_sum: number; pending_count: number };
+
+    const base = db
+      .prepare("SELECT auto_score, total_questions FROM student_quizzes WHERE id = ?")
+      .get(review.student_quiz_id) as { auto_score: number; total_questions: number } | undefined;
+    if (base) {
+      const reviewedScore = Number(sums?.reviewed_sum || 0);
+      const total = Number(base.total_questions || 0);
+      const combined = Math.max(0, Math.min(total, Number(base.auto_score || 0) + reviewedScore));
+      db.prepare(
+        `UPDATE student_quizzes
+         SET reviewed_score = ?, pending_reviews = ?, score = ?
+         WHERE id = ?`
+      ).run(reviewedScore, Number(sums?.pending_count || 0), combined, review.student_quiz_id);
+    }
+
     res.json({ success: true });
   });
 

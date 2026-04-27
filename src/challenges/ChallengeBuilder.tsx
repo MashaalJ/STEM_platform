@@ -64,6 +64,7 @@ export function ChallengeBuilder() {
   const [content, setContent] = useState<ChallengeContent>(() => getDefaultContent('multiple_choice')!);
   const [world, setWorld] = useState('');
   const [zone, setZone] = useState('');
+  const [gradeLevel, setGradeLevel] = useState('');
   const [xpReward, setXpReward] = useState(100);
   const [xpBonusFirstTry, setXpBonusFirstTry] = useState(0);
   const [xpRetryPenalty, setXpRetryPenalty] = useState(0);
@@ -79,9 +80,11 @@ export function ChallengeBuilder() {
   const [timeLimitSec, setTimeLimitSec] = useState<number>(45);
   const [saveMessage, setSaveMessage] = useState<'saved' | 'error' | null>(null);
   const [showPublishModal, setShowPublishModal] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
   const [publishClassId, setPublishClassId] = useState<number | ''>('');
   const [publishing, setPublishing] = useState(false);
   const [publishMessage, setPublishMessage] = useState<string | null>(null);
+  const [sceneAssetNotice, setSceneAssetNotice] = useState<string | null>(null);
 
   const catalog = getContentTypeCatalog();
   const plugin = getChallengeType(challengeType);
@@ -107,12 +110,17 @@ export function ChallengeBuilder() {
         setTitle(c.title);
         setChallengeType(c.type as ChallengeType);
         try {
-          setContent(JSON.parse(c.content_json || '{}'));
+          const parsed = JSON.parse(c.content_json || '{}');
+          setContent(parsed);
+          if (typeof parsed?.time_limit_sec === 'number' && Number.isFinite(parsed.time_limit_sec)) {
+            setTimeLimitSec(parsed.time_limit_sec);
+          }
         } catch {
           setContent(getDefaultContent(c.type as ChallengeType) || {});
         }
         setWorld(c.world || '');
         setZone(c.zone || '');
+        setGradeLevel((c as any).grade_level || '');
         setXpReward(c.xp_reward ?? 100);
         setXpBonusFirstTry(c.xp_bonus_first_try ?? 0);
         setXpRetryPenalty(c.xp_retry_penalty ?? 0);
@@ -123,6 +131,7 @@ export function ChallengeBuilder() {
       setContent(getDefaultContent('multiple_choice')!);
       setWorld('');
       setZone('');
+      setGradeLevel('');
       setXpReward(100);
       setXpBonusFirstTry(0);
       setXpRetryPenalty(0);
@@ -159,6 +168,7 @@ export function ChallengeBuilder() {
         type: challengeType,
         world: world.trim() || undefined,
         zone: zone.trim() || undefined,
+        grade_level: gradeLevel.trim() || undefined,
         xp_reward: xpReward,
         xp_bonus_first_try: xpBonusFirstTry,
         xp_retry_penalty: xpRetryPenalty,
@@ -281,12 +291,17 @@ export function ChallengeBuilder() {
     setTitle(`${c.title} (copy)`);
     setChallengeType(c.type as ChallengeType);
     try {
-      setContent(JSON.parse(c.content_json || '{}'));
+      const parsed = JSON.parse(c.content_json || '{}');
+      setContent(parsed);
+      if (typeof parsed?.time_limit_sec === 'number' && Number.isFinite(parsed.time_limit_sec)) {
+        setTimeLimitSec(parsed.time_limit_sec);
+      }
     } catch {
       setContent(getDefaultContent(c.type as ChallengeType) || {});
     }
     setWorld(c.world || '');
     setZone(c.zone || '');
+    setGradeLevel((c as any).grade_level || '');
     setXpReward(c.xp_reward ?? 100);
     setXpBonusFirstTry(c.xp_bonus_first_try ?? 0);
     setXpRetryPenalty(c.xp_retry_penalty ?? 0);
@@ -307,6 +322,7 @@ export function ChallengeBuilder() {
     setTitle('');
     setChallengeType('multiple_choice');
     setContent(getDefaultContent('multiple_choice')!);
+    setGradeLevel('');
     setXpReward(100);
     setXpBonusFirstTry(0);
     setXpRetryPenalty(0);
@@ -334,6 +350,7 @@ export function ChallengeBuilder() {
           type: challengeType,
           world: world.trim() || undefined,
           zone: zone.trim() || undefined,
+          grade_level: gradeLevel.trim() || undefined,
           xp_reward: xpReward,
           xp_bonus_first_try: xpBonusFirstTry,
           xp_retry_penalty: xpRetryPenalty,
@@ -382,20 +399,22 @@ export function ChallengeBuilder() {
   };
 
   const displayTitle = title.trim() || 'Untitled Challenge';
+  const contentMeta = (content || {}) as Record<string, any>;
+  const setContentMeta = (patch: Record<string, any>) => setContent({ ...(content as Record<string, any>), ...patch } as ChallengeContent);
 
   return (
-    <div className="flex flex-col h-full min-h-[100vh] bg-slate-950 text-slate-100 overflow-hidden">
+    <div className="flex flex-col h-full min-h-[100vh] bg-slate-100 text-slate-900 overflow-hidden">
       {/* Top bar – integrated with main app look */}
-      <header className="flex items-center justify-between px-6 py-3 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md z-40 shrink-0">
+      <header className="flex items-center justify-between px-6 py-3 border-b border-slate-200 bg-white z-40 shrink-0">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="flex items-center justify-center size-9 rounded-xl bg-slate-800 border border-slate-700 text-cyan-400">
+          <div className="flex items-center justify-center size-9 rounded-xl bg-slate-100 border border-slate-200 text-[#256af4]">
             <Box className="w-5 h-5" />
           </div>
           <div className="flex flex-col min-w-0">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-black">
+            <span className="text-[10px] uppercase tracking-[0.2em] text-slate-600 font-black">
               Challenge Builder
             </span>
-            <span className="text-sm font-semibold truncate text-slate-100">
+            <span className="text-sm font-semibold truncate text-slate-900">
               {displayTitle}
             </span>
           </div>
@@ -405,7 +424,7 @@ export function ChallengeBuilder() {
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className="px-4 py-2 rounded-lg bg-[#161b2a] border border-[#2d3548] text-sm font-bold hover:bg-slate-800 transition-all disabled:opacity-50"
+              className="px-4 py-2 rounded-lg bg-slate-100 border border-slate-200 text-sm font-bold hover:bg-slate-200 transition-all disabled:opacity-50"
             >
               {saving ? 'Saving…' : saveMessage === 'saved' ? 'Saved' : 'Save'}
             </button>
@@ -423,9 +442,9 @@ export function ChallengeBuilder() {
 
       <main className="flex flex-1 overflow-hidden">
         {/* Left: Sequence sidebar */}
-        <aside className="w-72 border-r border-[#2d3548] bg-slate-900 flex flex-col shrink-0">
-          <div className="p-4 border-b border-[#2d3548] flex items-center justify-between">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">Sequence</h3>
+        <aside className="w-72 border-r border-slate-200 bg-white flex flex-col shrink-0">
+          <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-600">Sequence</h3>
             <span className="text-xs bg-[#256af4]/20 text-[#256af4] px-2 py-0.5 rounded-full font-bold">
               {challenges.length} {challenges.length === 1 ? 'Item' : 'Items'}
             </span>
@@ -440,7 +459,7 @@ export function ChallengeBuilder() {
                   className={`p-3 rounded-xl border flex flex-col gap-2 cursor-pointer transition-all ${
                     isActive
                       ? 'border-2 border-[#256af4] bg-[#256af4]/10 shadow-[0_0_15px_rgba(37,106,244,0.3)]'
-                      : 'border-[#2d3548] bg-[#161b2a]/40 hover:border-[#256af4]/50 opacity-90 hover:opacity-100'
+                      : 'border-slate-200 bg-slate-50 hover:border-[#256af4]/50 opacity-95 hover:opacity-100'
                   }`}
                 >
                   <div className="flex justify-between items-center">
@@ -454,7 +473,7 @@ export function ChallengeBuilder() {
                       <PlayCircle className="w-6 h-6 text-[#256af4]" />
                     </div>
                   </div>
-                  <p className="text-xs font-semibold text-slate-200 truncate">{c.title}</p>
+                  <p className="text-xs font-semibold text-slate-800 truncate">{c.title}</p>
                   <div className="flex gap-1 justify-end">
                     <button
                       type="button"
@@ -488,7 +507,7 @@ export function ChallengeBuilder() {
         </aside>
 
         {/* Center: Editor / Preview / Dataset */}
-        <section className="flex-1 bg-slate-950/50 p-6 overflow-y-auto custom-scrollbar flex flex-col">
+        <section className="flex-1 bg-slate-100 p-6 overflow-y-auto custom-scrollbar flex flex-col">
           {!showEditorArea ? (
             <div className="max-w-2xl mx-auto py-16 text-center">
               <p className="text-slate-400 mb-4">Select a challenge from the sequence or insert a new question to start editing.</p>
@@ -504,12 +523,12 @@ export function ChallengeBuilder() {
           ) : (
             <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full min-w-0">
               {/* Tabs: Editor | Preview | Dataset */}
-              <div className="builder-glass rounded-2xl p-2 flex gap-1 self-center">
+              <div className="bg-white rounded-2xl p-2 flex gap-1 self-center border border-slate-200 shadow-sm">
                 <button
                   type="button"
                   onClick={() => setCenterTab('editor')}
                   className={`px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
-                    centerTab === 'editor' ? 'bg-[#256af4] text-white' : 'text-slate-400 hover:text-white'
+                    centerTab === 'editor' ? 'bg-[#256af4] text-white' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
                   <Edit3 className="w-4 h-4" />
@@ -519,7 +538,7 @@ export function ChallengeBuilder() {
                   type="button"
                   onClick={() => setCenterTab('preview')}
                   className={`px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
-                    centerTab === 'preview' ? 'bg-[#256af4] text-white' : 'text-slate-400 hover:text-white'
+                    centerTab === 'preview' ? 'bg-[#256af4] text-white' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
                   <Eye className="w-4 h-4" />
@@ -529,7 +548,7 @@ export function ChallengeBuilder() {
                   type="button"
                   onClick={() => setCenterTab('dataset')}
                   className={`px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
-                    centerTab === 'dataset' ? 'bg-[#256af4] text-white' : 'text-slate-400 hover:text-white'
+                    centerTab === 'dataset' ? 'bg-[#256af4] text-white' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
                   <Database className="w-4 h-4" />
@@ -539,7 +558,7 @@ export function ChallengeBuilder() {
 
               {centerTab === 'editor' && (
                 <>
-                  <div className="builder-glass rounded-3xl p-8 flex flex-col gap-8 shadow-2xl relative overflow-hidden">
+                  <div className="bg-white rounded-3xl p-8 flex flex-col gap-8 shadow-sm border border-slate-200 relative overflow-hidden">
                     <div className="absolute -top-24 -right-24 w-64 h-64 bg-[#256af4]/10 rounded-full blur-[100px]" aria-hidden />
                     <div className="flex flex-col gap-2">
                       <div className="flex items-center gap-3 flex-wrap">
@@ -547,13 +566,13 @@ export function ChallengeBuilder() {
                         <span className="px-3 py-1 rounded-full bg-purple-500/20 text-purple-400 text-[10px] font-black tracking-widest uppercase">Module: {plugin?.meta.label ?? challengeType}</span>
                       </div>
                       <label className="block">
-                        <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Title</span>
+                        <span className="text-xs font-bold text-slate-600 uppercase tracking-widest">Title</span>
                         <input
                           type="text"
                           value={title}
                           onChange={(e) => setTitle(e.target.value)}
                           placeholder="Challenge title"
-                          className="mt-2 block w-full bg-slate-900/50 border border-[#2d3548] rounded-xl px-4 py-3 text-white placeholder:text-slate-500 focus:ring-2 focus:ring-[#256af4]/50 focus:border-[#256af4]"
+                          className="mt-2 block w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-900 placeholder:text-slate-500 focus:ring-2 focus:ring-[#256af4]/50 focus:border-[#256af4]"
                         />
                       </label>
                       <p className="text-slate-400 text-sm">{plugin?.meta.description}</p>
@@ -578,7 +597,7 @@ export function ChallengeBuilder() {
 
                     {/* Change Interaction Type - icon grid */}
                     <div className="mt-6 border-t border-[#2d3548] pt-8">
-                      <h4 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-6">Change Interaction Type</h4>
+                      <h4 className="text-sm font-bold text-slate-600 uppercase tracking-widest mb-6">Change Interaction Type</h4>
                       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-4">
                         {catalog.map((entry) => {
                           const Icon = ICON_MAP[entry.icon] ?? Puzzle;
@@ -591,11 +610,11 @@ export function ChallengeBuilder() {
                               className={`flex flex-col items-center gap-3 p-4 rounded-2xl border transition-all group ${
                                 isSelected
                                   ? 'bg-[#256af4]/10 border-[#256af4]'
-                                  : 'bg-slate-900/50 border-[#2d3548] hover:border-[#256af4] hover:bg-[#256af4]/5'
+                                  : 'bg-slate-50 border-slate-200 hover:border-[#256af4] hover:bg-[#256af4]/5'
                               }`}
                             >
-                              <Icon className={`w-6 h-6 ${isSelected ? 'text-[#256af4]' : 'text-slate-400 group-hover:text-[#256af4]'}`} />
-                              <span className={`text-[10px] font-bold text-center leading-tight ${isSelected ? 'text-[#256af4]' : 'text-slate-500 group-hover:text-slate-200'}`}>
+                              <Icon className={`w-6 h-6 ${isSelected ? 'text-[#256af4]' : 'text-slate-500 group-hover:text-[#256af4]'}`} />
+                              <span className={`text-[10px] font-bold text-center leading-tight ${isSelected ? 'text-[#256af4]' : 'text-slate-600 group-hover:text-slate-900'}`}>
                                 {entry.label}
                               </span>
                             </button>
@@ -607,39 +626,40 @@ export function ChallengeBuilder() {
 
                   {/* Scene Builder Assets row - optional */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="builder-glass p-4 rounded-2xl border border-[#2d3548] flex items-center gap-4 hover:bg-[#161b2a] transition-all cursor-pointer">
+                    <button type="button" onClick={() => { setContentMeta({ visual_background: contentMeta.visual_background || 'nebula-grid' }); setSceneAssetNotice('Visual background enabled.'); }} className="bg-white p-4 rounded-2xl border border-slate-200 flex items-center gap-4 hover:bg-slate-50 transition-all cursor-pointer text-left">
                       <div className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center text-[#256af4] border border-[#256af4]/20">
                         <LayoutGrid className="w-6 h-6" />
                       </div>
                       <div className="min-w-0">
-                        <p className="font-bold text-white text-sm">Visual Background</p>
-                        <p className="text-xs text-slate-500">Optional</p>
+                        <p className="font-bold text-slate-900 text-sm">Visual Background</p>
+                        <p className="text-xs text-slate-600">{contentMeta.visual_background ? 'Enabled' : 'Optional'}</p>
                       </div>
-                    </div>
-                    <div className="builder-glass p-4 rounded-2xl border border-[#2d3548] flex items-center gap-4 hover:bg-[#161b2a] transition-all cursor-pointer">
+                    </button>
+                    <button type="button" onClick={() => { setContentMeta({ object_3d: contentMeta.object_3d || 'default-core' }); setSceneAssetNotice('3D object enabled.'); }} className="bg-white p-4 rounded-2xl border border-slate-200 flex items-center gap-4 hover:bg-slate-50 transition-all cursor-pointer text-left">
                       <div className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center text-purple-400 border border-purple-400/20">
                         <Box className="w-6 h-6" />
                       </div>
                       <div className="min-w-0">
-                        <p className="font-bold text-white text-sm">3D Object</p>
-                        <p className="text-xs text-slate-500">Optional</p>
+                        <p className="font-bold text-slate-900 text-sm">3D Object</p>
+                        <p className="text-xs text-slate-600">{contentMeta.object_3d ? 'Enabled' : 'Optional'}</p>
                       </div>
-                    </div>
-                    <div className="builder-glass p-4 rounded-2xl border border-[#2d3548] flex items-center gap-4 hover:bg-[#161b2a] transition-all cursor-pointer">
+                    </button>
+                    <button type="button" onClick={() => { setContentMeta({ ambient_sound: contentMeta.ambient_sound || 'orbital-hum' }); setSceneAssetNotice('Ambient sound enabled.'); }} className="bg-white p-4 rounded-2xl border border-slate-200 flex items-center gap-4 hover:bg-slate-50 transition-all cursor-pointer text-left">
                       <div className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center text-emerald-400 border border-emerald-400/20">
                         <Layers className="w-6 h-6" />
                       </div>
                       <div className="min-w-0">
-                        <p className="font-bold text-white text-sm">Ambient Sound</p>
-                        <p className="text-xs text-slate-500">Optional</p>
+                        <p className="font-bold text-slate-900 text-sm">Ambient Sound</p>
+                        <p className="text-xs text-slate-600">{contentMeta.ambient_sound ? 'Enabled' : 'Optional'}</p>
                       </div>
-                    </div>
+                    </button>
                   </div>
+                  {sceneAssetNotice && <p className="text-xs text-emerald-600 font-semibold">{sceneAssetNotice}</p>}
                 </>
               )}
 
               {centerTab === 'preview' && (
-                <div className="builder-glass rounded-3xl p-8">
+                <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm">
                   {Player ? (
                     <Player content={content} onComplete={() => {}} disabled={false} />
                   ) : (
@@ -649,7 +669,7 @@ export function ChallengeBuilder() {
               )}
 
               {centerTab === 'dataset' && (
-                <div className="builder-glass rounded-3xl p-8 text-center text-slate-500">
+                <div className="bg-white rounded-3xl p-8 text-center text-slate-600 border border-slate-200 shadow-sm">
                   <Database className="w-12 h-12 mx-auto mb-4 opacity-50" />
                   <p>Dataset configuration coming soon.</p>
                 </div>
@@ -660,24 +680,42 @@ export function ChallengeBuilder() {
           </section>
 
         {/* Right: Feedback & rewards + Assign */}
-        <aside className="w-80 border-l border-[#2d3548] bg-slate-900/80 flex flex-col hidden xl:flex shrink-0">
-          <div className="p-4 border-b border-[#2d3548]">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">Feedback & rewards</h3>
+        <aside className="w-80 border-l border-slate-200 bg-white flex flex-col hidden xl:flex shrink-0">
+          <div className="p-4 border-b border-slate-200">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-600">Feedback & rewards</h3>
           </div>
           <div className="flex-1 p-6 space-y-8 overflow-y-auto custom-scrollbar">
             <div className="space-y-4">
-              <h5 className="text-sm font-bold text-white flex items-center gap-2">
+              <h5 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 <span className="text-[#256af4]">✓</span> When it&apos;s right
               </h5>
-              <div className="p-4 rounded-xl bg-[#161b2a] border border-[#2d3548] text-xs text-slate-400 leading-relaxed">
-                Based on interaction type and content. Preview to verify.
-              </div>
+              <textarea
+                value={String(contentMeta.feedback_right || '')}
+                onChange={(e) => setContentMeta({ feedback_right: e.target.value })}
+                placeholder="Type success feedback shown when the student gets it right..."
+                className="w-full min-h-[90px] p-3 rounded-xl bg-white border border-slate-300 text-sm text-slate-800 placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-[#256af4]/50 focus:border-[#256af4]"
+              />
             </div>
             <div className="space-y-4">
-              <h5 className="text-sm font-bold text-white flex items-center gap-2">Completion Reward</h5>
+              <h5 className="text-sm font-bold text-slate-900 flex items-center gap-2">Completion Reward</h5>
               <div className="flex flex-col gap-3">
-                <div className="flex items-center justify-between p-3 rounded-lg bg-slate-900 border border-[#2d3548]">
-                  <span className="text-xs font-medium">XP Bonus</span>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 border border-slate-200 gap-2">
+                  <span className="text-xs font-medium text-slate-700">Grade level</span>
+                  <select
+                    value={gradeLevel}
+                    onChange={(e) => setGradeLevel(e.target.value)}
+                    className="bg-transparent border border-slate-300 rounded px-2 py-1 text-xs text-slate-700"
+                  >
+                    <option value="">All</option>
+                    <option value="K-2">K-2</option>
+                    <option value="3-5">3-5</option>
+                    <option value="6-8">6-8</option>
+                    <option value="9-12">9-12</option>
+                    <option value="College">College</option>
+                  </select>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 border border-slate-200">
+                  <span className="text-xs font-medium text-slate-700">XP Bonus</span>
                   <input
                     type="number"
                     min={0}
@@ -686,8 +724,8 @@ export function ChallengeBuilder() {
                     className="w-16 bg-transparent border-none text-right text-xs font-bold text-[#256af4] focus:ring-0 p-0"
                   />
                 </div>
-                <div className="flex items-center justify-between p-3 rounded-lg bg-slate-900 border border-[#2d3548]">
-                  <span className="text-xs font-medium">Bonus (first try)</span>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 border border-slate-200">
+                  <span className="text-xs font-medium text-slate-700">Bonus (first try)</span>
                   <input
                     type="number"
                     min={0}
@@ -696,8 +734,8 @@ export function ChallengeBuilder() {
                     className="w-16 bg-transparent border-none text-right text-xs font-bold text-[#256af4] focus:ring-0 p-0"
                   />
                 </div>
-                <div className="flex items-center justify-between p-3 rounded-lg bg-slate-900 border border-[#2d3548]">
-                  <span className="text-xs font-medium">Retry penalty</span>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 border border-slate-200">
+                  <span className="text-xs font-medium text-slate-700">Retry penalty</span>
                   <input
                     type="number"
                     min={0}
@@ -710,7 +748,7 @@ export function ChallengeBuilder() {
             </div>
             {selectedId && (
               <div className="space-y-4 pt-4 border-t border-[#2d3548]">
-                <h5 className="text-sm font-bold text-white">Assign to Class</h5>
+                <h5 className="text-sm font-bold text-slate-900">Assign to Class</h5>
                 <select
                   value={assignClassId}
                   onChange={(e) => setAssignClassId(e.target.value ? Number(e.target.value) : '')}
@@ -729,10 +767,10 @@ export function ChallengeBuilder() {
                 >
                   {assigning ? 'Assigning…' : 'Assign to class'}
                 </button>
-                {assignMsg && <p className="text-xs text-slate-400">{assignMsg}</p>}
+                {assignMsg && <p className="text-xs text-slate-600">{assignMsg}</p>}
                 {assignedTo.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-xs font-bold text-slate-500 uppercase">Assigned to</p>
+                    <p className="text-xs font-bold text-slate-600 uppercase">Assigned to</p>
                     {assignedTo.map((c) => (
                       <div key={c.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-900 border border-[#2d3548] text-sm">
                         <span className="font-medium">{c.name}</span>
@@ -744,8 +782,8 @@ export function ChallengeBuilder() {
               </div>
             )}
           </div>
-          <div className="p-4 bg-slate-900/50 border-t border-[#2d3548]">
-            <button type="button" className="w-full py-3 bg-[#256af4]/10 border border-[#256af4]/40 rounded-xl text-[#256af4] text-xs font-black uppercase tracking-widest hover:bg-[#256af4]/20 transition-all">
+          <div className="p-4 bg-slate-50 border-t border-slate-200">
+            <button type="button" onClick={() => setCenterTab('preview')} className="w-full py-3 bg-[#256af4]/10 border border-[#256af4]/40 rounded-xl text-[#256af4] text-xs font-black uppercase tracking-widest hover:bg-[#256af4]/20 transition-all">
               Try it
             </button>
           </div>
@@ -801,11 +839,72 @@ export function ChallengeBuilder() {
 
       <button
         type="button"
+        onClick={() => setShowHelpModal(true)}
         className="fixed bottom-6 right-6 w-12 h-12 rounded-full bg-[#256af4] text-white shadow-xl shadow-[#256af4]/30 flex items-center justify-center hover:scale-110 transition-transform z-50"
         title="Help"
       >
         <HelpCircle className="w-6 h-6" />
       </button>
+
+      {showHelpModal && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          onClick={() => setShowHelpModal(false)}
+        >
+          <div
+            className="w-full max-w-2xl rounded-2xl bg-white border border-slate-200 shadow-2xl p-6 sm:p-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h3 className="text-xl font-black text-[#0D1C32]">How to Use Challenge Maker</h3>
+                <p className="text-sm text-slate-600 mt-1">Quick guide for creating, testing, and publishing challenges.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowHelpModal(false)}
+                className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+                aria-label="Close help"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-sm text-slate-700">
+              <div>
+                <p className="font-bold text-[#0D1C32]">1) Start a challenge</p>
+                <p>Click <strong>Insert Question</strong>, choose a type, then enter title and prompt/content.</p>
+              </div>
+              <div>
+                <p className="font-bold text-[#0D1C32]">2) Add answers and media</p>
+                <p>Use Data Pods to set options/correct answers. You can paste/upload images directly in supported editors.</p>
+              </div>
+              <div>
+                <p className="font-bold text-[#0D1C32]">3) Configure rewards and feedback</p>
+                <p>Set XP bonus, first-try bonus, retry penalty, and custom success feedback in the right panel.</p>
+              </div>
+              <div>
+                <p className="font-bold text-[#0D1C32]">4) Test before publishing</p>
+                <p>Click <strong>Try it</strong> to open Preview and verify behavior and readability.</p>
+              </div>
+              <div>
+                <p className="font-bold text-[#0D1C32]">5) Save and publish</p>
+                <p>Click <strong>Save</strong> to store the challenge. Then use <strong>Publish</strong> or <strong>Assign to class</strong> to deliver it to students.</p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowHelpModal(false)}
+                className="px-4 py-2 rounded-lg bg-[#256af4] text-white font-bold hover:brightness-110"
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Publish to class modal */}
       {showPublishModal && (

@@ -143,7 +143,14 @@ export function MultiQuestionPlayer({
   const [answers, setAnswers] = useState<unknown[]>([]);
 
   if (questions.length === 0) {
-    return <div className="text-slate-400">No questions in this challenge.</div>;
+    return (
+      <div className="relative min-h-screen w-full flex items-center justify-center px-4 sm:px-8 py-12 overflow-y-auto">
+        <div className="absolute inset-0 z-[-1] bg-[radial-gradient(circle_at_50%_35%,_#112a4a_0%,_#081a34_45%,_#030b1d_100%)]" />
+        <div className="w-full max-w-3xl rounded-3xl border border-amber-400/25 bg-[rgba(13,28,50,0.68)] p-6 sm:p-8 shadow-[0_0_20px_rgba(255,178,4,0.18)] text-slate-100">
+          No questions in this challenge.
+        </div>
+      </div>
+    );
   }
 
   const q = questions[idx];
@@ -159,22 +166,25 @@ export function MultiQuestionPlayer({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <span className="text-[10px] uppercase font-black text-slate-500">
-          Question {idx + 1} of {questions.length}
-        </span>
-        {idx > 0 && (
-          <button type="button" onClick={() => setIdx((i) => Math.max(0, i - 1))} disabled={disabled} className="text-xs text-slate-400 hover:text-cyan-400 font-black uppercase">
-            Back
-          </button>
+    <div className="relative min-h-screen w-full px-4 sm:px-8 py-8">
+      <div className="absolute inset-0 z-[-1] bg-[radial-gradient(circle_at_50%_35%,_#112a4a_0%,_#081a34_45%,_#030b1d_100%)]" />
+      <div className="max-w-6xl mx-auto space-y-4">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] uppercase font-black text-amber-200">
+            Question {idx + 1} of {questions.length}
+          </span>
+          {idx > 0 && (
+            <button type="button" onClick={() => setIdx((i) => Math.max(0, i - 1))} disabled={disabled} className="text-xs text-slate-200 hover:text-[#ffb204] font-black uppercase">
+              Back
+            </button>
+          )}
+        </div>
+        {Player ? (
+          <Player content={q.content} onComplete={handle} disabled={disabled} />
+        ) : (
+          <div className="rounded-2xl border border-amber-400/25 bg-[rgba(13,28,50,0.68)] p-4 text-slate-100">Unsupported question type: {q.type}</div>
         )}
       </div>
-      {Player ? (
-        <Player content={q.content} onComplete={handle} disabled={disabled} />
-      ) : (
-        <div className="text-slate-400">Unsupported question type: {q.type}</div>
-      )}
     </div>
   );
 }

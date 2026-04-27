@@ -29,9 +29,10 @@ const safeFetch = async (url: string, options?: RequestInit) => {
 };
 
 export function QuizBuilder() {
-  const [quizzes, setQuizzes] = useState<{ id: number; title: string; questions: string }[]>([]);
+  const [quizzes, setQuizzes] = useState<{ id: number; title: string; questions: string; grade_level?: string | null }[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [title, setTitle] = useState('');
+  const [gradeLevel, setGradeLevel] = useState('');
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -54,6 +55,7 @@ export function QuizBuilder() {
       const q = quizzes.find((x) => x.id === selectedId);
       if (q) {
         setTitle(q.title);
+        setGradeLevel(String(q.grade_level || ''));
         try {
           setQuestions(JSON.parse(q.questions || '[]'));
         } catch {
@@ -62,6 +64,7 @@ export function QuizBuilder() {
       }
     } else {
       setTitle('');
+      setGradeLevel('');
       setQuestions([]);
     }
     setEditingIndex(null);
@@ -113,7 +116,7 @@ export function QuizBuilder() {
     setError(null);
     setSaving(true);
     try {
-      const body = { title: title.trim(), questions };
+      const body = { title: title.trim(), grade_level: gradeLevel.trim() || undefined, questions };
       const url = selectedId ? `/api/quizzes/${selectedId}` : '/api/quizzes';
       const method = selectedId ? 'PATCH' : 'POST';
       const res = await fetch(url, {
@@ -208,6 +211,21 @@ export function QuizBuilder() {
               placeholder="e.g. Robotics Basics"
               className="w-full bg-slate-700/50 border border-slate-600/50 rounded-xl px-4 py-3 text-slate-100"
             />
+          </div>
+          <div className="mb-6">
+            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Grade level</label>
+            <select
+              value={gradeLevel}
+              onChange={(e) => setGradeLevel(e.target.value)}
+              className="w-full bg-slate-700/50 border border-slate-600/50 rounded-xl px-4 py-3 text-slate-100"
+            >
+              <option value="">All grades</option>
+              <option value="K-2">K-2</option>
+              <option value="3-5">3-5</option>
+              <option value="6-8">6-8</option>
+              <option value="9-12">9-12</option>
+              <option value="College">College</option>
+            </select>
           </div>
 
           <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Questions</label>

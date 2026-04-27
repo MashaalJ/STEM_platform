@@ -281,17 +281,20 @@ export function HotspotPlayer({
     onComplete({ x, y });
   };
   return (
-    <div className="space-y-4">
-      <p className="text-slate-400 text-sm">Click the correct area on the image.</p>
-      <div
-        ref={containerRef}
-        role="button"
-        tabIndex={0}
-        onClick={handleClick}
-        onKeyDown={(e) => e.key === 'Enter' && containerRef.current?.click()}
-        className="relative w-full aspect-video max-h-80 rounded-xl overflow-hidden border-2 border-[#2d3548] cursor-crosshair hover:border-[#256af4]/50 bg-slate-800/50"
-      >
-        <img src={c.imageUrl || ''} alt="Hotspot" className="w-full h-full object-contain pointer-events-none" draggable={false} />
+    <div className="relative min-h-screen w-full flex items-center justify-center px-4 sm:px-8 py-12 overflow-y-auto">
+      <div className="absolute inset-0 z-[-1] bg-[radial-gradient(circle_at_50%_35%,_#112a4a_0%,_#081a34_45%,_#030b1d_100%)]" />
+      <div className="w-full max-w-5xl rounded-3xl border border-amber-400/25 bg-[rgba(13,28,50,0.68)] p-6 sm:p-8 shadow-[0_0_20px_rgba(255,178,4,0.18)] space-y-4">
+        <p className="text-slate-100 text-sm">Click the correct area on the image.</p>
+        <div
+          ref={containerRef}
+          role="button"
+          tabIndex={0}
+          onClick={handleClick}
+          onKeyDown={(e) => e.key === 'Enter' && containerRef.current?.click()}
+          className="relative w-full aspect-video rounded-xl overflow-hidden border-2 border-amber-400/35 cursor-crosshair hover:border-[#ffb204] bg-slate-900/70"
+        >
+          <img src={c.imageUrl || ''} alt="Hotspot" className="w-full h-full object-contain pointer-events-none" draggable={false} />
+        </div>
       </div>
     </div>
   );

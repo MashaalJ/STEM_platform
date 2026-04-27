@@ -201,49 +201,55 @@ export function FlashcardsPlayer({
   if (!card) {
     const score = results.filter((r) => r.correct).length / (cards.length || 1);
     return (
-      <div className="space-y-4 text-center p-6">
-        <p className="text-slate-300">Deck complete. Score: {Math.round(score * 100)}%</p>
-        <button
-          type="button"
-          onClick={() => onComplete(results)}
-          className="px-4 py-2 rounded-xl bg-[#256af4] text-white font-bold"
-        >
-          Done
-        </button>
+      <div className="relative min-h-screen w-full flex items-center justify-center px-4 sm:px-8 py-12 overflow-y-auto">
+        <div className="absolute inset-0 z-[-1] bg-[radial-gradient(circle_at_50%_35%,_#112a4a_0%,_#081a34_45%,_#030b1d_100%)]" />
+        <div className="w-full max-w-3xl rounded-3xl border border-amber-400/25 bg-[rgba(13,28,50,0.68)] p-6 sm:p-8 shadow-[0_0_20px_rgba(255,178,4,0.18)] space-y-4 text-center">
+          <p className="text-white text-lg">Deck complete. Score: {Math.round(score * 100)}%</p>
+          <button
+            type="button"
+            onClick={() => onComplete(results)}
+            className="px-6 py-3 rounded-xl bg-[#ffb204] text-[#0A192F] font-black"
+          >
+            Done
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div
-        className="p-6 rounded-xl border-2 border-[#2d3548] bg-slate-900 min-h-[180px] cursor-pointer hover:border-[#256af4]/50 transition-colors"
-        onClick={() => !disabled && setShowBack((b) => !b)}
-      >
-        <p className="text-[10px] font-bold uppercase text-slate-500 mb-2">{showBack ? 'Back' : 'Front'}</p>
-        <p className="text-lg font-medium text-slate-100">{showBack ? card.back : card.front}</p>
-      </div>
-      <div className="flex justify-between items-center">
-        <button
-          type="button"
-          onClick={() => { setResults((r) => [...r, { correct: true }]); setIndex((i) => i + 1); setShowBack(false); }}
-          disabled={disabled}
-          className="px-4 py-2 rounded-lg bg-emerald-500/20 text-emerald-400 font-bold text-sm"
+    <div className="relative min-h-screen w-full flex items-center justify-center px-4 sm:px-8 py-12 overflow-y-auto">
+      <div className="absolute inset-0 z-[-1] bg-[radial-gradient(circle_at_50%_35%,_#112a4a_0%,_#081a34_45%,_#030b1d_100%)]" />
+      <div className="w-full max-w-3xl rounded-3xl border border-amber-400/25 bg-[rgba(13,28,50,0.68)] p-6 sm:p-8 shadow-[0_0_20px_rgba(255,178,4,0.18)] space-y-4">
+        <div
+          className="p-6 rounded-xl border-2 border-amber-400/30 bg-slate-900/70 min-h-[180px] cursor-pointer hover:border-[#ffb204] transition-colors"
+          onClick={() => !disabled && setShowBack((b) => !b)}
         >
-          Got it
-        </button>
-        <button
-          type="button"
-          onClick={() => { setResults((r) => [...r, { correct: false }]); setIndex((i) => i + 1); setShowBack(false); }}
-          disabled={disabled}
-          className="px-4 py-2 rounded-lg bg-rose-500/20 text-rose-400 font-bold text-sm"
-        >
-          Review again
-        </button>
+          <p className="text-[10px] font-bold uppercase text-amber-200 mb-2">{showBack ? 'Back' : 'Front'}</p>
+          <p className="text-lg font-medium text-white">{showBack ? card.back : card.front}</p>
+        </div>
+        <div className="flex justify-between items-center">
+          <button
+            type="button"
+            onClick={() => { setResults((r) => [...r, { correct: true }]); setIndex((i) => i + 1); setShowBack(false); }}
+            disabled={disabled}
+            className="px-4 py-2 rounded-lg bg-emerald-500/20 text-emerald-300 font-bold text-sm"
+          >
+            Got it
+          </button>
+          <button
+            type="button"
+            onClick={() => { setResults((r) => [...r, { correct: false }]); setIndex((i) => i + 1); setShowBack(false); }}
+            disabled={disabled}
+            className="px-4 py-2 rounded-lg bg-rose-500/20 text-rose-300 font-bold text-sm"
+          >
+            Review again
+          </button>
+        </div>
+        <p className="text-xs text-slate-300 text-center">
+          Card {index + 1} of {cards.length}
+        </p>
       </div>
-      <p className="text-xs text-slate-500 text-center">
-        Card {index + 1} of {cards.length}
-      </p>
     </div>
   );
 }

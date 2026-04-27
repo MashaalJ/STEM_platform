@@ -214,37 +214,62 @@ export function FillInBlankPlayer({
     });
   };
   let blankIdx = 0;
+  const isReady = values.every((v) => v.trim().length > 0);
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-1 text-slate-200">
-        {parts.map((p, i) => {
-          if (i < parts.length - 1) {
-            const idx = blankIdx++;
-            return (
-              <React.Fragment key={i}>
-                <span>{p}</span>
-                <input
-                  type="text"
-                  value={values[idx] ?? ''}
-                  onChange={(e) => setBlank(idx, e.target.value)}
-                  className="w-28 px-2 py-1 bg-slate-700/60 border border-[#2d3548] rounded text-slate-100 text-sm inline focus:ring-2 focus:ring-[#256af4]/50"
-                  placeholder="..."
-                  disabled={disabled}
-                />
-              </React.Fragment>
-            );
-          }
-          return <span key={i}>{p}</span>;
-        })}
+    <div className="relative min-h-screen w-full flex items-center justify-center px-4 sm:px-8 py-12 overflow-y-auto">
+      <div className="absolute inset-0 z-[-1]">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,_#10253f_0%,_#060f21_60%,_#020817_100%)]" />
+        <div
+          className="absolute inset-0 opacity-60"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)",
+            backgroundSize: "36px 36px",
+          }}
+        />
       </div>
-      <button
-        type="button"
-        onClick={() => onComplete(values)}
-        disabled={disabled}
-        className="px-4 py-2 rounded-xl bg-[#256af4] text-white font-bold text-sm uppercase disabled:opacity-50"
-      >
-        Check
-      </button>
+
+      <div className="w-full max-w-5xl bg-[rgba(13,28,50,0.68)] backdrop-blur-[16px] border border-[rgba(255,178,4,0.22)] rounded-3xl p-6 sm:p-10 shadow-[0_0_20px_rgba(255,178,4,0.18)]">
+        <div className="flex items-center justify-between gap-3 mb-6">
+          <p className="text-[10px] uppercase tracking-[0.15em] font-black text-amber-300">Fill in the blanks</p>
+          <p className="text-[10px] uppercase tracking-[0.15em] font-black text-slate-300">{values.filter((v) => v.trim()).length}/{numBlanks} complete</p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-600/40 bg-[#071427]/70 p-5 sm:p-7">
+          <div className="flex flex-wrap items-center gap-2 text-slate-100 text-lg leading-relaxed">
+            {parts.map((p, i) => {
+              if (i < parts.length - 1) {
+                const idx = blankIdx++;
+                return (
+                  <React.Fragment key={i}>
+                    <span>{p}</span>
+                    <input
+                      type="text"
+                      value={values[idx] ?? ''}
+                      onChange={(e) => setBlank(idx, e.target.value)}
+                      className="w-36 sm:w-44 px-3 py-2 bg-slate-900/85 border border-amber-400/35 rounded-lg text-white text-base inline focus:ring-2 focus:ring-[#256af4]/50 focus:border-[#256af4] outline-none"
+                      placeholder={`Blank ${idx + 1}`}
+                      disabled={disabled}
+                    />
+                  </React.Fragment>
+                );
+              }
+              return <span key={i}>{p}</span>;
+            })}
+          </div>
+        </div>
+
+        <div className="mt-6 flex justify-center">
+          <button
+            type="button"
+            onClick={() => onComplete(values)}
+            disabled={disabled || !isReady}
+            className="px-8 py-3 rounded-xl bg-[#ffb204] text-[#0A192F] font-black text-sm uppercase tracking-wider shadow-[0_0_15px_rgba(255,178,4,0.35)] hover:brightness-110 active:brightness-95 transition-all disabled:opacity-50"
+          >
+            Check Answer
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -80,26 +80,29 @@ export function ShortAnswerPlayer({ content, onComplete, disabled }: { content: 
   const c = content as ShortAnswerContent;
   const [value, setValue] = useState('');
   return (
-    <div className="space-y-4">
-      {c.mediaUrl && (
-        <div className="rounded-xl overflow-hidden border border-slate-600 bg-slate-800/50">
-          {c.mediaType === 'image' && <img src={c.mediaUrl} alt="" className="w-full max-h-48 object-contain" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />}
-          {c.mediaType === 'video' && <video src={c.mediaUrl} controls className="w-full max-h-48" />}
-          {c.mediaType === 'audio' && <div className="p-3"><audio src={c.mediaUrl} controls className="w-full" /></div>}
+    <div className="relative min-h-screen w-full flex items-center justify-center px-4 sm:px-8 py-12 overflow-y-auto">
+      <div className="absolute inset-0 z-[-1] bg-[radial-gradient(circle_at_50%_35%,_#112a4a_0%,_#081a34_45%,_#030b1d_100%)]" />
+      <div className="w-full max-w-4xl rounded-3xl border border-amber-400/25 bg-[rgba(13,28,50,0.68)] p-6 sm:p-8 shadow-[0_0_20px_rgba(255,178,4,0.18)] space-y-4">
+        {c.mediaUrl && (
+          <div className="rounded-xl overflow-hidden border border-slate-600 bg-slate-800/50">
+            {c.mediaType === 'image' && <img src={c.mediaUrl} alt="" className="w-full max-h-56 object-contain" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />}
+            {c.mediaType === 'video' && <video src={c.mediaUrl} controls className="w-full max-h-56" />}
+            {c.mediaType === 'audio' && <div className="p-3"><audio src={c.mediaUrl} controls className="w-full" /></div>}
+          </div>
+        )}
+        <p className="text-white text-lg font-semibold">{c.question}</p>
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="Your answer..."
+          className="w-full bg-slate-900/80 border border-amber-400/35 rounded-xl px-4 py-3 text-white"
+          disabled={disabled}
+        />
+        <button type="button" onClick={() => onComplete(value)} disabled={disabled || !value.trim()} className="px-6 py-3 rounded-xl bg-[#ffb204] text-[#0A192F] font-black text-sm uppercase disabled:opacity-50">
+          Check Answer
+        </button>
         </div>
-      )}
-      <p className="text-slate-200 font-medium">{c.question}</p>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder="Your answer..."
-        className="w-full bg-slate-700/60 border border-slate-600/50 rounded-xl px-4 py-3 text-slate-100"
-        disabled={disabled}
-      />
-      <button type="button" onClick={() => onComplete(value)} disabled={disabled || !value.trim()} className="px-4 py-2 rounded-xl bg-cyan-500 text-white font-black text-sm uppercase disabled:opacity-50">
-        Check
-      </button>
     </div>
   );
 }

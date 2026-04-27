@@ -38,6 +38,7 @@ export interface ChallengeRecord {
   type: ChallengeType;
   world?: string;
   zone?: string;
+  grade_level?: string | null;
   xp_reward: number;
   xp_bonus_first_try: number;
   xp_retry_penalty: number;
@@ -54,6 +55,7 @@ export interface MultipleChoiceContent {
   multiple: boolean;
   options: { text: string; correct: boolean; feedback?: string }[];
   partialScoring?: boolean;
+  time_limit_sec?: number;
   /** Optional media URL (image, video, or audio) shown with the question */
   mediaUrl?: string;
   mediaType?: MediaType;

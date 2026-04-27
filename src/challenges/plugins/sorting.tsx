@@ -79,45 +79,48 @@ export function SortingPlayer({
     setOrder(next);
   };
   return (
-    <div className="space-y-4">
-      <p className="text-slate-400 text-sm">Arrange the items in the correct order.</p>
-      <div className="space-y-2">
-        {order.map((item, i) => (
-          <div
-            key={i}
-            className="flex items-center gap-2 p-3 rounded-xl bg-slate-800/50 border border-slate-600/50"
-          >
-            <span className="text-slate-500 font-mono text-sm w-6">{i + 1}</span>
-            <span className="flex-1 text-slate-200">{item}</span>
-            <div className="flex gap-1">
-              <button
-                type="button"
-                onClick={() => move(i, Math.max(0, i - 1))}
-                disabled={disabled || i === 0}
-                className="p-1 rounded bg-slate-700 text-slate-400 hover:text-white disabled:opacity-30"
-              >
-                ↑
-              </button>
-              <button
-                type="button"
-                onClick={() => move(i, Math.min(order.length - 1, i + 1))}
-                disabled={disabled || i === order.length - 1}
-                className="p-1 rounded bg-slate-700 text-slate-400 hover:text-white disabled:opacity-30"
-              >
-                ↓
-              </button>
+    <div className="relative min-h-screen w-full flex items-center justify-center px-4 sm:px-8 py-12 overflow-y-auto">
+      <div className="absolute inset-0 z-[-1] bg-[radial-gradient(circle_at_50%_35%,_#112a4a_0%,_#081a34_45%,_#030b1d_100%)]" />
+      <div className="w-full max-w-4xl rounded-3xl border border-amber-400/25 bg-[rgba(13,28,50,0.68)] p-6 sm:p-8 shadow-[0_0_20px_rgba(255,178,4,0.18)] space-y-4">
+        <p className="text-slate-100 text-sm">Arrange the items in the correct order.</p>
+        <div className="space-y-2">
+          {order.map((item, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-2 p-3 rounded-xl bg-slate-900/70 border border-amber-400/25"
+            >
+              <span className="text-amber-200 font-mono text-sm w-6">{i + 1}</span>
+              <span className="flex-1 text-white">{item}</span>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => move(i, Math.max(0, i - 1))}
+                  disabled={disabled || i === 0}
+                  className="p-1 rounded bg-slate-700 text-slate-200 hover:text-white disabled:opacity-30"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  onClick={() => move(i, Math.min(order.length - 1, i + 1))}
+                  disabled={disabled || i === order.length - 1}
+                  className="p-1 rounded bg-slate-700 text-slate-200 hover:text-white disabled:opacity-30"
+                >
+                  ↓
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => onComplete(order)}
+          disabled={disabled}
+          className="px-6 py-3 rounded-xl bg-[#ffb204] text-[#0A192F] font-black text-sm uppercase disabled:opacity-50"
+        >
+          Check Order
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={() => onComplete(order)}
-        disabled={disabled}
-        className="px-4 py-2 rounded-xl bg-cyan-500 text-white font-black text-sm uppercase disabled:opacity-50"
-      >
-        Check order
-      </button>
     </div>
   );
 }

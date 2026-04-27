@@ -517,8 +517,8 @@ h3 {
   border: 1px solid rgba(148, 163, 184, 0.1);
 }
 .ca-galaxy-view {
-  border-radius: var(--ca-radius-lg);
-  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 0;
+  border: 0;
   background-image: radial-gradient(circle at 50% 40%, rgba(10, 25, 47, 0.92) 0%, #020617 100%);
 }
 .ca-galaxy-view .cosmic-page-heading {
