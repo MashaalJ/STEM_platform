@@ -52,6 +52,7 @@ import {
 import { ChallengeBuilder, ChallengeRenderer } from './challenges';
 import { QuizPlayer } from './challenges/QuizPlayer';
 import { supabase } from '../lib/supabaseClient';
+import AddToHomeScreenPrompt from './components/AddToHomeScreenPrompt';
 
 // --- Types ---
 
@@ -306,11 +307,13 @@ const STUDENT_INTEREST_OPTIONS = [
 const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
+  const [classJoinCode, setClassJoinCode] = useState('');
   const [error, setError] = useState('');
   const [signupNotice, setSignupNotice] = useState<string | null>(null);
   const [isSignup, setIsSignup] = useState(false);
   const [forgotStatus, setForgotStatus] = useState<string>('');
   const [sendingForgot, setSendingForgot] = useState(false);
+  const [showClassCodeField, setShowClassCodeField] = useState(false);
   const [schoolOptions, setSchoolOptions] = useState<string[]>([]);
   const formCardRef = useRef<HTMLDivElement | null>(null);
   const [signupData, setSignupData] = useState({
@@ -328,12 +331,31 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
     country_code: '',
     region: '',
     timezone: '',
+    class_code: '',
   });
 
   const handleQuickAccess = (acc: typeof quickAccess[0]) => {
     setName(acc.email);
     setPassword(acc.pass);
+    setClassJoinCode('');
     performLogin(acc.email, acc.pass);
+  };
+
+  const tryJoinClassWithCode = async (role: string | undefined, code: string) => {
+    if (role !== 'student') return { ok: true as const };
+    const cleanCode = code.trim().toUpperCase();
+    if (!cleanCode) return { ok: true as const };
+    const res = await fetch('/api/classes/join', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ join_code: cleanCode }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) return { ok: true as const };
+    const msg = String(data?.error || data?.message || '');
+    if (/already in this class/i.test(msg)) return { ok: true as const };
+    return { ok: false as const, message: msg || 'Invalid class code. Please check with your teacher.' };
   };
 
   const performLogin = async (n: string, p: string) => {
@@ -368,10 +390,22 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
         localStorage.removeItem('stemverse_access_token');
       }
       if (data?.user) {
+        const joinResult = await tryJoinClassWithCode(data.user?.role, classJoinCode);
+        if (!joinResult.ok) {
+          setError(joinResult.message);
+          return;
+        }
         onLogin(data.user);
       } else {
         const me = await safeFetch('/api/me');
-        if (me?.authenticated && me?.user) onLogin(me.user);
+        if (me?.authenticated && me?.user) {
+          const joinResult = await tryJoinClassWithCode(me.user?.role, classJoinCode);
+          if (!joinResult.ok) {
+            setError(joinResult.message);
+            return;
+          }
+          onLogin(me.user);
+        }
         else setError('Could not load account.');
       }
     } catch {
@@ -432,6 +466,11 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
         localStorage.removeItem('stemverse_access_token');
       }
       if (data?.user) {
+        const joinResult = await tryJoinClassWithCode(data.user?.role, signupData.class_code);
+        if (!joinResult.ok) {
+          setError(joinResult.message);
+          return;
+        }
         onLogin(data.user);
       } else {
         // Some Supabase setups complete signup without returning an immediately usable session/user.
@@ -575,6 +614,30 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
                   placeholder="••••••••"
                 />
               </motion.div>
+              <motion.div variants={item} className="flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowClassCodeField((v) => !v)}
+                  className="text-xs font-semibold px-2.5 py-1.5 rounded-md text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 transition-colors"
+                >
+                  {showClassCodeField ? 'Hide class code' : 'I have a class code'}
+                </button>
+              </motion.div>
+              {showClassCodeField && (
+              <motion.div variants={item} className="space-y-2">
+                <label className="cosmic-label">Class Code (optional)</label>
+                <input
+                  type="text"
+                  value={classJoinCode}
+                  onChange={e => setClassJoinCode(e.target.value.toUpperCase())}
+                  className="cosmic-input font-mono text-sm"
+                  placeholder="Teacher class code"
+                />
+                <p className="text-[10px] text-[var(--ca-on-surface-variant)]">
+                  Ask your teacher for the 6-character class code to connect instantly.
+                </p>
+              </motion.div>
+              )}
               <motion.div variants={item} className="flex justify-end">
                 <button
                   type="button"
@@ -671,6 +734,34 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
                   />
                 </div>
               </div>
+              {signupData.role === 'student' && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="cosmic-label">Class Code (from teacher)</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowClassCodeField((v) => !v)}
+                      className="text-[10px] font-semibold px-2 py-1 rounded text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 transition-colors"
+                    >
+                      {showClassCodeField ? 'Hide code field' : 'I have a class code'}
+                    </button>
+                  </div>
+                  {showClassCodeField && (
+                    <>
+                  <input
+                    type="text"
+                    value={signupData.class_code}
+                    onChange={e => setSignupData({ ...signupData, class_code: e.target.value.toUpperCase() })}
+                    className="cosmic-input text-[11px] py-3 font-mono"
+                    placeholder="Enter class code to connect instantly"
+                  />
+                  <p className="text-[10px] text-[var(--ca-on-surface-variant)]">
+                    Ask your teacher for the 6-character class code. You can also join later from Squad.
+                  </p>
+                    </>
+                  )}
+                </div>
+              )}
               <p className="text-[10px] text-[var(--ca-on-surface-variant)] leading-snug">
                 Optional — helps your school with anonymized reports. You can skip these.
               </p>
@@ -2722,19 +2813,26 @@ const AdminDashboard = () => {
                     </div>
                   </div>
 
-                  <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm">
+                  <div className="bg-gradient-to-br from-white to-indigo-50/40 rounded-2xl border border-indigo-100 p-6 shadow-sm">
                     <h4 className="font-semibold text-[#0D1C32] mb-3">Top student interests</h4>
                     {adminMetrics.interestTrends?.length ? (
-                      <ul className="text-sm space-y-1 text-slate-600 max-h-48 overflow-y-auto">
-                        {adminMetrics.interestTrends.map((r) => (
-                          <li key={r.interest_key} className="flex justify-between gap-2">
-                            <span className="truncate capitalize">{r.interest_key.replace(/_/g, ' ')}</span>
-                            <span className="font-mono shrink-0">{r.n}</span>
+                      <ul className="text-sm space-y-2 text-[#243b67] max-h-56 overflow-y-auto pr-1">
+                        {adminMetrics.interestTrends.map((r, idx) => (
+                          <li
+                            key={r.interest_key}
+                            className="flex items-center justify-between gap-2 rounded-xl border border-indigo-100 bg-white/90 px-3 py-2"
+                          >
+                            <span className="truncate capitalize font-medium">
+                              {idx + 1}. {r.interest_key.replace(/_/g, ' ')}
+                            </span>
+                            <span className="font-mono shrink-0 rounded-md bg-indigo-100 px-2 py-0.5 text-[#1d2f5f]">
+                              {r.n}
+                            </span>
                           </li>
                         ))}
                       </ul>
                     ) : (
-                      <p className="text-slate-400 text-sm">No student interest data yet.</p>
+                      <p className="text-slate-500 text-sm">No student interest data yet.</p>
                     )}
                   </div>
 
@@ -6887,7 +6985,12 @@ export default function App() {
   };
 
   if (!isLoggedIn) {
-    return <Login onLogin={handleLogin} />;
+    return (
+      <>
+        <Login onLogin={handleLogin} />
+        <AddToHomeScreenPrompt />
+      </>
+    );
   }
 
   return (
@@ -7431,10 +7534,10 @@ export default function App() {
             initial={{ scale: 0.94, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-2xl rounded-3xl border border-amber-400/35 bg-[#0c1f3a] p-6 sm:p-8 shadow-[0_0_40px_rgba(255,178,4,0.2)] pointer-events-auto"
+            className="relative w-full max-w-2xl rounded-3xl border border-indigo-200 bg-gradient-to-br from-[#f7f9ff] via-white to-indigo-50 p-6 sm:p-8 shadow-[0_18px_40px_rgba(25,38,74,0.18)] pointer-events-auto"
           >
-            <h3 className="text-2xl font-black text-white">What do you want to explore first?</h3>
-            <p className="text-slate-300 text-sm mt-2">Pick 2 to 6 sparks. We will tailor missions and recommendations to your interests.</p>
+            <h3 className="text-2xl font-black text-[#0f2348]">What do you want to explore first?</h3>
+            <p className="text-[#4a5d86] text-sm mt-2">Pick 2 to 6 sparks. We will tailor missions and recommendations to your interests.</p>
             <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 gap-3">
               {STUDENT_INTEREST_OPTIONS.map((option) => {
                 const active = interestSelections.includes(option.key);
@@ -7445,8 +7548,8 @@ export default function App() {
                     onClick={() => toggleInterest(option.key)}
                     className={`rounded-2xl px-3 py-4 border text-left transition-all ${
                       active
-                        ? 'bg-amber-400/20 border-amber-300 text-amber-100 shadow-[0_0_14px_rgba(255,178,4,0.35)]'
-                        : 'bg-slate-900/50 border-slate-700 text-slate-200 hover:border-amber-300/60'
+                        ? 'bg-[#fff4d6] border-[#f6c85e] text-[#7a5502] shadow-[0_0_10px_rgba(246,200,94,0.35)]'
+                        : 'bg-white border-indigo-200 text-[#20355f] hover:border-[#b7c4f6] hover:bg-indigo-50/60'
                     }`}
                   >
                     <p className="text-xs font-black uppercase tracking-widest">{option.label}</p>
@@ -7455,17 +7558,17 @@ export default function App() {
               })}
             </div>
             <div className="mt-5 flex items-center justify-between gap-3">
-              <p className="text-xs text-slate-300 uppercase font-black tracking-wider">{interestSelections.length}/6 selected</p>
+              <p className="text-xs text-[#4a5d86] uppercase font-black tracking-wider">{interestSelections.length}/6 selected</p>
               <button
                 type="button"
                 onClick={saveStudentInterests}
                 disabled={savingInterests || interestSelections.length < 2}
-                className="px-5 py-2.5 rounded-xl bg-[#ffb204] text-[#0A192F] font-black text-xs uppercase tracking-widest disabled:opacity-50"
+                className="px-5 py-2.5 rounded-xl bg-[#3C3489] text-white font-black text-xs uppercase tracking-widest disabled:opacity-50"
               >
                 {savingInterests ? 'Saving…' : 'Launch My Path'}
               </button>
             </div>
-            {interestError && <p className="mt-3 text-rose-300 text-xs font-semibold">{interestError}</p>}
+            {interestError && <p className="mt-3 text-rose-600 text-xs font-semibold">{interestError}</p>}
           </motion.div>
         </div>
       )}
@@ -7610,6 +7713,7 @@ export default function App() {
         </button>
       </div>
       )}
+      <AddToHomeScreenPrompt />
     </div>
   );
 }
