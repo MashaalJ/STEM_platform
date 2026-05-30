@@ -1,0 +1,2868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>STEMverse Tool Player</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #080B1A;
+      --panel: #0D0D1A;
+      --panel-border: #1E1E3A;
+      --canvas-bg: #0f172a;
+      --teal: #2dd4bf;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: "Space Grotesk", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    #stars {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .star {
+      position: absolute;
+      width: 2px;
+      height: 2px;
+      background: #fff;
+      border-radius: 50%;
+    }
+    #app {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    #topbar {
+      height: 52px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      background: #080810;
+      border-bottom: 1px solid #1A1A2E;
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+    #topbar .logo { display: none; }
+    #topbar .title {
+      font-weight: 500;
+      font-size: 15px;
+      color: #fff;
+      text-align: center;
+      flex: 1;
+      padding: 0 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #topbar .step-counter {
+      font-size: 12px;
+      font-weight: 500;
+      color: #2DD4BF;
+      white-space: nowrap;
+      background: #0F2A1F;
+      border: 1px solid rgba(45, 212, 191, 0.3);
+      border-radius: 20px;
+      padding: 4px 12px;
+    }
+    #topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    #btn-save { display: none !important; }
+    .btn-save {
+      display: none;
+    }
+    #save-toast {
+      position: fixed;
+      top: 56px;
+      right: 16px;
+      z-index: 90;
+      background: #0A192F;
+      border: 1px solid rgba(245, 158, 11, 0.5);
+      color: #fbbf24;
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+    #save-toast.visible { opacity: 1; }
+    #main {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+    #left-panel {
+      width: 260px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+      background: var(--panel);
+      border-right: 1px solid var(--panel-border);
+    }
+    .panel-top-bar {
+      height: 52px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--panel-border);
+      font-size: 15px;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      color: #fff;
+    }
+    .stembot-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex: 1;
+      min-height: 0;
+      padding: 16px 14px;
+      overflow-y: auto;
+    }
+    .speech-bubble {
+      background: #1A1A2E;
+      color: #E2E8F0;
+      border: 1px solid #2D2D50;
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 13px;
+      line-height: 1.6;
+      max-width: 220px;
+      min-height: 48px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+      position: relative;
+    }
+    .speech-bubble::before {
+      content: "";
+      position: absolute;
+      bottom: -11px;
+      left: calc(50% - 8px);
+      border-left: 8px solid transparent;
+      border-right: 8px solid transparent;
+      border-top: 10px solid #2D2D50;
+    }
+    .speech-bubble::after {
+      content: "";
+      position: absolute;
+      bottom: -10px;
+      left: calc(50% - 8px);
+      border-left: 8px solid transparent;
+      border-right: 8px solid transparent;
+      border-top: 9px solid #1A1A2E;
+    }
+    .speech-bubble .cursor {
+      display: inline-block;
+      width: 2px;
+      height: 1em;
+      background: var(--teal);
+      margin-left: 1px;
+      vertical-align: text-bottom;
+      animation: blink 0.8s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+    #stembot-orb.orb-wrap {
+      position: relative;
+      width: 96px;
+      height: 96px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent !important;
+      box-shadow: none !important;
+    }
+    .orb-ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: transparent;
+      border: 2px solid rgba(139, 92, 246, 0.4);
+      box-shadow:
+        0 0 20px rgba(139, 92, 246, 0.3),
+        0 0 40px rgba(139, 92, 246, 0.15),
+        inset 0 0 20px rgba(139, 92, 246, 0.1);
+      animation: orb-breathe 3s ease-in-out infinite;
+    }
+    @keyframes orb-breathe {
+      0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 0 20px rgba(139, 92, 246, 0.3), 0 0 40px rgba(139, 92, 246, 0.15), inset 0 0 20px rgba(139, 92, 246, 0.1);
+      }
+      50% {
+        transform: scale(1.04);
+        box-shadow: 0 0 28px rgba(139, 92, 246, 0.5), 0 0 56px rgba(139, 92, 246, 0.25), inset 0 0 20px rgba(139, 92, 246, 0.1);
+      }
+    }
+    .orb-inner {
+      position: relative;
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #7C3AED, #4C1D95);
+      box-shadow: 0 4px 20px rgba(76, 29, 149, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+      transition: background 0.4s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .orb-face {
+      width: 80px;
+      height: 80px;
+      pointer-events: none;
+    }
+    .orb-eye {
+      fill: #fff;
+    }
+    .orb-smile {
+      stroke: #fff;
+    }
+    #stembot-orb.emotion-idle .orb-inner {
+      background: radial-gradient(circle at 35% 35%, #7C3AED, #4C1D95);
+    }
+    #stembot-orb.emotion-thinking .orb-inner {
+      background: radial-gradient(circle at 35% 35%, #2563EB, #1D4ED8);
+    }
+    #stembot-orb.emotion-correct .orb-inner,
+    #stembot-orb.emotion-excited .orb-inner {
+      background: radial-gradient(circle at 35% 35%, #059669, #065F46);
+    }
+    #stembot-orb.emotion-celebrate .orb-inner {
+      background: radial-gradient(circle at 35% 35%, #D97706, #92400E);
+      animation: orb-spin 0.8s ease;
+    }
+    #stembot-orb.emotion-hint .orb-inner {
+      background: radial-gradient(circle at 35% 35%, #DC2626, #7F1D1D);
+    }
+    #stembot-orb.emotion-hint.orb-wrap {
+      animation: shake-orb 0.5s ease;
+    }
+    #stembot-orb.emotion-correct .orb-eye,
+    #stembot-orb.emotion-celebrate .orb-eye,
+    #stembot-orb.emotion-excited .orb-eye {
+      animation: eye-pop 0.45s ease;
+    }
+    @keyframes orb-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    @keyframes shake-orb {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-6px); }
+      75% { transform: translateX(6px); }
+    }
+    @keyframes eye-pop {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.35); }
+    }
+    .step-card {
+      width: 100%;
+      background: #111128;
+      border-radius: 8px;
+      border-left: 3px solid #2DD4BF;
+      padding: 10px 12px;
+      margin: 12px 0;
+    }
+    .step-card__label {
+      display: block;
+      font-size: 9px;
+      color: #2DD4BF;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 6px;
+    }
+    #step-instruction {
+      color: #94A3B8;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .stembot-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+      margin-top: 8px;
+    }
+    .btn {
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn-teal {
+      background: linear-gradient(135deg, #0D9488, #0F766E);
+      border: 1px solid rgba(45, 212, 191, 0.3);
+      border-radius: 10px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 500;
+      height: 44px;
+      box-shadow: 0 4px 16px rgba(13, 148, 136, 0.3);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(4px);
+      transition: opacity 0.3s ease, transform 0.3s ease, filter 0.2s ease;
+    }
+    .btn-teal:not(:disabled) {
+      opacity: 1;
+      pointer-events: all;
+      transform: translateY(0);
+    }
+    .btn-teal:not(:disabled):hover {
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+    }
+    .btn-ghost {
+      background: transparent;
+      color: #6B7280;
+      border: 1px solid #2D2D50;
+      font-size: 13px;
+      height: 38px;
+    }
+    .btn-ghost:not(:disabled):hover {
+      border-color: #4B5563;
+      color: #9CA3AF;
+    }
+    .btn-ghost:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    #step-dots {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      padding-top: 12px;
+      margin-top: auto;
+    }
+    .step-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #1E1E3A;
+      border: 1px solid #374151;
+      flex-shrink: 0;
+    }
+    .step-dot.done {
+      background: #2DD4BF;
+      border-color: #2DD4BF;
+      box-shadow: 0 0 6px rgba(45, 212, 191, 0.6);
+    }
+    .step-dot.current {
+      width: 10px;
+      height: 10px;
+      background: transparent;
+      border: 2px solid #2DD4BF;
+      box-shadow: 0 0 8px rgba(45, 212, 191, 0.5);
+      animation: dot-pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes dot-pulse {
+      0%, 100% { box-shadow: 0 0 4px rgba(45, 212, 191, 0.4); }
+      50% { box-shadow: 0 0 12px rgba(45, 212, 191, 0.8); }
+    }
+    #tool-panel {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--canvas-bg);
+      position: relative;
+    }
+    #tool-root {
+      flex: 1;
+      min-height: 0;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+    /* Circuit builder */
+    .circuit-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .circuit-canvas-wrap {
+      flex: 1;
+      position: relative;
+      min-height: 0;
+      background: var(--canvas-bg);
+      background-image: radial-gradient(circle, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+    .canvas-vignette {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1;
+      background: radial-gradient(ellipse at 50% 40%, rgba(13, 9, 30, 0) 0%, rgba(5, 5, 16, 0.4) 100%);
+    }
+    #circuit-drop {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      z-index: 3;
+    }
+    #circuit-wires {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 4;
+    }
+    #circuit-wires path.wire-visible {
+      stroke: #F97316 !important;
+      stroke-width: 2.5 !important;
+      fill: none !important;
+      stroke-linecap: round !important;
+      stroke-linejoin: round !important;
+      pointer-events: none;
+    }
+    #circuit-wires path.wire-visible.wire-glow {
+      stroke: #00FFFF !important;
+      stroke-width: 3 !important;
+      filter: drop-shadow(0 0 4px rgba(0, 255, 255, 0.6)) drop-shadow(0 0 8px rgba(0, 255, 255, 0.3)) !important;
+    }
+    #circuit-wires path.wire-visible.wire-selected {
+      stroke: #EF4444 !important;
+      stroke-width: 3.5 !important;
+    }
+    #circuit-wires path.wire-hit {
+      pointer-events: stroke;
+      cursor: pointer;
+      fill: none;
+      stroke: transparent;
+      stroke-width: 22 !important;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    #circuit-wires path.wire-hit.wire-selected {
+      stroke: rgba(239, 68, 68, 0.12) !important;
+    }
+    .placed-comp {
+      position: absolute;
+      z-index: 3;
+      cursor: grab;
+      touch-action: none;
+      user-select: none;
+    }
+    .placed-comp::before {
+      content: "";
+      position: absolute;
+      inset: -6px;
+      border-radius: 12px;
+      border: 2px dashed transparent;
+      pointer-events: none;
+      transition: border-color 0.15s ease;
+    }
+    .placed-comp:focus-within::before,
+    .placed-comp.comp-selected::before {
+      border-color: #2DD4BF;
+      animation: dash-rotate 8s linear infinite;
+    }
+    @keyframes dash-rotate {
+      to { stroke-dashoffset: -100; }
+    }
+    .placed-comp.dragging {
+      cursor: grabbing;
+      z-index: 10;
+      opacity: 0.85;
+    }
+    .placed-comp svg { display: block; pointer-events: none; }
+    .terminal {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      margin-left: -5px;
+      margin-top: -5px;
+      border-radius: 50%;
+      z-index: 10;
+      cursor: crosshair;
+      touch-action: manipulation;
+      pointer-events: auto;
+      border: 2px solid rgba(0, 0, 0, 0.4);
+      box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .terminal.positive { background: #ef4444; }
+    .terminal.negative { background: #6b7280; }
+    .terminal.neutral { background: #94a3b8; }
+    .terminal:hover {
+      transform: scale(1.4);
+      box-shadow: 0 0 8px currentColor;
+    }
+    .terminal.selected {
+      animation: terminal-pulse 0.8s ease-in-out infinite;
+      box-shadow: 0 0 12px currentColor;
+      outline: none;
+    }
+    @keyframes terminal-pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.3); }
+    }
+    .comp-battery-svg .battery-body {
+      filter: drop-shadow(inset 0 1px 2px rgba(0, 0, 0, 0.35));
+    }
+    .comp-led-svg .led-lens { fill: #0E3A4A !important; }
+    .comp-led-svg.lit .led-lens { fill: #00FFFF !important; }
+    .comp-led-svg .led-rays { opacity: 0.35; }
+    .comp-led-svg.lit {
+      filter: drop-shadow(0 0 8px #00FFFF) drop-shadow(0 0 16px #06B6D4);
+      animation: led-flicker 0.1s ease infinite;
+    }
+    .comp-led-svg.lit .led-rays {
+      opacity: 1;
+      stroke: #00FFFF;
+    }
+    @keyframes led-flicker {
+      0%, 100% { filter: drop-shadow(0 0 8px #00FFFF) drop-shadow(0 0 16px #06B6D4); }
+      50% { filter: drop-shadow(0 0 12px #00FFFF) drop-shadow(0 0 24px #06B6D4); }
+    }
+    .comp-bulb-svg .bulb-glass { fill: #374151 !important; }
+    .comp-bulb-svg .bulb-filament { stroke: #6B7280; opacity: 0.6; }
+    .comp-bulb-svg.lit .bulb-glass {
+      fill: #FDE68A !important;
+      filter: drop-shadow(0 0 10px #FBBF24) drop-shadow(0 0 20px rgba(251, 191, 36, 0.5));
+    }
+    .comp-bulb-svg.lit .bulb-filament {
+      stroke: #F59E0B;
+      opacity: 1;
+    }
+    .comp-bulb-svg.lit {
+      animation: bulb-glow 0.15s ease-in-out infinite alternate;
+    }
+    @keyframes bulb-glow {
+      from { filter: drop-shadow(0 0 8px #FBBF24); }
+      to { filter: drop-shadow(0 0 16px #FCD34D); }
+    }
+    .canvas-toolbar {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 30;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      max-width: calc(100% - 20px);
+    }
+    .canvas-toolbar .toolbar-label {
+      font-size: 11px;
+      color: #94A3B8;
+      padding: 0 4px;
+      min-width: 0;
+    }
+    .canvas-toolbar .toolbar-label:empty { display: none; }
+    .btn-clear-canvas,
+    .btn-delete-sel {
+      padding: 6px 12px;
+      font-size: 11px;
+      font-weight: 500;
+      border-radius: 8px;
+      cursor: pointer;
+      font-family: inherit;
+      flex-shrink: 0;
+    }
+    .btn-clear-canvas {
+      background: transparent;
+      color: #6B7280;
+      border: 1px solid #2D2D50;
+    }
+    .btn-clear-canvas:hover {
+      border-color: #4B5563;
+      color: #9CA3AF;
+    }
+    .btn-delete-sel {
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.45);
+      color: #FCA5A5;
+    }
+    .btn-delete-sel:hover:not(:disabled) {
+      background: rgba(239, 68, 68, 0.28);
+    }
+    .btn-delete-sel:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+    .circuit-hint-bar {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 20;
+      padding: 6px 14px;
+      background: rgba(10, 10, 24, 0.92);
+      border: 1px solid #2D2D50;
+      border-radius: 20px;
+      font-size: 10px;
+      color: #6B7280;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .parts-tray {
+      height: 110px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: stretch;
+      gap: 10px;
+      padding: 10px 14px;
+      background: #080A14;
+      border-top: 2px solid #1E2A4A;
+      overflow-x: auto;
+    }
+    .tray-label {
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      font-size: 9px;
+      color: #4B5563;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      flex-shrink: 0;
+      align-self: center;
+      padding: 0 4px;
+    }
+    .tray-chips-row {
+      display: flex;
+      align-items: center;
+      flex: 1;
+      min-width: 0;
+      overflow-x: auto;
+    }
+    .tray-chip {
+      flex-shrink: 0;
+      width: 90px;
+      height: 86px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 2px;
+      padding: 8px 6px 6px;
+      margin: 0 6px;
+      background: #0F1629;
+      border: 1px solid #1E2A4A;
+      border-radius: 10px;
+      cursor: grab;
+      touch-action: none;
+      transition: all 0.15s ease;
+    }
+    .tray-chip:hover {
+      background: #141D35;
+      border-color: #2D4A8A;
+      transform: translateY(-3px);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+    }
+    .tray-chip:active,
+    .tray-chip.dragging {
+      opacity: 0.7;
+      cursor: grabbing;
+    }
+    .tray-chip .chip-visual {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      width: 100%;
+    }
+    .tray-chip .chip-label {
+      font-size: 11px;
+      color: #6B7280;
+      text-align: center;
+    }
+    .tray-chip .chip-note {
+      font-size: 8px;
+      color: #4B5563;
+      text-align: center;
+      line-height: 1.2;
+    }
+    .tray-chip.wire-hint { cursor: help; }
+  /* Blocks tool */
+    .blocks-wrap {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+    .blocks-palette {
+      width: 160px;
+      flex-shrink: 0;
+      padding: 12px 8px;
+      background: rgba(8, 8, 16, 0.95);
+      border-right: 1px solid rgba(255, 255, 255, 0.06);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .block-chip {
+      width: 140px;
+      height: 36px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 600;
+      color: #0f172a;
+      cursor: grab;
+      touch-action: none;
+      flex-shrink: 0;
+    }
+    .blocks-workspace-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      position: relative;
+    }
+    .blocks-toolbar {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      z-index: 10;
+      display: flex;
+      gap: 8px;
+    }
+  .btn-run { background: #22c55e; color: #052e16; }
+    #blocks-workspace {
+      flex: 1;
+      padding: 48px 24px 24px;
+      overflow-y: auto;
+      min-height: 120px;
+    }
+    .workspace-stack {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0;
+      min-height: 80px;
+    }
+    .workspace-block {
+      width: 140px;
+      min-height: 36px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 600;
+      color: #0f172a;
+      cursor: grab;
+      touch-action: none;
+      position: relative;
+      margin-bottom: -4px;
+      box-shadow: 0 2px 0 rgba(0, 0, 0, 0.3);
+    }
+    .workspace-block .inline-input {
+      width: 28px;
+      margin: 0 4px;
+      padding: 2px 4px;
+      border: none;
+      border-radius: 4px;
+      font-size: 11px;
+      text-align: center;
+    }
+    .workspace-block.snap-highlight {
+      outline: 2px dashed var(--teal);
+      outline-offset: 4px;
+    }
+    #blocks-output {
+      height: 0;
+      overflow: hidden;
+      background: #0a0a14;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      transition: height 0.3s ease;
+      display: flex;
+      flex-direction: column;
+    }
+    #blocks-output.open { height: 160px; }
+    #blocks-log {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 12px;
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+      color: #a5f3fc;
+    }
+    #blocks-mini-grid {
+      height: 72px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      position: relative;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 15px,
+        rgba(255, 255, 255, 0.04) 15px,
+        rgba(255, 255, 255, 0.04) 16px
+      ),
+      repeating-linear-gradient(
+        90deg,
+        transparent,
+        transparent 15px,
+        rgba(255, 255, 255, 0.04) 15px,
+        rgba(255, 255, 255, 0.04) 16px
+      );
+    }
+    #blocks-robot {
+      position: absolute;
+      width: 0;
+      height: 0;
+      border-left: 10px solid transparent;
+      border-right: 10px solid transparent;
+      border-bottom: 18px solid var(--teal);
+      transform: translate(-50%, -50%);
+      transition: left 0.25s ease, top 0.25s ease;
+    }
+    /* 3D viewer */
+    .viewer-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    #three-container {
+      flex: 1;
+      position: relative;
+      min-height: 0;
+    }
+    #three-container canvas {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+    }
+    .shape-tray {
+      height: 80px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      background: rgba(8, 8, 16, 0.95);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      overflow-x: auto;
+    }
+    .shape-chip {
+      flex-shrink: 0;
+      width: 68px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+    }
+    .shape-chip:hover { border-color: rgba(20, 184, 166, 0.4); }
+    .shape-chip canvas { width: 60px; height: 60px; border-radius: 6px; background: #12121f; }
+    .shape-chip span { font-size: 9px; color: var(--muted); text-transform: capitalize; }
+    #shape-toolbar {
+      position: absolute;
+      top: 48px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 15;
+      display: none;
+      gap: 6px;
+      padding: 8px 12px;
+      background: rgba(12, 12, 24, 0.95);
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      flex-wrap: wrap;
+      align-items: center;
+      max-width: 90%;
+    }
+    #shape-toolbar.visible { display: flex; }
+    .color-swatch {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      cursor: pointer;
+    }
+    .color-swatch.active { border-color: #fff; box-shadow: 0 0 8px rgba(255, 255, 255, 0.5); }
+    /* Complete overlay */
+    #complete-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: rgba(8, 8, 16, 0.88);
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      padding: 24px;
+    }
+    #complete-overlay.visible { display: flex; }
+    #complete-overlay h2 {
+      font-size: 28px;
+      margin: 16px 0 8px;
+      color: var(--teal);
+    }
+    #complete-overlay .stats { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+    #complete-overlay .btn-finish {
+      background: var(--teal);
+      color: #042f2e;
+      padding: 14px 32px;
+      font-size: 16px;
+      font-weight: 700;
+      border-radius: 12px;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    /* Debug bar */
+    #debug-bar {
+      display: none;
+      flex-shrink: 0;
+      max-height: 120px;
+      overflow: auto;
+      background: #1e1e2e;
+      border-top: 1px solid #333;
+      padding: 8px;
+      font-family: ui-monospace, monospace;
+      font-size: 10px;
+      color: #86efac;
+    }
+    #debug-bar.visible { display: block; }
+    #debug-controls {
+      display: none;
+      gap: 8px;
+      padding: 4px 8px;
+    }
+    #debug-controls.visible { display: flex; }
+  </style>
+</head>
+<body>
+  <div id="stars"></div>
+  <div id="app">
+    <header id="topbar">
+      <span class="logo">STEMverse</span>
+      <span class="title" id="activity-title"></span>
+      <div id="topbar-actions">
+        <button type="button" class="btn-save" id="btn-save" title="Save your progress" hidden>Save</button>
+        <span class="step-counter" id="step-counter">Step 1 of 1</span>
+      </div>
+    </header>
+    <div id="save-toast" role="status"></div>
+    <div id="main">
+      <aside id="left-panel">
+        <div class="panel-top-bar">STEMverse</div>
+        <div class="stembot-wrap">
+          <div class="speech-bubble" id="speech-bubble"><span id="bubble-text"></span></div>
+          <div id="stembot-orb" class="orb-wrap" aria-hidden="true">
+            <div class="orb-ring"></div>
+            <div class="orb-inner">
+              <svg class="orb-face" viewBox="0 0 80 80" aria-hidden="true">
+                <ellipse class="orb-eye orb-eye-l" cx="26" cy="30" rx="4" ry="2.5" />
+                <ellipse class="orb-eye orb-eye-r" cx="54" cy="30" rx="4" ry="2.5" />
+                <path class="orb-smile" d="M30 42 Q40 48 50 42" fill="none" stroke-width="2" stroke-linecap="round" />
+              </svg>
+            </div>
+          </div>
+          <div class="step-card" id="step-card">
+            <span class="step-card__label">CURRENT STEP</span>
+            <p id="step-instruction"></p>
+          </div>
+          <div class="stembot-actions">
+            <button type="button" class="btn btn-teal" id="btn-next" disabled>Next step →</button>
+            <button type="button" class="btn btn-ghost" id="btn-hint">Give me a hint</button>
+          </div>
+          <div id="step-dots"></div>
+        </div>
+      </aside>
+      <section id="tool-panel">
+        <div id="tool-root"></div>
+        <div id="debug-controls">
+          <button type="button" class="btn btn-ghost" id="btn-skip-step">Skip step</button>
+        </div>
+        <pre id="debug-bar"></pre>
+      </section>
+    </div>
+  </div>
+  <div id="complete-overlay">
+    <svg width="80" height="80" viewBox="0 0 80 80" aria-hidden="true">
+      <circle cx="40" cy="40" r="38" fill="none" stroke="#14b8a6" stroke-width="3" />
+      <path d="M22 40 L36 54 L58 28" fill="none" stroke="#14b8a6" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+    <h2>Activity Complete!</h2>
+    <p class="stats" id="complete-stats"></p>
+    <button type="button" class="btn-finish" id="btn-finish">Finish</button>
+  </div>
+
+  <script>
+  var ACTIVITY_CONFIG = {
+    tool: "circuit_builder",
+    title: "Build a simple circuit",
+    subject: "Electricity",
+    grade: "8-10",
+    stembot_intro: "Hey! I'm STEMbot. Let's build a circuit together.",
+    components: ["battery", "wire", "led", "switch", "resistor", "buzzer", "motor", "capacitor", "diode", "bulb", "fuse", "button"],
+    steps: [
+      {
+        id: 1,
+        instruction: "Drag the battery onto the canvas.",
+        hint: "The battery is the yellow rectangle in the parts tray.",
+        completion_trigger: "component_placed:battery",
+        stembot_reaction_correct: "Great work! The battery is your power source.",
+        stembot_emotion_correct: "celebrate"
+      },
+      {
+        id: 2,
+        instruction: "Now connect a wire from the + terminal (red dot) on the battery.",
+        hint: "Click the red dot on the battery, then click another terminal to draw a wire.",
+        completion_trigger: "wire_connected:battery_positive",
+        stembot_reaction_correct: "Perfect! Electricity will flow through this wire.",
+        stembot_emotion_correct: "excited"
+      },
+      {
+        id: 3,
+        instruction: "Place an LED on the canvas.",
+        hint: "The LED is the cyan circle in the parts tray.",
+        completion_trigger: "component_placed:led",
+        stembot_reaction_correct: "Nice! The LED will light up when current flows through it.",
+        stembot_emotion_correct: "correct"
+      },
+      {
+        id: 4,
+        instruction: "Build a closed circuit so the LED lights up. Close the switch if you added one!",
+        hint: "Connect battery + → LED → battery − with wires. Click terminals in order.",
+        completion_trigger: "circuit_closed",
+        stembot_reaction_correct: "You did it! The circuit is complete and the LED is glowing!",
+        stembot_emotion_correct: "celebrate"
+      }
+    ]
+  };
+
+  (function applyUrlConfig() {
+    const params = new URLSearchParams(location.search);
+    const b64 = params.get("config");
+    if (!b64) return;
+    try {
+      const raw = decodeURIComponent(escape(atob(decodeURIComponent(b64))));
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        ACTIVITY_CONFIG = Object.assign({}, ACTIVITY_CONFIG, parsed);
+        if (Array.isArray(parsed.steps)) ACTIVITY_CONFIG.steps = parsed.steps;
+        if (Array.isArray(parsed.components)) ACTIVITY_CONFIG.components = parsed.components;
+      }
+    } catch (err) {
+      console.warn("[STEMverse tool player] Could not parse ?config=", err);
+    }
+  })();
+  </script>
+
+  <script>
+  (function () {
+    "use strict";
+
+    const EMOTION_COLORS = {
+      idle: "#f59e0b",
+      thinking: "#3B82F6",
+      correct: "#10B981",
+      celebrate: "#F59E0B",
+      hint: "#EF4444",
+      excited: "#10B981"
+    };
+
+    const urlParams = new URLSearchParams(location.search);
+    const MISSION_ID = Number(urlParams.get("mission_id")) || 0;
+    const IS_PREVIEW = urlParams.get("preview") === "1";
+    let savedProjectId = 0;
+
+    const NUDGE_MESSAGES = [
+      "Stuck? Try clicking something on the canvas.",
+      "You can do it! What haven't you tried yet?",
+      "Tip: read the instruction again carefully.",
+      "Need a hint? Press the hint button!"
+    ];
+
+    const WRONG_MSG = "Hmm, that's not quite right — try again!";
+
+    const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
+    const startedAt = Date.now();
+
+    const appState = {
+      currentStepIndex: 0,
+      stepCompleted: false,
+      allDone: false,
+      introComplete: false,
+      firedTriggers: new Set(),
+      triggerLog: [],
+      wrongCount: 0,
+      lastEmotion: "idle",
+      activityStart: startedAt
+    };
+
+    function totalScreens() {
+      return 1 + ACTIVITY_CONFIG.steps.length;
+    }
+
+    function currentScreenNumber() {
+      if (!appState.introComplete) return 1;
+      return appState.currentStepIndex + 2;
+    }
+
+    let typewriterTimer = null;
+    let idleTimer = null;
+    let wrongResetTimer = null;
+    let currentTool = null;
+
+    const $ = (sel) => document.querySelector(sel);
+    const bubbleText = $("#bubble-text");
+    const speechBubble = $("#speech-bubble");
+    const orb = $("#stembot-orb");
+    const btnNext = $("#btn-next");
+    const btnHint = $("#btn-hint");
+    const stepDots = $("#step-dots");
+    const toolRoot = $("#tool-root");
+    const stepCounter = $("#step-counter");
+    const activityTitle = $("#activity-title");
+    const debugBar = $("#debug-bar");
+    const debugControls = $("#debug-controls");
+    const btnSave = $("#btn-save");
+    const saveToast = $("#save-toast");
+
+    function progressStorageKey() {
+      try {
+        const cfg = btoa(unescape(encodeURIComponent(JSON.stringify({ t: ACTIVITY_CONFIG.tool, title: ACTIVITY_CONFIG.title })))).slice(0, 32);
+        return "stemverse_tool_prog_" + (MISSION_ID || cfg);
+      } catch (e) {
+        return "stemverse_tool_prog_" + MISSION_ID;
+      }
+    }
+
+    function showSaveToast(msg) {
+      if (!saveToast) return;
+      saveToast.textContent = msg;
+      saveToast.classList.add("visible");
+      setTimeout(function () { saveToast.classList.remove("visible"); }, 2600);
+    }
+
+    function exportProgressPayload() {
+      const workspace = currentTool && currentTool.exportState ? currentTool.exportState() : null;
+      return {
+        version: 1,
+        tool: ACTIVITY_CONFIG.tool,
+        currentStepIndex: appState.currentStepIndex,
+        stepCompleted: appState.stepCompleted,
+        firedTriggers: Array.from(appState.firedTriggers),
+        workspace: workspace
+      };
+    }
+
+    async function saveProgress() {
+      const json = JSON.stringify(exportProgressPayload());
+      try { localStorage.setItem(progressStorageKey(), json); } catch (e) { /* ignore */ }
+      if (btnSave) btnSave.disabled = true;
+      if (IS_PREVIEW) {
+        showSaveToast("Saved locally (preview mode)");
+        if (btnSave) btnSave.disabled = true;
+        return;
+      }
+      if (MISSION_ID > 0) {
+        try {
+          const res = await fetch("/api/tool-activity/save", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: savedProjectId || undefined,
+              mission_id: MISSION_ID,
+              title: ACTIVITY_CONFIG.title || "Tool activity",
+              workspace_json: json
+            })
+          });
+          const data = await res.json().catch(function () { return {}; });
+          if (data.id) savedProjectId = data.id;
+          showSaveToast(res.ok ? "Progress saved!" : "Saved on this device");
+        } catch (e) {
+          showSaveToast("Saved on this device");
+        }
+      } else {
+        showSaveToast("Progress saved on this device");
+      }
+      if (btnSave) btnSave.disabled = false;
+    }
+
+    async function loadProgress() {
+      var json = null;
+      try { json = localStorage.getItem(progressStorageKey()); } catch (e) { /* ignore */ }
+      if (!json && MISSION_ID > 0 && !IS_PREVIEW) {
+        try {
+          const res = await fetch("/api/tool-activity/progress?mission_id=" + MISSION_ID, { credentials: "include" });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.save) {
+              json = data.save.workspace_json;
+              savedProjectId = data.save.id;
+            }
+          }
+        } catch (e) { /* ignore */ }
+      }
+      if (!json) return;
+      try {
+        const payload = JSON.parse(json);
+        if (payload.firedTriggers && Array.isArray(payload.firedTriggers)) {
+          payload.firedTriggers.forEach(function (t) { appState.firedTriggers.add(t); });
+        }
+        if (typeof payload.currentStepIndex === "number") {
+          appState.currentStepIndex = Math.min(payload.currentStepIndex, ACTIVITY_CONFIG.steps.length - 1);
+          appState.stepCompleted = !!payload.stepCompleted;
+          appState.introComplete = true;
+        }
+        if (payload.introComplete) appState.introComplete = true;
+        if (payload.workspace && currentTool && currentTool.importState) {
+          currentTool.importState(payload.workspace);
+        }
+        updateStepUI();
+        var step = getCurrentStep();
+        if (step) typewrite(step.instruction);
+        checkAllTriggers();
+      } catch (e) { /* ignore corrupt save */ }
+    }
+
+    function logTrigger(name) {
+      appState.triggerLog.push({ t: Date.now(), name });
+      if (DEBUG) updateDebugBar();
+    }
+
+    function updateDebugBar() {
+      debugBar.textContent =
+        "STATE: " + JSON.stringify(appState, (k, v) => (v instanceof Set ? [...v] : v), 2) +
+        "\n\nLOG:\n" + appState.triggerLog.map((e) => new Date(e.t).toISOString().slice(11, 19) + " " + e.name).join("\n");
+    }
+
+    function createStars() {
+      const container = document.getElementById("stars");
+      for (let i = 0; i < 80; i++) {
+        const s = document.createElement("div");
+        s.className = "star";
+        s.style.left = Math.random() * 100 + "%";
+        s.style.top = Math.random() * 100 + "%";
+        s.style.opacity = (0.3 + Math.random() * 0.3).toFixed(2);
+        container.appendChild(s);
+      }
+    }
+
+    function setEmotion(emotion) {
+      const e = emotion || "idle";
+      appState.lastEmotion = e;
+      orb.style.background = "";
+      orb.style.boxShadow = "";
+      orb.className = "orb-wrap emotion-" + e;
+    }
+
+    function typewrite(text, cb) {
+      if (typewriterTimer) clearInterval(typewriterTimer);
+      bubbleText.innerHTML = "";
+      let i = 0;
+      const full = String(text || "");
+      typewriterTimer = setInterval(() => {
+        if (i < full.length) {
+          bubbleText.textContent = full.slice(0, i + 1);
+          i++;
+        } else {
+          clearInterval(typewriterTimer);
+          typewriterTimer = null;
+          bubbleText.innerHTML = full + '<span class="cursor"></span>';
+          if (cb) cb();
+        }
+      }, 30);
+    }
+
+    function resetIdleTimer() {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        if (appState.allDone) return;
+        const msg = NUDGE_MESSAGES[Math.floor(Math.random() * NUDGE_MESSAGES.length)];
+        typewrite(msg);
+        setEmotion("thinking");
+      }, 20000);
+    }
+
+    function onCanvasInteraction() {
+      resetIdleTimer();
+    }
+
+    function showWrong() {
+      appState.wrongCount++;
+      setEmotion("hint");
+      typewrite(WRONG_MSG);
+      if (wrongResetTimer) clearTimeout(wrongResetTimer);
+      wrongResetTimer = setTimeout(() => {
+        setEmotion(appState.stepCompleted ? "correct" : "idle");
+        const step = getCurrentStep();
+        if (step && !appState.stepCompleted) typewrite(step.instruction);
+      }, 2000);
+      if (appState.wrongCount >= 3) {
+        const step = getCurrentStep();
+        if (step && step.hint) {
+          setTimeout(() => {
+            typewrite("Here's a hint: " + step.hint);
+            setEmotion("thinking");
+          }, 2100);
+        }
+      }
+    }
+
+    function getCurrentStep() {
+      return ACTIVITY_CONFIG.steps[appState.currentStepIndex] || null;
+    }
+
+    function updateStepUI() {
+      const stepsTotal = Math.max(1, ACTIVITY_CONFIG.steps.length);
+      const stepNum = appState.introComplete ? Math.min(stepsTotal, appState.currentStepIndex + 1) : 1;
+      stepCounter.textContent = "Step " + stepNum + " of " + stepsTotal;
+      stepDots.innerHTML = "";
+      const d0 = document.createElement("div");
+      d0.className = "step-dot";
+      if (appState.introComplete) d0.classList.add("done");
+      if (!appState.introComplete) d0.classList.add("current");
+      stepDots.appendChild(d0);
+      ACTIVITY_CONFIG.steps.forEach((_, i) => {
+        const d = document.createElement("div");
+        d.className = "step-dot";
+        if (appState.introComplete && i < appState.currentStepIndex) d.classList.add("done");
+        if (appState.introComplete && i === appState.currentStepIndex) d.classList.add("current");
+        stepDots.appendChild(d);
+      });
+      if (appState.allDone) btnNext.disabled = true;
+      else if (!appState.introComplete) btnNext.disabled = false;
+      else btnNext.disabled = !appState.stepCompleted;
+    }
+
+    function fireTrigger(triggerName) {
+      if (appState.firedTriggers.has(triggerName)) return;
+      appState.firedTriggers.add(triggerName);
+      logTrigger(triggerName);
+      checkStepCompletion(triggerName);
+    }
+
+    function checkStepCompletion(triggerName) {
+      const step = getCurrentStep();
+      if (!step || appState.stepCompleted) return;
+      if (step.completion_trigger === triggerName) {
+        appState.stepCompleted = true;
+        setEmotion(step.stembot_emotion_correct || "correct");
+        typewrite(step.stembot_reaction_correct || "Well done!");
+        btnNext.disabled = false;
+        updateStepUI();
+      }
+    }
+
+    function checkAllTriggers() {
+      const step = getCurrentStep();
+      if (!step || appState.stepCompleted) return;
+      if (currentTool && currentTool.evaluateTriggers) {
+        currentTool.evaluateTriggers(step.completion_trigger);
+      }
+    }
+
+    function showStepInstruction() {
+      const step = getCurrentStep();
+      if (!step) return;
+      appState.stepCompleted = false;
+      appState.wrongCount = 0;
+      setEmotion("idle");
+      const stepInst = document.getElementById("step-instruction");
+      if (stepInst) stepInst.textContent = step.instruction;
+      typewrite(step.instruction);
+      btnNext.disabled = true;
+      updateStepUI();
+      if (currentTool && currentTool.onStepChange) currentTool.onStepChange();
+    }
+
+    function advanceStep() {
+      if (!appState.introComplete) {
+        appState.introComplete = true;
+        appState.stepCompleted = false;
+        updateStepUI();
+        showStepInstruction();
+        return;
+      }
+      if (!appState.stepCompleted) return;
+      appState.currentStepIndex++;
+      if (appState.currentStepIndex >= ACTIVITY_CONFIG.steps.length) {
+        completeActivity();
+        return;
+      }
+      showStepInstruction();
+    }
+
+    function completeActivity() {
+      appState.allDone = true;
+      setEmotion("celebrate");
+      typewrite("Amazing work, Cadet! Mission complete! 🌟");
+      btnNext.disabled = true;
+      const elapsed = Math.max(1, Math.round((Date.now() - appState.activityStart) / 60000));
+      $("#complete-stats").textContent =
+        "Completed " + totalScreens() + " screens in about " + elapsed + " minute" + (elapsed === 1 ? "" : "s");
+      setTimeout(() => $("#complete-overlay").classList.add("visible"), 1200);
+    }
+
+    function finishAndPost() {
+      window.parent.postMessage(
+        {
+          type: "STEMVERSE_COMPLETE",
+          activity: "tool",
+          tool: ACTIVITY_CONFIG.tool,
+          title: ACTIVITY_CONFIG.title,
+          steps_completed: ACTIVITY_CONFIG.steps.length,
+          timestamp: Date.now()
+        },
+        "*"
+      );
+    }
+
+    btnNext.addEventListener("click", advanceStep);
+    btnHint.addEventListener("click", () => {
+      const step = getCurrentStep();
+      if (step && step.hint) {
+        typewrite(step.hint);
+        setEmotion("thinking");
+      }
+    });
+
+    $("#btn-finish").addEventListener("click", finishAndPost);
+
+    if (DEBUG) {
+      debugBar.classList.add("visible");
+      debugControls.classList.add("visible");
+      $("#btn-skip-step").addEventListener("click", () => {
+        const step = getCurrentStep();
+        if (step) {
+          fireTrigger(step.completion_trigger);
+          appState.stepCompleted = true;
+          btnNext.disabled = false;
+        }
+      });
+      updateDebugBar();
+    }
+
+    /* ========== CIRCUIT BUILDER ========== */
+    const CIRCUIT_CHIP_DEFS = {
+      battery:
+        '<svg width="70" height="38" viewBox="0 0 70 38" aria-hidden="true"><rect class="battery-body" x="2" y="7" width="54" height="24" rx="4" fill="#1A1A2E" stroke="#F59E0B" stroke-width="1.5"/><rect x="56" y="12" width="10" height="14" rx="2" fill="#EF4444"/><line x1="18" y1="9" x2="18" y2="29" stroke="#F59E0B" stroke-width="0.5" opacity="0.4"/><line x1="36" y1="9" x2="36" y2="29" stroke="#F59E0B" stroke-width="0.5" opacity="0.4"/><text x="61" y="22" fill="#EF4444" font-size="10" font-weight="bold" text-anchor="middle">+</text><text x="8" y="22" fill="#9CA3AF" font-size="10" text-anchor="middle">−</text></svg>',
+      led:
+        '<svg width="50" height="54" viewBox="0 0 50 54" aria-hidden="true"><circle cx="25" cy="20" r="13" fill="#0E3A4A" stroke="#06B6D4" stroke-width="1.5"/><circle class="led-lens" cx="25" cy="20" r="8"/><circle cx="20" cy="16" r="2.5" fill="rgba(255,255,255,0.4)"/><line x1="21" y1="33" x2="21" y2="50" stroke="#9CA3AF" stroke-width="1.5"/><line x1="29" y1="33" x2="29" y2="50" stroke="#9CA3AF" stroke-width="1.5"/><g class="led-rays"><line x1="25" y1="4" x2="25" y2="0" stroke="#06B6D4" stroke-width="1" opacity="0.7"/><line x1="14" y1="8" x2="11" y2="5" stroke="#06B6D4" stroke-width="1" opacity="0.7"/><line x1="36" y1="8" x2="39" y2="5" stroke="#06B6D4" stroke-width="1" opacity="0.7"/><line x1="9" y1="18" x2="5" y2="18" stroke="#06B6D4" stroke-width="1" opacity="0.7"/></g></svg>',
+      switch:
+        '<svg width="70" height="32" viewBox="0 0 70 32" aria-hidden="true"><line x1="2" y1="16" x2="22" y2="16" stroke="#9CA3AF" stroke-width="2"/><circle cx="22" cy="16" r="3" fill="#6B7280"/><circle cx="48" cy="16" r="3" fill="#6B7280"/><line x1="48" y1="16" x2="68" y2="16" stroke="#9CA3AF" stroke-width="2"/><line class="switch-lever" x1="22" y1="16" x2="42" y2="6" stroke="#E2E8F0" stroke-width="2" stroke-linecap="round"/><circle cx="22" cy="16" r="4" fill="#374151" stroke="#6B7280" stroke-width="1"/></svg>',
+      resistor:
+        '<svg width="70" height="24" viewBox="0 0 70 24" aria-hidden="true"><line x1="2" y1="12" x2="15" y2="12" stroke="#9CA3AF" stroke-width="1.5"/><line x1="55" y1="12" x2="68" y2="12" stroke="#9CA3AF" stroke-width="1.5"/><rect x="15" y="6" width="40" height="12" rx="3" fill="#1A1A2E" stroke="#F59E0B" stroke-width="1.5"/><rect x="22" y="6" width="4" height="12" fill="#D97706"/><rect x="29" y="6" width="4" height="12" fill="#D97706"/><rect x="36" y="6" width="4" height="12" fill="#DC2626"/><rect x="45" y="6" width="4" height="12" fill="#9CA3AF"/></svg>',
+      buzzer:
+        '<svg width="60" height="44" viewBox="0 0 60 44" aria-hidden="true"><rect x="8" y="8" width="30" height="28" rx="4" fill="#1A1A2E" stroke="#9CA3AF" stroke-width="1.5"/><line x1="14" y1="16" x2="32" y2="16" stroke="#374151" stroke-width="1"/><line x1="14" y1="22" x2="32" y2="22" stroke="#374151" stroke-width="1"/><line x1="14" y1="28" x2="32" y2="28" stroke="#374151" stroke-width="1"/><path d="M42 14 A6 6 0 0 1 42 26" fill="none" stroke="#6B7280" stroke-width="1" opacity="0.7"/><path d="M46 11 A10 10 0 0 1 46 29" fill="none" stroke="#6B7280" stroke-width="1" opacity="0.7"/><path d="M50 8 A14 14 0 0 1 50 32" fill="none" stroke="#6B7280" stroke-width="1" opacity="0.7"/><line x1="16" y1="36" x2="16" y2="42" stroke="#9CA3AF" stroke-width="1.5"/><line x1="30" y1="36" x2="30" y2="42" stroke="#9CA3AF" stroke-width="1.5"/></svg>',
+      motor:
+        '<svg width="60" height="50" viewBox="0 0 60 50" aria-hidden="true"><circle cx="30" cy="22" r="14" fill="#1A1A2E" stroke="#60A5FA" stroke-width="1.5"/><text x="30" y="26" fill="#60A5FA" font-size="11" font-weight="bold" text-anchor="middle">M</text><line x1="16" y1="38" x2="16" y2="48" stroke="#9CA3AF" stroke-width="1.5"/><line x1="44" y1="38" x2="44" y2="48" stroke="#9CA3AF" stroke-width="1.5"/><line x1="30" y1="36" x2="30" y2="48" stroke="#9CA3AF" stroke-width="1.5"/></svg>',
+      capacitor:
+        '<svg width="50" height="40" viewBox="0 0 50 40" aria-hidden="true"><line x1="4" y1="20" x2="18" y2="20" stroke="#9CA3AF" stroke-width="1.5"/><line x1="22" y1="8" x2="22" y2="32" stroke="#A78BFA" stroke-width="2"/><line x1="28" y1="8" x2="28" y2="32" stroke="#A78BFA" stroke-width="2"/><line x1="32" y1="20" x2="46" y2="20" stroke="#9CA3AF" stroke-width="1.5"/></svg>',
+      diode:
+        '<svg width="60" height="28" viewBox="0 0 60 28" aria-hidden="true"><line x1="2" y1="14" x2="18" y2="14" stroke="#9CA3AF" stroke-width="1.5"/><polygon points="20,6 20,22 38,14" fill="#1A1A2E" stroke="#F87171" stroke-width="1.5"/><line x1="38" y1="6" x2="38" y2="22" stroke="#F87171" stroke-width="1.5"/><line x1="40" y1="14" x2="58" y2="14" stroke="#9CA3AF" stroke-width="1.5"/></svg>',
+      bulb:
+        '<svg width="50" height="54" viewBox="0 0 50 54" aria-hidden="true"><circle class="bulb-glass" cx="25" cy="18" r="12" fill="#374151" stroke="#FBBF24" stroke-width="1.5"/><path class="bulb-filament" d="M22 20 Q25 24 28 20" fill="none" stroke-width="1.2"/><path d="M18 30 Q25 36 32 30" fill="none" stroke="#9CA3AF" stroke-width="1.5"/><line x1="21" y1="36" x2="21" y2="50" stroke="#9CA3AF" stroke-width="1.5"/><line x1="29" y1="36" x2="29" y2="50" stroke="#9CA3AF" stroke-width="1.5"/></svg>',
+      fuse:
+        '<svg width="70" height="24" viewBox="0 0 70 24" aria-hidden="true"><line x1="2" y1="12" x2="15" y2="12" stroke="#9CA3AF" stroke-width="1.5"/><line x1="55" y1="12" x2="68" y2="12" stroke="#9CA3AF" stroke-width="1.5"/><rect x="15" y="6" width="40" height="12" rx="3" fill="#1A1A2E" stroke="#E5E7EB" stroke-width="1.5"/><line x1="22" y1="8" x2="48" y2="16" stroke="#EF4444" stroke-width="1.5"/></svg>',
+      button:
+        '<svg width="60" height="36" viewBox="0 0 60 36" aria-hidden="true"><rect x="18" y="4" width="24" height="16" rx="4" fill="#374151" stroke="#6B7280" stroke-width="1.5"/><rect x="22" y="8" width="16" height="8" rx="2" fill="#4B5563"/><line x1="4" y1="18" x2="18" y2="18" stroke="#9CA3AF" stroke-width="2"/><line x1="42" y1="18" x2="56" y2="18" stroke="#9CA3AF" stroke-width="2"/></svg>',
+      wire:
+        '<svg width="70" height="30" viewBox="0 0 70 30" aria-hidden="true"><path d="M5,15 C15,5 25,25 35,15 C45,5 55,25 65,15" stroke="#F97316" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>'
+    };
+    const CIRCUIT_CHIP_LABELS = {
+      battery: "Battery", led: "LED", switch: "Switch", resistor: "Resistor", buzzer: "Buzzer",
+      motor: "Motor", capacitor: "Capacitor", diode: "Diode", bulb: "Bulb", fuse: "Fuse",
+      button: "Button", wire: "Wire"
+    };
+    const CIRCUIT_TOGGLE_TYPES = ["switch", "button"];
+
+    const CircuitTool = {
+      components: [],
+      connections: [],
+      selectedTerminal: null,
+      selectedCompId: null,
+      selectedWireIndex: null,
+      compId: 0,
+      dropZone: null,
+      wireLayer: null,
+      editBar: null,
+      circuitClosed: false,
+
+      terminalId(comp, side) {
+        const t = comp.type;
+        if (t === "battery") return side === "right" ? "battery_positive" : "battery_negative";
+        if (t === "led") return side === "left" ? "led_cathode_" + comp.id : "led_anode_" + comp.id;
+        if (t === "switch") return "switch_" + side + "_" + comp.id;
+        return t + "_" + side + "_" + comp.id;
+      },
+
+      init(root) {
+        root.innerHTML =
+          '<div class="circuit-wrap">' +
+          '<div class="circuit-canvas-wrap">' +
+          '<div class="canvas-toolbar" id="circuit-toolbar">' +
+          '<button type="button" class="btn-clear-canvas" id="circuit-clear">Clear canvas</button>' +
+          '<button type="button" class="btn-delete-sel" id="circuit-delete-btn" disabled>Delete</button>' +
+          '<span class="toolbar-label" id="circuit-edit-label"></span></div>' +
+          '<div class="circuit-hint-bar">Select part or wire · Delete or right-click removes · Click switch to toggle</div>' +
+          '<div class="canvas-vignette" aria-hidden="true"></div>' +
+          '<div id="circuit-drop"></div>' +
+          '<svg id="circuit-wires"><defs><filter id="wireGlow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs></svg>' +
+          '</div>' +
+          '<div class="parts-tray" id="circuit-tray"><span class="tray-label">COMPONENTS</span><div class="tray-chips-row" id="circuit-tray-chips"></div></div>' +
+          '</div>';
+
+        this.dropZone = $("#circuit-drop");
+        this.wireLayer = $("#circuit-wires");
+        this.deleteBtn = $("#circuit-delete-btn");
+        this.editLabel = $("#circuit-edit-label");
+        this.buildTray();
+        $("#circuit-clear").addEventListener("click", () => this.clear());
+        const delBtn = $("#circuit-delete-btn");
+        if (delBtn) delBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); this.deleteSelection(); });
+
+        this.dropZone.addEventListener("click", (e) => this.onCanvasClick(e));
+        this.wireLayer.addEventListener("click", (e) => {
+          const path = e.target.closest("path.wire-hit[data-wire-index]");
+          if (!path) return;
+          e.stopPropagation();
+          this.selectWire(Number(path.dataset.wireIndex));
+          onCanvasInteraction();
+        });
+        this.dropZone.addEventListener("contextmenu", (e) => {
+          const comp = e.target.closest(".placed-comp");
+          if (comp) {
+            e.preventDefault();
+            this.removeComponent(comp.dataset.id);
+          }
+        });
+        this.wireLayer.addEventListener("contextmenu", (e) => {
+          const path = e.target.closest("path.wire-hit[data-wire-index]");
+          if (path) {
+            e.preventDefault();
+            this.removeWire(Number(path.dataset.wireIndex));
+          }
+        });
+
+        this.dropZone.addEventListener("pointermove", onCanvasInteraction);
+        this.dropZone.addEventListener("pointerdown", onCanvasInteraction);
+
+        if (!this._keyBound) {
+          this._keyBound = true;
+          document.addEventListener("keydown", (e) => {
+            if (ACTIVITY_CONFIG.tool !== "circuit_builder") return;
+            if (e.target.closest("input, textarea, select")) return;
+            if (e.key === "Delete" || e.key === "Backspace") {
+              if (this.selectedCompId != null || this.selectedWireIndex != null) {
+                e.preventDefault();
+                this.deleteSelection();
+              }
+            }
+            if (e.key === "Escape") this.clearSelection();
+          });
+        }
+
+        window.addEventListener("resize", () => this.redrawWires());
+      },
+
+      clearSelection() {
+        this.selectedCompId = null;
+        this.selectedWireIndex = null;
+        if (this.selectedTerminal) {
+          document.querySelectorAll(".terminal.selected").forEach((t) => t.classList.remove("selected"));
+          this.selectedTerminal = null;
+        }
+        if (this.dropZone) {
+          this.dropZone.querySelectorAll(".placed-comp.comp-selected").forEach((el) => el.classList.remove("comp-selected"));
+        }
+        this.updateEditBar();
+        this.redrawWires();
+      },
+
+      selectComponent(id) {
+        this.clearSelection();
+        this.selectedCompId = id;
+        const el = this.dropZone.querySelector('.placed-comp[data-id="' + id + '"]');
+        if (el) el.classList.add("comp-selected");
+        this.updateEditBar();
+      },
+
+      selectWire(index) {
+        if (index < 0 || index >= this.connections.length) return;
+        this.clearSelection();
+        this.selectedWireIndex = index;
+        this.updateEditBar();
+        this.redrawWires();
+      },
+
+      updateEditBar() {
+        const hasSel = this.selectedCompId != null || this.selectedWireIndex != null;
+        if (this.deleteBtn) this.deleteBtn.disabled = !hasSel;
+        if (this.editLabel) {
+          if (this.selectedCompId) {
+            const comp = this.components.find((c) => c.id === this.selectedCompId);
+            this.editLabel.textContent = comp ? "— " + (CIRCUIT_CHIP_LABELS[comp.type] || comp.type) : "";
+          } else if (this.selectedWireIndex != null) {
+            this.editLabel.textContent = "— Wire";
+          } else {
+            this.editLabel.textContent = "";
+          }
+        }
+      },
+
+      deleteSelection() {
+        if (this.selectedWireIndex != null) {
+          const idx = this.selectedWireIndex;
+          this.selectedWireIndex = null;
+          this.removeWire(idx);
+          this.updateEditBar();
+          this.redrawWires();
+        } else if (this.selectedCompId) {
+          const id = this.selectedCompId;
+          this.selectedCompId = null;
+          this.removeComponent(id);
+        }
+      },
+
+      removeWire(index) {
+        if (index < 0 || index >= this.connections.length) return;
+        this.connections.splice(index, 1);
+        if (this.selectedWireIndex === index) this.selectedWireIndex = null;
+        else if (this.selectedWireIndex != null && this.selectedWireIndex > index) this.selectedWireIndex--;
+        this.redrawWires();
+        this.validate();
+        onCanvasInteraction();
+      },
+
+      toggleSwitch(comp, el) {
+        comp.closed = !comp.closed;
+        el.innerHTML = this.compHtml(comp, false);
+        this.validate();
+        onCanvasInteraction();
+      },
+
+      buildTray() {
+        const tray = $("#circuit-tray-chips") || $("#circuit-tray");
+        const defs = CIRCUIT_CHIP_DEFS;
+        const labels = CIRCUIT_CHIP_LABELS;
+        const list = ACTIVITY_CONFIG.components || Object.keys(defs);
+        list.forEach((name) => {
+          const chip = document.createElement("div");
+          chip.className = "tray-chip" + (name === "wire" ? " wire-hint" : "");
+          chip.dataset.type = name;
+          chip.innerHTML =
+            '<div class="chip-visual">' + (defs[name] || name) + "</div>" +
+            '<span class="chip-label">' + (labels[name] || name.replace(/_/g, " ")) + "</span>" +
+            (name === "wire" ? '<span class="chip-note">Click terminals to connect</span>' : "");
+          if (name !== "wire") this.setupTrayDrag(chip, name);
+          else {
+            chip.title = "Click terminals on the canvas to connect wires";
+            chip.addEventListener("click", () => {
+              typewrite("Wires are drawn by clicking two terminal dots on the canvas.");
+              setEmotion("thinking");
+            });
+          }
+          tray.appendChild(chip);
+        });
+      },
+
+      setupTrayDrag(chip, type) {
+        let ghost = null;
+        const onDown = (e) => {
+          e.preventDefault();
+          onCanvasInteraction();
+          ghost = chip.cloneNode(true);
+          ghost.style.position = "fixed";
+          ghost.style.zIndex = "9999";
+          ghost.style.opacity = "0.85";
+          ghost.style.pointerEvents = "none";
+          document.body.appendChild(ghost);
+          moveGhost(e);
+          const move = (ev) => moveGhost(ev);
+          const up = (ev) => {
+            document.removeEventListener("pointermove", move);
+            document.removeEventListener("pointerup", up);
+            if (ghost) ghost.remove();
+            ghost = null;
+            const pt = "clientX" in ev ? ev : ev.changedTouches?.[0];
+            if (!pt) return;
+            const rect = this.dropZone.getBoundingClientRect();
+            if (
+              pt.clientX >= rect.left &&
+              pt.clientX <= rect.right &&
+              pt.clientY >= rect.top &&
+              pt.clientY <= rect.bottom
+            ) {
+              const x = pt.clientX - rect.left - 30;
+              const y = pt.clientY - rect.top - 20;
+              this.placeComponent(type, x, y);
+            } else {
+              showWrong();
+            }
+          };
+          document.addEventListener("pointermove", move);
+          document.addEventListener("pointerup", up);
+        };
+        const moveGhost = (ev) => {
+          const p = ev.touches ? ev.touches[0] : ev;
+          if (ghost && p) {
+            ghost.style.left = p.clientX - 32 + "px";
+            ghost.style.top = p.clientY - 24 + "px";
+          }
+        };
+        chip.addEventListener("pointerdown", onDown);
+      },
+
+      placeComponent(type, x, y) {
+        const id = "c" + ++this.compId;
+        const comp = {
+          id,
+          type,
+          x: Math.max(8, x),
+          y: Math.max(8, y),
+          closed: CIRCUIT_TOGGLE_TYPES.indexOf(type) >= 0 ? false : undefined
+        };
+        this.components.push(comp);
+        this.renderComponent(comp);
+        fireTrigger("component_placed:" + type);
+        this.validate();
+        onCanvasInteraction();
+      },
+
+      renderComponent(comp) {
+        const el = document.createElement("div");
+        el.className = "placed-comp";
+        el.dataset.id = comp.id;
+        el.style.left = comp.x + "px";
+        el.style.top = comp.y + "px";
+        el.innerHTML = this.compHtml(comp, false);
+        this.dropZone.appendChild(el);
+        this.attachTerminals(comp);
+        this.setupDrag(comp);
+        el.dataset.type = comp.type;
+        if (CIRCUIT_TOGGLE_TYPES.indexOf(comp.type) >= 0) {
+          el.addEventListener("click", (e) => {
+            if (e.target.closest(".terminal")) return;
+            e.stopPropagation();
+            this.toggleSwitch(comp, el);
+          });
+        }
+      },
+
+      compHtml(comp, lit) {
+        if (comp.type === "battery")
+          return '<svg class="comp-battery-svg" width="105" height="57" viewBox="0 0 70 38" aria-hidden="true"><rect class="battery-body" x="2" y="7" width="54" height="24" rx="4" fill="#1A1A2E" stroke="#F59E0B" stroke-width="1.5"/><rect x="56" y="12" width="10" height="14" rx="2" fill="#EF4444"/><line x1="18" y1="9" x2="18" y2="29" stroke="#F59E0B" stroke-width="0.5" opacity="0.4"/><line x1="36" y1="9" x2="36" y2="29" stroke="#F59E0B" stroke-width="0.5" opacity="0.4"/><text x="61" y="22" fill="#EF4444" font-size="10" font-weight="bold" text-anchor="middle">+</text><text x="8" y="22" fill="#9CA3AF" font-size="10" text-anchor="middle">−</text></svg>';
+        if (comp.type === "led")
+          return '<svg class="comp-led-svg' + (lit ? " lit" : "") + '" width="75" height="81" viewBox="0 0 50 54" aria-hidden="true"><circle cx="25" cy="20" r="13" fill="#0E3A4A" stroke="#06B6D4" stroke-width="1.5"/><circle class="led-lens" cx="25" cy="20" r="8"/><circle cx="20" cy="16" r="2.5" fill="rgba(255,255,255,0.4)"/><line x1="21" y1="33" x2="21" y2="50" stroke="#9CA3AF" stroke-width="1.5"/><line x1="29" y1="33" x2="29" y2="50" stroke="#9CA3AF" stroke-width="1.5"/><g class="led-rays"><line x1="25" y1="4" x2="25" y2="0" stroke="#06B6D4" stroke-width="1" opacity="0.7"/><line x1="14" y1="8" x2="11" y2="5" stroke="#06B6D4" stroke-width="1" opacity="0.7"/><line x1="36" y1="8" x2="39" y2="5" stroke="#06B6D4" stroke-width="1" opacity="0.7"/><line x1="9" y1="18" x2="5" y2="18" stroke="#06B6D4" stroke-width="1" opacity="0.7"/></g></svg>';
+        if (comp.type === "switch") {
+          const lx = comp.closed ? "48" : "42";
+          const ly = comp.closed ? "16" : "6";
+          return '<svg class="comp-switch-svg' + (comp.closed ? " closed" : "") + '" width="105" height="48" viewBox="0 0 70 32" aria-hidden="true"><line x1="2" y1="16" x2="22" y2="16" stroke="#9CA3AF" stroke-width="2"/><circle cx="22" cy="16" r="3" fill="#6B7280"/><circle cx="48" cy="16" r="3" fill="#6B7280"/><line x1="48" y1="16" x2="68" y2="16" stroke="#9CA3AF" stroke-width="2"/><line class="switch-lever" x1="22" y1="16" x2="' + lx + '" y2="' + ly + '" stroke="#E2E8F0" stroke-width="2" stroke-linecap="round"/><circle cx="22" cy="16" r="4" fill="#374151" stroke="#6B7280" stroke-width="1"/></svg>';
+        }
+        if (comp.type === "button") {
+          const pressed = comp.closed;
+          return '<svg class="comp-switch-svg' + (pressed ? " closed" : "") + '" width="90" height="54" viewBox="0 0 60 36" aria-hidden="true"><rect x="18" y="' + (pressed ? "10" : "4") + '" width="24" height="16" rx="4" fill="' + (pressed ? "#2DD4BF" : "#374151") + '" stroke="#6B7280" stroke-width="1.5"/><line x1="4" y1="18" x2="18" y2="18" stroke="#9CA3AF" stroke-width="2"/><line x1="42" y1="18" x2="56" y2="18" stroke="#9CA3AF" stroke-width="2"/></svg>';
+        }
+        if (comp.type === "motor")
+          return '<svg class="comp-motor-svg" width="90" height="75" viewBox="0 0 60 50" aria-hidden="true"><circle cx="30" cy="22" r="14" fill="#1A1A2E" stroke="#60A5FA" stroke-width="1.5"/><text x="30" y="26" fill="#60A5FA" font-size="11" font-weight="bold" text-anchor="middle">M</text><line x1="16" y1="38" x2="16" y2="48" stroke="#9CA3AF" stroke-width="1.5"/><line x1="44" y1="38" x2="44" y2="48" stroke="#9CA3AF" stroke-width="1.5"/></svg>';
+        if (comp.type === "capacitor")
+          return '<svg class="comp-capacitor-svg" width="75" height="60" viewBox="0 0 50 40" aria-hidden="true"><line x1="4" y1="20" x2="18" y2="20" stroke="#9CA3AF" stroke-width="1.5"/><line x1="22" y1="8" x2="22" y2="32" stroke="#A78BFA" stroke-width="2"/><line x1="28" y1="8" x2="28" y2="32" stroke="#A78BFA" stroke-width="2"/><line x1="32" y1="20" x2="46" y2="20" stroke="#9CA3AF" stroke-width="1.5"/></svg>';
+        if (comp.type === "diode")
+          return '<svg class="comp-diode-svg" width="90" height="42" viewBox="0 0 60 28" aria-hidden="true"><line x1="2" y1="14" x2="18" y2="14" stroke="#9CA3AF" stroke-width="1.5"/><polygon points="20,6 20,22 38,14" fill="#1A1A2E" stroke="#F87171" stroke-width="1.5"/><line x1="38" y1="6" x2="38" y2="22" stroke="#F87171" stroke-width="1.5"/><line x1="40" y1="14" x2="58" y2="14" stroke="#9CA3AF" stroke-width="1.5"/></svg>';
+        if (comp.type === "bulb")
+          return '<svg class="comp-bulb-svg' + (lit ? " lit" : "") + '" width="75" height="81" viewBox="0 0 50 54" aria-hidden="true"><circle class="bulb-glass" cx="25" cy="18" r="12" fill="#374151" stroke="#FBBF24" stroke-width="1.5"/><path class="bulb-filament" d="M22 20 Q25 24 28 20" fill="none" stroke-width="1.8"/><path d="M18 30 Q25 36 32 30" fill="none" stroke="#9CA3AF" stroke-width="1.5"/><line x1="21" y1="36" x2="21" y2="50" stroke="#9CA3AF" stroke-width="1.5"/><line x1="29" y1="36" x2="29" y2="50" stroke="#9CA3AF" stroke-width="1.5"/></svg>';
+        if (comp.type === "fuse")
+          return '<svg class="comp-fuse-svg" width="105" height="36" viewBox="0 0 70 24" aria-hidden="true"><line x1="2" y1="12" x2="15" y2="12" stroke="#9CA3AF" stroke-width="1.5"/><line x1="55" y1="12" x2="68" y2="12" stroke="#9CA3AF" stroke-width="1.5"/><rect x="15" y="6" width="40" height="12" rx="3" fill="#1A1A2E" stroke="#E5E7EB" stroke-width="1.5"/><line x1="22" y1="8" x2="48" y2="16" stroke="#EF4444" stroke-width="1.5"/></svg>';
+        if (comp.type === "resistor")
+          return '<svg class="comp-resistor-svg" width="105" height="36" viewBox="0 0 70 24" aria-hidden="true"><line x1="2" y1="12" x2="15" y2="12" stroke="#9CA3AF" stroke-width="1.5"/><line x1="55" y1="12" x2="68" y2="12" stroke="#9CA3AF" stroke-width="1.5"/><rect x="15" y="6" width="40" height="12" rx="3" fill="#1A1A2E" stroke="#F59E0B" stroke-width="1.5"/><rect x="22" y="6" width="4" height="12" fill="#D97706"/><rect x="29" y="6" width="4" height="12" fill="#D97706"/><rect x="36" y="6" width="4" height="12" fill="#DC2626"/><rect x="45" y="6" width="4" height="12" fill="#9CA3AF"/></svg>';
+        if (comp.type === "buzzer")
+          return '<svg class="comp-buzzer-svg" width="90" height="66" viewBox="0 0 60 44" aria-hidden="true"><rect x="8" y="8" width="30" height="28" rx="4" fill="#1A1A2E" stroke="#9CA3AF" stroke-width="1.5"/><line x1="14" y1="16" x2="32" y2="16" stroke="#374151" stroke-width="1"/><line x1="14" y1="22" x2="32" y2="22" stroke="#374151" stroke-width="1"/><line x1="14" y1="28" x2="32" y2="28" stroke="#374151" stroke-width="1"/><path d="M42 14 A6 6 0 0 1 42 26" fill="none" stroke="#6B7280" stroke-width="1" opacity="0.7"/><path d="M46 11 A10 10 0 0 1 46 29" fill="none" stroke="#6B7280" stroke-width="1" opacity="0.7"/><path d="M50 8 A14 14 0 0 1 50 32" fill="none" stroke="#6B7280" stroke-width="1" opacity="0.7"/><line x1="16" y1="36" x2="16" y2="42" stroke="#9CA3AF" stroke-width="1.5"/><line x1="30" y1="36" x2="30" y2="42" stroke="#9CA3AF" stroke-width="1.5"/></svg>';
+        return "";
+      },
+
+      compSize(comp) {
+        if (comp.type === "battery") return { w: 105, h: 57 };
+        if (comp.type === "led" || comp.type === "bulb") return { w: 75, h: 81 };
+        if (comp.type === "switch") return { w: 105, h: 48 };
+        if (comp.type === "button") return { w: 90, h: 54 };
+        if (comp.type === "motor") return { w: 90, h: 75 };
+        if (comp.type === "capacitor") return { w: 75, h: 60 };
+        if (comp.type === "diode") return { w: 90, h: 42 };
+        if (comp.type === "resistor" || comp.type === "fuse") return { w: 105, h: 36 };
+        if (comp.type === "buzzer") return { w: 90, h: 66 };
+        return { w: 56, h: 24 };
+      },
+
+      attachTerminals(comp) {
+        const sides =
+          comp.type === "battery"
+            ? [
+                { side: "left", cls: "negative" },
+                { side: "right", cls: "positive" }
+              ]
+            : [
+                { side: "left", cls: "neutral" },
+                { side: "right", cls: "neutral" }
+              ];
+        sides.forEach(({ side, cls }) => {
+          const t = document.createElement("div");
+          t.className = "terminal " + cls;
+          t.dataset.compId = comp.id;
+          t.dataset.side = side;
+          t.dataset.termId = this.terminalId(comp, side);
+          this.positionTerminal(t, comp, side);
+          this.dropZone.appendChild(t);
+        });
+      },
+
+      positionTerminal(t, comp, side) {
+        const { w, h } = this.compSize(comp);
+        const x = comp.x + (side === "left" ? -5 : w - 5);
+        const y = comp.y + h / 2 - 5;
+        t.style.left = x + "px";
+        t.style.top = y + "px";
+      },
+
+      setupDrag(comp) {
+        const el = this.dropZone.querySelector('.placed-comp[data-id="' + comp.id + '"]');
+        if (!el || el.dataset.dragBound) return;
+        el.dataset.dragBound = "1";
+        let dragging = false;
+        let sx, sy, ox, oy;
+        const onDown = (e) => {
+          if (e.target.closest(".terminal")) return;
+          if (CIRCUIT_TOGGLE_TYPES.indexOf(comp.type) >= 0 && e.target.closest(".comp-switch-svg")) return;
+          e.preventDefault();
+          e.stopPropagation();
+          dragging = true;
+          el.classList.add("dragging");
+          sx = e.clientX;
+          sy = e.clientY;
+          ox = comp.x;
+          oy = comp.y;
+          onCanvasInteraction();
+        };
+        const onMove = (e) => {
+          if (!dragging) return;
+          const rect = this.dropZone.getBoundingClientRect();
+          comp.x = Math.max(0, Math.min(rect.width - 40, ox + e.clientX - sx));
+          comp.y = Math.max(0, Math.min(rect.height - 40, oy + e.clientY - sy));
+          el.style.left = comp.x + "px";
+          el.style.top = comp.y + "px";
+          this.dropZone.querySelectorAll('.terminal[data-comp-id="' + comp.id + '"]').forEach((t) => {
+            this.positionTerminal(t, comp, t.dataset.side);
+          });
+          this.redrawWires();
+        };
+        const onUp = () => {
+          if (!dragging) return;
+          dragging = false;
+          el.classList.remove("dragging");
+          this.validate();
+        };
+        el.addEventListener("pointerdown", onDown);
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+      },
+
+      onCanvasClick(e) {
+        const term = e.target.closest(".terminal");
+        if (!term) {
+          if (this.selectedTerminal) {
+            document.querySelectorAll(".terminal.selected").forEach((t) => t.classList.remove("selected"));
+            this.selectedTerminal = null;
+          }
+          const compEl = e.target.closest(".placed-comp");
+          if (compEl && compEl.dataset.id) {
+            const c = this.components.find((x) => x.id === compEl.dataset.id);
+            if (c && CIRCUIT_TOGGLE_TYPES.indexOf(c.type) < 0) {
+              this.selectComponent(compEl.dataset.id);
+              onCanvasInteraction();
+            }
+            return;
+          }
+          this.clearSelection();
+          return;
+        }
+        onCanvasInteraction();
+        if (!this.selectedTerminal) {
+          this.selectedTerminal = {
+            compId: term.dataset.compId,
+            side: term.dataset.side,
+            termId: term.dataset.termId
+          };
+          term.classList.add("selected");
+          return;
+        }
+        const a = this.selectedTerminal;
+        if (a.compId === term.dataset.compId && a.side === term.dataset.side) {
+          document.querySelectorAll(".terminal.selected").forEach((t) => t.classList.remove("selected"));
+          this.selectedTerminal = null;
+          return;
+        }
+        if (a.compId === term.dataset.compId) {
+          showWrong();
+          document.querySelectorAll(".terminal.selected").forEach((t) => t.classList.remove("selected"));
+          this.selectedTerminal = null;
+          return;
+        }
+        const b = { compId: term.dataset.compId, side: term.dataset.side, termId: term.dataset.termId };
+        const dup = this.connections.some(
+          (c) =>
+            (c.a.compId === a.compId && c.a.side === a.side && c.b.compId === b.compId && c.b.side === b.side) ||
+            (c.b.compId === a.compId && c.b.side === a.side && c.a.compId === b.compId && c.a.side === b.side)
+        );
+        if (!dup) {
+          this.connections.push({
+            a: { compId: a.compId, side: a.side, termId: a.termId },
+            b: { compId: b.compId, side: b.side, termId: b.termId }
+          });
+          fireTrigger("wire_connected:" + a.termId);
+          fireTrigger("wire_connected:" + b.termId);
+        }
+        document.querySelectorAll(".terminal.selected").forEach((t) => t.classList.remove("selected"));
+        this.selectedTerminal = null;
+        this.redrawWires();
+        this.validate();
+      },
+
+      getTerminalPos(compId, side) {
+        const comp = this.components.find((c) => c.id === compId);
+        if (!comp) return { x: 0, y: 0 };
+        const { w, h } = this.compSize(comp);
+        return {
+          x: comp.x + (side === "left" ? 0 : w),
+          y: comp.y + h / 2
+        };
+      },
+
+      wirePathD(p1, p2, lane) {
+        const off = (lane || 0) * 10;
+        const midX = (p1.x + p2.x) / 2 + off;
+        if (Math.abs(p1.y - p2.y) < 8 && Math.abs(p1.x - p2.x) > 20) {
+          return "M " + p1.x + " " + p1.y + " L " + p2.x + " " + p2.y;
+        }
+        return "M " + p1.x + " " + p1.y + " L " + midX + " " + p1.y + " L " + midX + " " + p2.y + " L " + p2.x + " " + p2.y;
+      },
+
+      redrawWires() {
+        const rect = this.dropZone.getBoundingClientRect();
+        this.wireLayer.setAttribute("viewBox", "0 0 " + rect.width + " " + rect.height);
+        this.wireLayer.innerHTML =
+          '<defs><filter id="wireGlow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>';
+        const glow = this.circuitClosed;
+        const ns = "http://www.w3.org/2000/svg";
+        const n = this.connections.length;
+        this.connections.forEach((conn, i) => {
+          const p1 = this.getTerminalPos(conn.a.compId, conn.a.side);
+          const p2 = this.getTerminalPos(conn.b.compId, conn.b.side);
+          const lane = i - (n - 1) / 2;
+          const d = this.wirePathD(p1, p2, lane);
+          const path = document.createElementNS(ns, "path");
+          path.setAttribute("d", d);
+          path.classList.add("wire-visible");
+          if (glow) path.classList.add("wire-glow");
+          if (this.selectedWireIndex === i) path.classList.add("wire-selected");
+          path.setAttribute("filter", glow ? "url(#wireGlow)" : "");
+          const hit = document.createElementNS(ns, "path");
+          hit.setAttribute("d", d);
+          hit.classList.add("wire-hit");
+          if (this.selectedWireIndex === i) hit.classList.add("wire-selected");
+          hit.dataset.wireIndex = String(i);
+          this.wireLayer.appendChild(path);
+          this.wireLayer.appendChild(hit);
+        });
+      },
+
+      buildGraph() {
+        const adj = new Map();
+        const addEdge = (k1, k2) => {
+          if (!adj.has(k1)) adj.set(k1, []);
+          if (!adj.has(k2)) adj.set(k2, []);
+          adj.get(k1).push(k2);
+          adj.get(k2).push(k1);
+        };
+        const key = (cid, side) => cid + ":" + side;
+        this.components.forEach((c) => {
+          if (CIRCUIT_TOGGLE_TYPES.indexOf(c.type) >= 0 && !c.closed) return;
+          if (c.type === "battery") return;
+          addEdge(key(c.id, "left"), key(c.id, "right"));
+        });
+        this.connections.forEach((conn) => addEdge(key(conn.a.compId, conn.a.side), key(conn.b.compId, conn.b.side)));
+        return { adj, key };
+      },
+
+      bfs(adj, start, end) {
+        const q = [start];
+        const prev = new Map();
+        prev.set(start, null);
+        while (q.length) {
+          const n = q.shift();
+          if (n === end) {
+            const path = [];
+            let c = n;
+            while (c) {
+              path.push(c);
+              c = prev.get(c);
+            }
+            return path.reverse();
+          }
+          (adj.get(n) || []).forEach((nb) => {
+            if (!prev.has(nb)) {
+              prev.set(nb, n);
+              q.push(nb);
+            }
+          });
+        }
+        return null;
+      },
+
+      analyze() {
+        const battery = this.components.find((c) => c.type === "battery");
+        const lights = this.components.filter((c) => c.type === "led" || c.type === "bulb");
+        const loads = this.components.filter((c) => ["led", "bulb", "motor", "buzzer", "resistor"].indexOf(c.type) >= 0);
+        if (!battery || loads.length === 0) return { valid: false, lit: new Set(), powered: new Set() };
+        const { adj, key } = this.buildGraph();
+        const plus = key(battery.id, "right");
+        const minus = key(battery.id, "left");
+        const path = this.bfs(adj, plus, minus);
+        if (!path) return { valid: false, lit: new Set(), powered: new Set() };
+        const onPath = new Set(path.map((n) => n.split(":")[0]));
+        const lit = new Set();
+        const powered = new Set();
+        lights.forEach((c) => {
+          if (onPath.has(c.id)) lit.add(c.id);
+        });
+        this.components.forEach((c) => {
+          if (onPath.has(c.id) && (c.type === "motor" || c.type === "buzzer")) powered.add(c.id);
+        });
+        const openSw = this.components.find(
+          (c) => CIRCUIT_TOGGLE_TYPES.indexOf(c.type) >= 0 && onPath.has(c.id) && !c.closed
+        );
+        if (openSw) return { valid: false, lit: new Set(), powered: new Set() };
+                const anyLoadOn = lit.size > 0 || powered.size > 0;
+        return { valid: anyLoadOn, lit, powered };
+      },
+
+      validate() {
+        const result = this.analyze();
+        const was = this.circuitClosed;
+        this.circuitClosed = result.valid;
+        this.components.forEach((c) => {
+          const el = this.dropZone.querySelector('.placed-comp[data-id="' + c.id + '"]');
+          if (!el) return;
+          if (c.type === "led" || c.type === "bulb") {
+            el.innerHTML = this.compHtml(c, result.lit.has(c.id));
+          } else if (c.type === "motor") {
+            el.querySelector(".comp-motor-svg")?.classList.toggle("powered", result.powered && result.powered.has(c.id));
+          } else if (c.type === "buzzer") {
+            el.querySelector(".comp-buzzer-svg")?.classList.toggle("active", result.powered && result.powered.has(c.id));
+          }
+        });
+        this.redrawWires();
+        if (result.valid && !was) {
+          fireTrigger("circuit_closed");
+          fireTrigger("led_on");
+        }
+        checkAllTriggers();
+      },
+
+      removeComponent(id) {
+        if (this.selectedCompId === id) this.selectedCompId = null;
+        this.components = this.components.filter((c) => c.id !== id);
+        this.connections = this.connections.filter((c) => c.a.compId !== id && c.b.compId !== id);
+        this.dropZone.querySelectorAll('[data-comp-id="' + id + '"], [data-id="' + id + '"]').forEach((n) => n.remove());
+        this.updateEditBar();
+        this.validate();
+        onCanvasInteraction();
+      },
+
+      clear() {
+        this.components = [];
+        this.connections = [];
+        this.selectedTerminal = null;
+        this.selectedCompId = null;
+        this.selectedWireIndex = null;
+        this.dropZone.innerHTML = "";
+        this.circuitClosed = false;
+        this.updateEditBar();
+        this.redrawWires();
+        onCanvasInteraction();
+      },
+
+      evaluateTriggers(trigger) {
+        if (trigger.startsWith("component_placed:")) {
+          const t = trigger.split(":")[1];
+          if (this.components.some((c) => c.type === t)) fireTrigger(trigger);
+        }
+        if (trigger.startsWith("wire_connected:")) {
+          const tid = trigger.split(":").slice(1).join(":");
+          const hit = this.connections.some((c) => c.a.termId === tid || c.b.termId === tid);
+          if (hit) fireTrigger(trigger);
+        }
+        if (trigger === "circuit_closed" && this.circuitClosed) fireTrigger(trigger);
+        if (trigger === "led_on" && this.analyze().lit.size > 0) fireTrigger(trigger);
+      },
+
+      onStepChange() {
+        checkAllTriggers();
+      },
+
+      exportState() {
+        return {
+          type: "circuit",
+          components: this.components,
+          connections: this.connections,
+          compId: this.compId
+        };
+      },
+
+      importState(data) {
+        if (!data || data.type !== "circuit") return;
+        this.components = [];
+        this.connections = [];
+        this.selectedTerminal = null;
+        this.selectedCompId = null;
+        this.selectedWireIndex = null;
+        this.compId = data.compId || 0;
+        if (this.dropZone) this.dropZone.querySelectorAll(".placed-comp, .terminal").forEach(function (n) { n.remove(); });
+        this.components = data.components || [];
+        this.connections = data.connections || [];
+        var self = this;
+        this.components.forEach(function (c) { self.renderComponent(c); });
+        this.redrawWires();
+        this.validate();
+      }
+    };
+
+    /* ========== CODE BLOCKS ========== */
+    const BLOCK_COLORS = {
+      move_forward: "#60a5fa",
+      turn_left: "#34d399",
+      turn_right: "#34d399",
+      repeat_N: "#a78bfa",
+      if_then: "#f472b6",
+      wait_seconds: "#fbbf24",
+      play_sound: "#fb923c",
+      light_on: "#fde047",
+      light_off: "#94a3b8"
+    };
+
+    const BLOCK_LABELS = {
+      move_forward: "move forward",
+      turn_left: "turn left",
+      turn_right: "turn right",
+      repeat_N: "repeat",
+      if_then: "if … then",
+      wait_seconds: "wait",
+      play_sound: "play sound",
+      light_on: "light on",
+      light_off: "light off"
+    };
+
+    const BlocksTool = {
+      workspace: [],
+      blockId: 0,
+      robot: { x: 4, y: 4, dir: 0 },
+      hasRun: false,
+      lastOutput: "",
+
+      init(root) {
+        root.innerHTML =
+          '<div class="blocks-wrap">' +
+          '<div class="blocks-palette" id="blocks-palette"></div>' +
+          '<div class="blocks-workspace-wrap">' +
+          '<div class="blocks-toolbar">' +
+          '<button type="button" class="btn btn-run" id="blocks-run">Run</button>' +
+          '<button type="button" class="btn" id="blocks-clear">Clear</button>' +
+          "</div>" +
+          '<div id="blocks-workspace"><div class="workspace-stack" id="blocks-stack"></div></div>' +
+          '<div id="blocks-output">' +
+          '<pre id="blocks-log"></pre>' +
+          '<div id="blocks-mini-grid"><div id="blocks-robot"></div></div>' +
+          "</div></div></div>";
+
+        this.stackEl = $("#blocks-stack");
+        this.logEl = $("#blocks-log");
+        this.outputPanel = $("#blocks-output");
+        this.robotEl = $("#blocks-robot");
+        this.buildPalette();
+        $("#blocks-run").addEventListener("click", () => this.run());
+        $("#blocks-clear").addEventListener("click", () => this.clear());
+        this.stackEl.addEventListener("pointermove", onCanvasInteraction);
+        this.stackEl.addEventListener("pointerdown", onCanvasInteraction);
+        this.positionRobot();
+      },
+
+      buildPalette() {
+        const pal = $("#blocks-palette");
+        (ACTIVITY_CONFIG.components || []).forEach((type) => {
+          const chip = document.createElement("div");
+          chip.className = "block-chip";
+          chip.style.background = BLOCK_COLORS[type] || "#64748b";
+          chip.dataset.type = type;
+          chip.textContent = BLOCK_LABELS[type] || type;
+          this.setupPaletteDrag(chip, type);
+          pal.appendChild(chip);
+        });
+      },
+
+      setupPaletteDrag(chip, type) {
+        chip.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          onCanvasInteraction();
+          const clone = this.createBlockEl(type, "p" + ++this.blockId);
+          clone.style.position = "fixed";
+          clone.style.zIndex = "9999";
+          clone.style.opacity = "0.9";
+          document.body.appendChild(clone);
+          const move = (ev) => {
+            const p = ev.touches ? ev.touches[0] : ev;
+            clone.style.left = p.clientX - 70 + "px";
+            clone.style.top = p.clientY - 18 + "px";
+          };
+          const up = (ev) => {
+            document.removeEventListener("pointermove", move);
+            document.removeEventListener("pointerup", up);
+            const p = ev.changedTouches ? ev.changedTouches[0] : ev;
+            const rect = this.stackEl.getBoundingClientRect();
+            clone.remove();
+            if (p.clientX >= rect.left && p.clientX <= rect.right && p.clientY >= rect.top && p.clientY <= rect.bottom) {
+              const block = { id: "w" + ++this.blockId, type, repeatN: 2 };
+              this.workspace.push(block);
+              this.renderWorkspace();
+              fireTrigger("block_placed:" + type);
+            }
+          };
+          move(e);
+          document.addEventListener("pointermove", move);
+          document.addEventListener("pointerup", up);
+        });
+      },
+
+      createBlockEl(type, id, block) {
+        const el = document.createElement("div");
+        el.className = "workspace-block";
+        el.style.background = BLOCK_COLORS[type] || "#64748b";
+        el.dataset.id = id;
+        el.dataset.type = type;
+        if (type === "repeat_N") {
+          el.innerHTML =
+            'repeat <input type="number" class="inline-input" min="1" max="9" value="' +
+            (block?.repeatN ?? 2) +
+            '" /> times';
+          el.querySelector("input")?.addEventListener("change", (e) => {
+            const b = this.workspace.find((x) => x.id === id);
+            if (b) b.repeatN = Math.max(1, parseInt(e.target.value, 10) || 1);
+          });
+        } else {
+          el.textContent = BLOCK_LABELS[type] || type;
+        }
+        return el;
+      },
+
+      renderWorkspace() {
+        this.stackEl.innerHTML = "";
+        this.workspace.forEach((block, index) => {
+          const el = this.createBlockEl(block.type, block.id, block);
+          this.setupWorkspaceDrag(el, block, index);
+          el.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            this.removeBlock(block.id);
+          });
+          let lp = null;
+          el.addEventListener("pointerdown", (e) => {
+            if (e.target.tagName === "INPUT") return;
+            lp = setTimeout(() => {
+              this.removeBlock(block.id);
+              showWrong();
+            }, 600);
+          });
+          el.addEventListener("pointerup", () => clearTimeout(lp));
+          this.stackEl.appendChild(el);
+        });
+      },
+
+      setupWorkspaceDrag(el, block, index) {
+        el.addEventListener("pointerdown", (e) => {
+          if (e.target.tagName === "INPUT") return;
+          e.preventDefault();
+          onCanvasInteraction();
+          const sy = e.clientY;
+          const startIdx = index;
+          const move = (ev) => {
+            const dy = ev.clientY - sy;
+            const children = [...this.stackEl.children];
+            children.forEach((c, i) => c.classList.toggle("snap-highlight", false));
+            if (Math.abs(dy) > 24) {
+              const target = Math.max(0, Math.min(this.workspace.length - 1, startIdx + (dy > 0 ? 1 : -1)));
+              if (target !== startIdx) {
+                const [b] = this.workspace.splice(startIdx, 1);
+                this.workspace.splice(target, 0, b);
+                this.renderWorkspace();
+              }
+            }
+          };
+          const up = () => {
+            document.removeEventListener("pointermove", move);
+            document.removeEventListener("pointerup", up);
+          };
+          document.addEventListener("pointermove", move);
+          document.addEventListener("pointerup", up);
+        });
+      },
+
+      removeBlock(id) {
+        this.workspace = this.workspace.filter((b) => b.id !== id);
+        this.renderWorkspace();
+        onCanvasInteraction();
+      },
+
+      clear() {
+        this.workspace = [];
+        this.hasRun = false;
+        this.lastOutput = "";
+        this.renderWorkspace();
+        this.logEl.textContent = "";
+        this.outputPanel.classList.remove("open");
+        onCanvasInteraction();
+      },
+
+      positionRobot() {
+        const grid = $("#blocks-mini-grid");
+        const w = grid.clientWidth || 200;
+        const h = grid.clientHeight || 72;
+        const cell = 15;
+        this.robotEl.style.left = (this.robot.x * cell + cell / 2) + "px";
+        this.robotEl.style.top = (this.robot.y * cell + cell / 2) + "px";
+        const rot = [0, 90, 180, 270][this.robot.dir] || 0;
+        this.robotEl.style.transform = "translate(-50%,-50%) rotate(" + rot + "deg)";
+      },
+
+      async run() {
+        onCanvasInteraction();
+        this.hasRun = true;
+        fireTrigger("program_run");
+        this.outputPanel.classList.add("open");
+        this.logEl.textContent = "";
+        this.robot = { x: 4, y: 4, dir: 0 };
+        const lines = [];
+        const exec = async (block) => {
+          const t = block.type;
+          if (t === "move_forward") {
+            lines.push("Moving forward...");
+            const dx = [0, 1, 0, -1][this.robot.dir];
+            const dy = [-1, 0, 1, 0][this.robot.dir];
+            this.robot.x = Math.max(0, Math.min(9, this.robot.x + dx));
+            this.robot.y = Math.max(0, Math.min(4, this.robot.y + dy));
+            this.logEl.textContent = lines.join("\n");
+            this.positionRobot();
+            await delay(400);
+          } else if (t === "turn_left") {
+            lines.push("Turning left...");
+            this.robot.dir = (this.robot.dir + 3) % 4;
+            this.logEl.textContent = lines.join("\n");
+            this.positionRobot();
+            await delay(300);
+          } else if (t === "turn_right") {
+            lines.push("Turning right...");
+            this.robot.dir = (this.robot.dir + 1) % 4;
+            this.logEl.textContent = lines.join("\n");
+            this.positionRobot();
+            await delay(300);
+          } else if (t === "repeat_N") {
+            const n = block.repeatN || 2;
+            lines.push("Repeat " + n + " times");
+            for (let i = 0; i < n; i++) await exec({ type: "move_forward", id: "tmp" });
+          } else if (t === "if_then") {
+            lines.push("If condition (simulated: true)...");
+            await delay(200);
+          } else if (t === "wait_seconds") {
+            lines.push("Waiting 1 second...");
+            await delay(500);
+          } else if (t === "play_sound") {
+            lines.push("Playing sound: beep!");
+          } else if (t === "light_on") {
+            lines.push("Light ON");
+          } else if (t === "light_off") {
+            lines.push("Light OFF");
+          }
+        };
+        for (const b of this.workspace) await exec(b);
+        this.lastOutput = lines.join("\n");
+        const step = getCurrentStep();
+        if (step && step.target_output && this.lastOutput.trim() === step.target_output.trim()) {
+          fireTrigger("program_correct");
+        }
+        checkAllTriggers();
+      },
+
+      evaluateTriggers(trigger) {
+        if (trigger.startsWith("block_placed:")) {
+          const t = trigger.split(":")[1];
+          if (this.workspace.some((b) => b.type === t)) fireTrigger(trigger);
+        }
+        if (trigger === "program_run" && this.hasRun) fireTrigger(trigger);
+        if (trigger === "program_correct") {
+          const step = getCurrentStep();
+          if (step?.target_output && this.lastOutput.trim() === step.target_output.trim()) fireTrigger(trigger);
+        }
+      },
+
+      onStepChange() {
+        checkAllTriggers();
+      },
+
+      exportState() {
+        return { type: "blocks", workspace: this.workspace, hasRun: this.hasRun };
+      },
+
+      importState(data) {
+        if (!data || data.type !== "blocks") return;
+        this.workspace = data.workspace || [];
+        this.hasRun = !!data.hasRun;
+        this.renderWorkspace();
+      }
+    };
+
+    function delay(ms) {
+      return new Promise((r) => setTimeout(r, ms));
+    }
+
+    /* ========== 3D VIEWER ========== */
+    const ViewerTool = {
+      scene: null,
+      camera: null,
+      renderer: null,
+      meshes: [],
+      selected: null,
+      meshId: 0,
+      orbit: { down: false, lx: 0, ly: 0, theta: 0.8, phi: 0.6, dist: 9 },
+      colored: false,
+
+      init(root) {
+        root.innerHTML =
+          '<div class="viewer-wrap">' +
+          '<div id="three-container"></div>' +
+          '<div id="shape-toolbar">' +
+          '<button type="button" class="btn" id="shape-scale-down">−</button>' +
+          '<button type="button" class="btn" id="shape-scale-up">+</button>' +
+          '<button type="button" class="btn" id="shape-delete">Delete</button>' +
+          "</div>" +
+          '<div class="shape-tray" id="shape-tray"></div>' +
+          "</div>";
+
+        this.container = $("#three-container");
+        this.toolbar = $("#shape-toolbar");
+        this.loadThree(() => this.setupScene());
+        this.buildTray();
+        $("#shape-scale-up").addEventListener("click", () => this.scaleSelected(1.2));
+        $("#shape-scale-down").addEventListener("click", () => this.scaleSelected(0.85));
+        $("#shape-delete").addEventListener("click", () => this.deleteSelected());
+        document.addEventListener("keydown", (e) => {
+          if (e.key === "Delete") this.deleteSelected();
+        });
+      },
+
+      loadThree(cb) {
+        if (window.THREE) {
+          cb();
+          return;
+        }
+        const s = document.createElement("script");
+        s.src = "https://unpkg.com/three@0.128.0/build/three.min.js";
+        s.onload = cb;
+        document.head.appendChild(s);
+      },
+
+      setupScene() {
+        const THREE = window.THREE;
+        const w = this.container.clientWidth;
+        const h = this.container.clientHeight;
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x080810);
+        this.camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 100);
+        this.updateCamera();
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer.setSize(w, h);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.container.appendChild(this.renderer.domElement);
+
+        this.scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+        const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+        dir.position.set(5, 8, 5);
+        this.scene.add(dir);
+        const grid = new THREE.GridHelper(12, 12, 0x333344, 0x222233);
+        this.scene.add(grid);
+
+        this.raycaster = new THREE.Raycaster();
+        this.mouse = new THREE.Vector2();
+        this.plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+        const canvas = this.renderer.domElement;
+        canvas.addEventListener("pointerdown", (e) => this.onPointerDown(e));
+        canvas.addEventListener("pointermove", (e) => this.onPointerMove(e));
+        canvas.addEventListener("pointerup", () => {
+          this.orbit.down = false;
+          this.dragMesh = null;
+        });
+        canvas.addEventListener("pointermove", onCanvasInteraction);
+        window.addEventListener("resize", () => this.onResize());
+        this.animate();
+        this.presetColors();
+      },
+
+      presetColors() {
+        const colors = ["#ef4444", "#3b82f6", "#22c55e", "#eab308", "#a855f7", "#ffffff"];
+        this.toolbar.querySelectorAll(".color-swatch").forEach((n) => n.remove());
+        colors.forEach((hex) => {
+          const sw = document.createElement("button");
+          sw.type = "button";
+          sw.className = "color-swatch";
+          sw.style.background = hex;
+          sw.addEventListener("click", () => {
+            if (this.selected) {
+              this.selected.material.color.set(hex);
+              this.colored = true;
+              fireTrigger("color_applied");
+              this.toolbar.querySelectorAll(".color-swatch").forEach((s) => s.classList.remove("active"));
+              sw.classList.add("active");
+            }
+          });
+          this.toolbar.appendChild(sw);
+        });
+      },
+
+      updateCamera() {
+        const THREE = window.THREE;
+        const { theta, phi, dist } = this.orbit;
+        this.camera.position.x = dist * Math.sin(phi) * Math.cos(theta);
+        this.camera.position.y = dist * Math.cos(phi);
+        this.camera.position.z = dist * Math.sin(phi) * Math.sin(theta);
+        this.camera.lookAt(0, 0, 0);
+      },
+
+      animate() {
+        requestAnimationFrame(() => this.animate());
+        if (this.renderer) this.renderer.render(this.scene, this.camera);
+      },
+
+      onResize() {
+        if (!this.renderer) return;
+        const w = this.container.clientWidth;
+        const h = this.container.clientHeight;
+        this.camera.aspect = w / h;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(w, h);
+      },
+
+      onPointerDown(e) {
+        onCanvasInteraction();
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        if (e.button === 0 && !e.shiftKey) {
+          this.raycaster.setFromCamera(this.mouse, this.camera);
+          const hits = this.raycaster.intersectObjects(this.meshes.map((m) => m.mesh));
+          if (hits.length) {
+            const mesh = hits[0].object;
+            const entry = this.meshes.find((m) => m.mesh === mesh);
+            this.select(entry);
+            this.dragMesh = entry;
+            this.dragOffset = new window.THREE.Vector3();
+            return;
+          }
+          this.select(null);
+        }
+        this.orbit.down = true;
+        this.orbit.lx = e.clientX;
+        this.orbit.ly = e.clientY;
+      },
+
+      onPointerMove(e) {
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        if (this.dragMesh) {
+          this.raycaster.setFromCamera(this.mouse, this.camera);
+          const target = new window.THREE.Vector3();
+          this.raycaster.ray.intersectPlane(this.plane, target);
+          if (target) {
+            this.dragMesh.mesh.position.x = target.x;
+            this.dragMesh.mesh.position.z = target.z;
+            if (this.dragMesh.outline) {
+              this.dragMesh.outline.position.x = target.x;
+              this.dragMesh.outline.position.z = target.z;
+            }
+          }
+          return;
+        }
+        if (this.orbit.down) {
+          const dx = e.clientX - this.orbit.lx;
+          const dy = e.clientY - this.orbit.ly;
+          this.orbit.theta -= dx * 0.008;
+          this.orbit.phi = Math.max(0.2, Math.min(1.4, this.orbit.phi + dy * 0.008));
+          this.orbit.lx = e.clientX;
+          this.orbit.ly = e.clientY;
+          this.updateCamera();
+        }
+      },
+
+      select(entry) {
+        this.meshes.forEach((m) => {
+          if (m.outline) {
+            m.mesh.remove(m.outline);
+            m.outline = null;
+          }
+        });
+        this.selected = entry;
+        if (entry) {
+          const THREE = window.THREE;
+          const edges = new THREE.EdgesGeometry(entry.mesh.geometry);
+          entry.outline = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffff00 }));
+          entry.mesh.add(entry.outline);
+          this.toolbar.classList.add("visible");
+        } else {
+          this.toolbar.classList.remove("visible");
+        }
+      },
+
+      makeGeometry(type) {
+        const THREE = window.THREE;
+        switch (type) {
+          case "cube":
+            return new THREE.BoxGeometry(1, 1, 1);
+          case "sphere":
+            return new THREE.SphereGeometry(0.55, 24, 24);
+          case "cylinder":
+            return new THREE.CylinderGeometry(0.45, 0.45, 1, 24);
+          case "cone":
+            return new THREE.ConeGeometry(0.5, 1, 24);
+          case "pyramid":
+            return new THREE.TetrahedronGeometry(0.7);
+          case "rectangular_prism":
+            return new THREE.BoxGeometry(1.4, 0.6, 0.8);
+          case "torus":
+            return new THREE.TorusGeometry(0.45, 0.18, 16, 32);
+          default:
+            return new THREE.BoxGeometry(1, 1, 1);
+        }
+      },
+
+      addShape(type) {
+        const THREE = window.THREE;
+        const geo = this.makeGeometry(type);
+        const mat = new THREE.MeshStandardMaterial({ color: 0x7b5ea7 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.y = type === "sphere" ? 0.55 : type === "torus" ? 0.35 : 0.5;
+        mesh.castShadow = true;
+        this.scene.add(mesh);
+        const entry = { id: ++this.meshId, type, mesh };
+        this.meshes.push(entry);
+        fireTrigger("shape_added:" + type);
+        const count = this.meshes.length;
+        fireTrigger("shape_count:" + count);
+        if (ACTIVITY_CONFIG.target_shape_count && count >= ACTIVITY_CONFIG.target_shape_count) {
+          fireTrigger("scene_complete");
+        }
+        checkAllTriggers();
+        onCanvasInteraction();
+        return entry;
+      },
+
+      buildTray() {
+        const tray = $("#shape-tray");
+        const shapes = ACTIVITY_CONFIG.components || ["cube", "sphere"];
+        shapes.forEach((type) => {
+          const chip = document.createElement("div");
+          chip.className = "shape-chip";
+          const mini = document.createElement("canvas");
+          mini.width = 60;
+          mini.height = 60;
+          chip.appendChild(mini);
+          const label = document.createElement("span");
+          label.textContent = type.replace(/_/g, " ");
+          chip.appendChild(label);
+          chip.addEventListener("click", () => {
+            if (window.THREE) {
+              this.addShape(type);
+            } else {
+              this.loadThree(() => {
+                if (!this.scene) this.setupScene();
+                this.addShape(type);
+              });
+            }
+          });
+          this.renderMiniPreview(mini, type);
+          tray.appendChild(chip);
+        });
+      },
+
+      renderMiniPreview(canvas, type) {
+        const load = () => {
+          if (!window.THREE) return;
+          const THREE = window.THREE;
+          const r = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+          r.setSize(60, 60);
+          const sc = new THREE.Scene();
+          const cam = new THREE.PerspectiveCamera(40, 1, 0.1, 20);
+          cam.position.set(2, 2, 2);
+          cam.lookAt(0, 0, 0);
+          sc.add(new THREE.AmbientLight(0xffffff, 0.7));
+          const geo = this.makeGeometry(type);
+          const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x7b5ea7 }));
+          mesh.position.y = 0.4;
+          sc.add(mesh);
+          r.render(sc, cam);
+          r.dispose();
+        };
+        if (window.THREE) load();
+        else this.loadThree(load);
+      },
+
+      scaleSelected(f) {
+        if (!this.selected) return;
+        this.selected.mesh.scale.multiplyScalar(f);
+        if (this.selected.outline) {
+          this.selected.mesh.remove(this.selected.outline);
+          this.select(this.selected);
+        }
+        onCanvasInteraction();
+      },
+
+      deleteSelected() {
+        if (!this.selected) return;
+        this.scene.remove(this.selected.mesh);
+        this.meshes = this.meshes.filter((m) => m !== this.selected);
+        this.selected = null;
+        this.toolbar.classList.remove("visible");
+        onCanvasInteraction();
+      },
+
+      evaluateTriggers(trigger) {
+        if (trigger.startsWith("shape_added:")) {
+          const t = trigger.split(":")[1];
+          if (this.meshes.some((m) => m.type === t)) fireTrigger(trigger);
+        }
+        if (trigger.startsWith("shape_count:")) {
+          const n = parseInt(trigger.split(":")[1], 10);
+          if (this.meshes.length >= n) fireTrigger(trigger);
+        }
+        if (trigger === "color_applied" && this.colored) fireTrigger(trigger);
+        if (trigger === "scene_complete") {
+          const need = ACTIVITY_CONFIG.target_shape_count || 0;
+          if (this.meshes.length >= need) fireTrigger(trigger);
+        }
+      },
+
+      onStepChange() {
+        checkAllTriggers();
+      },
+
+      exportState() {
+        return {
+          type: "viewer",
+          colored: this.colored,
+          meshes: this.meshes.map(function (m) {
+            return {
+              type: m.type,
+              x: m.mesh.position.x,
+              y: m.mesh.position.y,
+              z: m.mesh.position.z,
+              sx: m.mesh.scale.x,
+              sy: m.mesh.scale.y,
+              sz: m.mesh.scale.z,
+              color: m.mesh.material.color.getHexString()
+            };
+          })
+        };
+      },
+
+      importState(data) {
+        if (!data || data.type !== "viewer" || !this.scene) return;
+        var self = this;
+        this.meshes.slice().forEach(function (m) {
+          self.scene.remove(m.mesh);
+        });
+        this.meshes = [];
+        this.selected = null;
+        this.toolbar.classList.remove("visible");
+        (data.meshes || []).forEach(function (item) {
+          var entry = self.addShape(item.type);
+          if (!entry) return;
+          entry.mesh.position.set(item.x || 0, item.y || 0.5, item.z || 0);
+          entry.mesh.scale.set(item.sx || 1, item.sy || 1, item.sz || 1);
+          if (item.color) entry.mesh.material.color.set("#" + item.color);
+        });
+        this.colored = !!data.colored;
+      }
+    };
+
+    /* ========== BOOT ========== */
+    function initTool() {
+      const tool = ACTIVITY_CONFIG.tool;
+      toolRoot.innerHTML = "";
+      if (tool === "circuit_builder") {
+        currentTool = CircuitTool;
+        CircuitTool.init(toolRoot);
+      } else if (tool === "blocks") {
+        currentTool = BlocksTool;
+        BlocksTool.init(toolRoot);
+      } else if (tool === "3d_viewer") {
+        currentTool = ViewerTool;
+        ViewerTool.init(toolRoot);
+      } else {
+        toolRoot.innerHTML = '<p style="padding:24px;color:#f87171">Unknown tool: ' + tool + "</p>";
+      }
+    }
+
+    function boot() {
+      createStars();
+      activityTitle.textContent = ACTIVITY_CONFIG.title || "STEMverse Activity";
+      document.title = (ACTIVITY_CONFIG.title || "STEMverse") + " | Tool Player";
+      if (IS_PREVIEW && btnSave) {
+        btnSave.disabled = true;
+        btnSave.textContent = "Preview";
+        btnSave.title = "Save is disabled in builder preview";
+      } else if (btnSave) {
+        btnSave.addEventListener("click", saveProgress);
+      }
+      initTool();
+      loadProgress().then(function () {
+        setEmotion("idle");
+        updateStepUI();
+        var intro = ACTIVITY_CONFIG.stembot_intro || "Hi! I'm STEMbot.";
+        typewrite(intro, function () {
+          updateStepUI();
+        });
+        resetIdleTimer();
+      });
+    }
+
+    boot();
+  })();
+  </script>
+</body>
+</html>

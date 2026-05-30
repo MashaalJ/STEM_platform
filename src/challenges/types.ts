@@ -8,6 +8,7 @@ import type React from 'react';
 export type ChallengeType =
   | 'multiple_choice'
   | 'multi_question'
+  | 'coding_lab'
   | 'drag_drop'
   | 'drag_the_words'
   | 'fill_in_blank'
@@ -114,9 +115,21 @@ export interface MultiQuestionContent {
   questions: { type: Exclude<ChallengeType, 'multi_question'>; content: ChallengeContent }[];
 }
 
+export interface CodingLabContent {
+  title?: string;
+  prompt: string;
+  mode: 'blocks' | 'code' | 'hybrid';
+  toolbox: string[];
+  targetSequence: string[];
+  starterCode?: string;
+  requiredSnippets: string[];
+  passThreshold?: number;
+}
+
 export type ChallengeContent =
   | MultipleChoiceContent
   | MultiQuestionContent
+  | CodingLabContent
   | FillInBlankContent
   | DragTheWordsContent
   | MatchingPairsContent

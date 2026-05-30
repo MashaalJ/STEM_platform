@@ -53,18 +53,41 @@ import { ChallengeBuilder, ChallengeRenderer } from './challenges';
 import { QuizPlayer } from './challenges/QuizPlayer';
 import { supabase } from '../lib/supabaseClient';
 import AddToHomeScreenPrompt from './components/AddToHomeScreenPrompt';
+import ArduinoCodingMission from './components/arduino-ide/ArduinoCodingMission';
+import {
+  buildMissionFromScreens,
+  defaultBuilderState,
+  hasValidationErrors,
+  isToolActivityEmbed,
+  parseToolActivityEmbed,
+  toolActivityPlayerUrl,
+  validateToolActivityConfig,
+  type ToolActivityConfig,
+  type ToolBuilderValidation,
+} from './lib/toolActivity';
+import MissionScreenBuilder from './components/tool-activity/MissionScreenBuilder';
+import {
+  STORY,
+  STORY_GALAXY,
+  STORY_LOGIN,
+  galaxySystemAlert,
+  lockedSectorTitle,
+} from './lib/story';
 
 // --- Types ---
 
-/** Attach Bearer from Supabase session or stemverse_access_token; on 401, drop stale stored token and retry with cookie only. */
+/** Attach Bearer from Supabase session or stemverse_access_token; on 401, drop stale stored token and retry without auth. */
 const fetchWithOptionalBearerRetry = async (input: RequestInfo | URL, init?: RequestInit) => {
-  const { data } = await supabase.auth.getSession();
   const stored = localStorage.getItem('stemverse_access_token');
-  const token = data.session?.access_token || stored;
+  let token = stored;
+  if (supabase) {
+    const { data } = await supabase.auth.getSession();
+    token = data.session?.access_token || stored;
+  }
   const headers = new Headers(init?.headers || {});
   if (token) headers.set('Authorization', `Bearer ${token}`);
   let res = await fetch(input, { ...init, headers, credentials: init?.credentials ?? 'include' });
-  if (res.status === 401 && stored && !data.session?.access_token) {
+  if (res.status === 401 && stored && (!supabase || !(await supabase.auth.getSession()).data.session?.access_token)) {
     localStorage.removeItem('stemverse_access_token');
     const retryHeaders = new Headers(init?.headers || {});
     res = await fetch(input, { ...init, headers: retryHeaders, credentials: init?.credentials ?? 'include' });
@@ -76,8 +99,10 @@ const safeFetch = async (url: string, options?: RequestInit) => {
   try {
     const res = await fetchWithOptionalBearerRetry(url, options);
     if (!res.ok) {
-      const text = await res.text();
-      console.error(`Fetch error for ${url}: ${res.status} ${text}`);
+      if (res.status !== 429) {
+        const text = await res.text();
+        console.error(`Fetch error for ${url}: ${res.status} ${text}`);
+      }
       return null;
     }
     return await res.json();
@@ -101,6 +126,8 @@ interface Sector {
   mastery_percent: number;
   status: 'active' | 'locked' | 'maintenance';
   image_url: string;
+  sort_order?: number;
+  is_starter?: number;
 }
 
 interface Mission {
@@ -119,6 +146,74 @@ interface Mission {
   domains_json?: string | null;
   learning_outcomes?: string[];
   domains?: string[];
+}
+
+const ARDUINO_BLOCKLY_EMBED = 'stemverse://arduino-uno-blockly';
+const ELECTRICITY_PRE_FLOW_EMBED = 'stemverse://electricity-pre-flow';
+
+const isArduinoBlocklyEmbed = (value: string | null | undefined) => {
+  const v = String(value || '').trim().toLowerCase();
+  return (
+    v === 'stemverse://arduino-uno-blockly' ||
+    v === 'stemverse://arduino-blockly' ||
+    v === 'stemverse://arduino-ide'
+  );
+};
+
+const isElectricityPreFlowEmbed = (value: string | null | undefined) => {
+  const v = String(value || '').trim().toLowerCase();
+  return (
+    v === ELECTRICITY_PRE_FLOW_EMBED ||
+    v.includes('/electricity.html') ||
+    v.includes('electricity-pre-flow') ||
+    v.includes('stemverse://electricity')
+  );
+};
+
+function electricityActivityUrl(): string {
+  if (typeof window === 'undefined') return '/electricity.html';
+  const u = new URL('/electricity.html', window.location.origin);
+  u.searchParams.set('embed', '1');
+  return u.href;
+}
+
+const isArduinoMissionByMetadata = (mission: Mission | null | undefined) => {
+  if (!mission) return false;
+  if (isArduinoBlocklyEmbed(mission.embed_code)) return true;
+  const text = `${mission.title || ''} ${mission.description || ''}`.toLowerCase();
+  return text.includes('blockly') || text.includes('arduino');
+};
+
+const isElectricityPreFlowMission = (mission: Mission | null | undefined, sectorName?: string | null) => {
+  if (!mission) return false;
+  if (isElectricityPreFlowEmbed(mission.embed_code)) return true;
+  const sector = String(sectorName || '').toLowerCase();
+  if (sector.includes('dark city')) return true;
+  const text = `${mission.title || ''} ${mission.description || ''}`.toLowerCase();
+  return (
+    text.includes('dark city') ||
+    text.includes('circuit rescue') ||
+    text.includes('electricity') ||
+    text.includes('power the grid')
+  );
+};
+
+const isToolActivityMission = (mission: Mission | null | undefined) =>
+  isToolActivityEmbed(mission?.embed_code);
+
+const isFullscreenMission = (mission: Mission | null | undefined, sectorName?: string | null) =>
+  isArduinoMissionByMetadata(mission) ||
+  isElectricityPreFlowMission(mission, sectorName) ||
+  isToolActivityMission(mission);
+
+function sectorNameForMission(
+  mission: Mission | null | undefined,
+  sectors: Sector[],
+  selectedSector: Sector | null,
+): string | null {
+  if (!mission) return selectedSector?.name ?? null;
+  if (selectedSector && selectedSector.id === mission.sector_id) return selectedSector.name;
+  return sectors.find((s) => s.id === mission.sector_id)?.name ?? null;
 }
 
 interface Class {
@@ -345,10 +440,9 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
     if (role !== 'student') return { ok: true as const };
     const cleanCode = code.trim().toUpperCase();
     if (!cleanCode) return { ok: true as const };
-    const res = await fetch('/api/classes/join', {
+    const res = await authFetch('/api/classes/join', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify({ join_code: cleanCode }),
     });
     const data = await res.json().catch(() => ({}));
@@ -363,13 +457,12 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
     setSignupNotice(null);
     try {
       const identifier = n.trim();
-      const payload: any = { password: p };
+      const payload: Record<string, string> = { password: p };
       if (identifier.includes('@')) payload.email = identifier;
       else payload.username = identifier;
       const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
@@ -389,13 +482,14 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
       } else {
         localStorage.removeItem('stemverse_access_token');
       }
-      if (data?.user) {
-        const joinResult = await tryJoinClassWithCode(data.user?.role, classJoinCode);
+      const user = data?.user;
+      if (user) {
+        const joinResult = await tryJoinClassWithCode(user?.role, classJoinCode);
         if (!joinResult.ok) {
           setError(joinResult.message);
           return;
         }
-        onLogin(data.user);
+        onLogin(user);
       } else {
         const me = await safeFetch('/api/me');
         if (me?.authenticated && me?.user) {
@@ -405,8 +499,9 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
             return;
           }
           onLogin(me.user);
+        } else {
+          setError('Could not load account.');
         }
-        else setError('Could not load account.');
       }
     } catch {
       setError('Connection failed');
@@ -433,10 +528,9 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
       const res = await fetch('/api/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           ...signupData,
-          age: signupData.age ? parseInt(signupData.age) : undefined,
+          age: signupData.age ? parseInt(signupData.age, 10) : undefined,
           gender: signupData.gender.trim() || undefined,
           country_code: signupData.country_code.trim() || undefined,
           region: signupData.region.trim() || undefined,
@@ -446,7 +540,6 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.success) {
         if (res.status === 409 || /already exists|already registered/i.test(String(data?.message || ''))) {
-          // Smooth path: existing email should behave like sign-in attempt with same password.
           await performLogin(signupData.email, signupData.password);
           return;
         }
@@ -473,8 +566,6 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
         }
         onLogin(data.user);
       } else {
-        // Some Supabase setups complete signup without returning an immediately usable session/user.
-        // Fall back to explicit login with the same credentials.
         await performLogin(signupData.email, signupData.password);
       }
     } catch {
@@ -494,6 +585,11 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
       return;
     }
     const redirectTo = `${window.location.origin}/`;
+    if (!supabase) {
+      setForgotStatus('Password reset requires Supabase to be configured in .env (VITE_SUPABASE_URL).');
+      setSendingForgot(false);
+      return;
+    }
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
     if (resetError) {
       setForgotStatus(resetError.message || 'Could not send reset email.');
@@ -544,10 +640,10 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
             STEM<span className="text-cyan-400">VERSE</span>
           </motion.h1>
           <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.45 }} className="cosmic-body-lg max-w-sm mb-2">
-            Learn STEM through games and quizzes. Track progress, level up, and compete with your class.
+            {STORY_LOGIN.body}
           </motion.p>
           <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.55 }} className="cosmic-page-sub text-[var(--ca-secondary-container)]">
-            Learn. Play. Grow.
+            {STORY.tagline}
           </motion.p>
         </div>
       </motion.div>
@@ -902,86 +998,6 @@ const Login = ({ onLogin }: { onLogin: (user: any) => void }) => {
   );
 };
 
-const AddStudentForm = ({ onStudentAdded }: { onStudentAdded: () => void }) => {
-  const [formData, setFormData] = useState({
-    name: '',
-    role: 'student',
-    level: 1,
-    xp: 0,
-    avatar_url: '',
-    password: 'password123'
-  });
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await fetch('/api/students', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formData)
-    });
-    setFormData({ name: '', role: 'student', level: 1, xp: 0, avatar_url: '', password: 'password123' });
-    onStudentAdded();
-  };
-
-  return (
-    <div className="bg-slate-800/70 backdrop-blur-md p-8 rounded-3xl border border-slate-600/50 shadow-xl shadow-black/20">
-      <div className="flex items-center gap-3 mb-8">
-        <div className="size-10 rounded-xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center">
-          <Plus className="text-brand-blue size-5" />
-        </div>
-        <h3 className="text-xl font-black text-slate-100 uppercase tracking-tighter">Register New Operator</h3>
-      </div>
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="space-y-2">
-          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
-          <input 
-            placeholder="e.g. Commander Shepard" 
-            className="w-full bg-slate-800/50 border border-slate-600/50 rounded-xl px-4 py-3 text-slate-100 placeholder:text-slate-300 focus:border-brand-blue/50 focus:ring-1 focus:ring-brand-blue/50 outline-none transition-all font-bold"
-            value={formData.name}
-            onChange={e => setFormData({...formData, name: e.target.value})}
-            required
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Access Level</label>
-            <select 
-              className="w-full bg-slate-800/50 border border-slate-600/50 rounded-xl px-4 py-3 text-slate-100 focus:border-brand-blue/50 outline-none appearance-none font-bold"
-              value={formData.role}
-              onChange={e => setFormData({...formData, role: e.target.value})}
-            >
-              <option value="student">Student</option>
-              <option value="teacher">Teacher</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Initial Level</label>
-            <input 
-              type="number" 
-              className="w-full bg-slate-800/50 border border-slate-600/50 rounded-xl px-4 py-3 text-slate-100 font-mono focus:border-brand-blue/50 outline-none font-bold"
-              value={formData.level}
-              onChange={e => setFormData({...formData, level: parseInt(e.target.value)})}
-            />
-          </div>
-        </div>
-        <div className="space-y-2">
-          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Avatar Seed</label>
-          <input 
-            placeholder="e.g. neuro-link-01" 
-            className="w-full bg-slate-800/50 border border-slate-600/50 rounded-xl px-4 py-3 text-slate-100 text-xs focus:border-brand-blue/50 outline-none font-bold"
-            value={formData.avatar_url}
-            onChange={e => setFormData({...formData, avatar_url: e.target.value})}
-          />
-        </div>
-        <button type="submit" className="w-full bg-brand-blue hover:bg-brand-blue/90 text-white font-black py-4 rounded-xl uppercase tracking-widest transition-all shadow-lg shadow-brand-blue/20 active:scale-[0.98]">
-          Initialize Account
-        </button>
-      </form>
-    </div>
-  );
-};
-
 // --- Components ---
 
 type NotificationItem = {
@@ -1044,7 +1060,7 @@ const Navbar = ({
             <span className="cosmic-brand-wordmark">STEM</span>
             <span className="cosmic-brand-accent">VERSE</span>
           </h1>
-          <p className="cosmic-page-sub text-[8px] -mt-1 ml-9 opacity-90">Kid Learning Hub</p>
+          <p className="cosmic-page-sub text-[8px] -mt-1 ml-9 opacity-90">Earth Recovery Mission</p>
         </div>
       </div>
 
@@ -1320,14 +1336,13 @@ const GalaxyMap = ({
     sectors.length > 0
       ? Math.round(sectors.reduce((a, s) => a + s.mastery_percent, 0) / sectors.length)
       : 0;
-  const systemAlert =
-    sectors.length === 0
-      ? 'Loading sectors…'
-      : student && (!student.grade || !student.school)
-        ? 'Refuel module required — finish profile setup'
-        : !activeMission
-          ? 'Select a mission in any open sector'
-          : 'All systems nominal';
+  const starterSector = sectors.find((s) => Number(s.is_starter) === 1) ?? sectors.find((s) => s.status !== 'locked');
+  const systemAlert = galaxySystemAlert({
+    sectorsCount: sectors.length,
+    needsProfile: Boolean(student && (!student.grade || !student.school)),
+    hasActiveMission: Boolean(activeMission),
+    starterSectorName: starterSector?.name ?? null,
+  });
 
   return (
     <div className="space-y-8">
@@ -1354,9 +1369,9 @@ const GalaxyMap = ({
                 <Sparkles className="size-9 sm:size-10 text-[#0A192F]" strokeWidth={2.25} aria-hidden />
               </motion.button>
               <div className="absolute top-full mt-3 left-1/2 -translate-x-1/2 text-center whitespace-nowrap pointer-events-none">
-                <p className="text-[10px] font-black uppercase tracking-[0.12em] text-amber-500">Core Curriculum</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.12em] text-amber-500">{STORY_GALAXY.coreLabel}</p>
                 <p className="text-xs font-mono text-slate-500 mt-0.5">
-                  {sectors.length ? `${avgMastery}% synchronized` : '—'}
+                  {sectors.length ? `${avgMastery}% ${STORY_GALAXY.coreSyncLabel}` : '—'}
                 </p>
               </div>
             </div>
@@ -1365,6 +1380,7 @@ const GalaxyMap = ({
               const pos = sectorPositions[i];
               if (!pos) return null;
               const isLocked = sector.status === 'locked';
+              const isStarter = Number(sector.is_starter) === 1;
               const shortLabel =
                 sector.name.length > 14 ? `${sector.name.slice(0, 12)}…` : sector.name;
 
@@ -1383,10 +1399,11 @@ const GalaxyMap = ({
                       whileHover={isLocked ? {} : { scale: 1.04 }}
                       whileTap={isLocked ? {} : { scale: 0.97 }}
                       onClick={() => !isLocked && onSelectSector(sector)}
+                      title={isLocked ? lockedSectorTitle(sector.name, sector.required_level) : sector.description}
                       className={`relative rounded-full overflow-hidden border-2 border-amber-500/30 transition-[border-color,transform] duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/80 ${sectorSizeClass(
                         i
                       )} ${isLocked ? 'opacity-75' : 'group-hover:border-amber-500 group-hover:scale-[1.02]'}`}
-                      aria-label={sector.name}
+                      aria-label={isLocked ? lockedSectorTitle(sector.name, sector.required_level) : sector.name}
                     >
                       {isLocked ? (
                         <div className="size-full bg-[#0A192F]/80 flex items-center justify-center">
@@ -1396,8 +1413,9 @@ const GalaxyMap = ({
                         <div
                           className="size-full"
                           style={{
-                            background:
-                              i % 4 === 0
+                            background: isStarter
+                              ? 'radial-gradient(circle at 30% 30%, #5eead4 0%, #00bfa5 40%, #0f172a 100%)'
+                              : i % 4 === 0
                                 ? 'radial-gradient(circle at 30% 30%, #67e8f9 0%, #0ea5e9 45%, #082f49 100%)'
                                 : i % 4 === 1
                                   ? 'radial-gradient(circle at 35% 35%, #fcd34d 0%, #f59e0b 45%, #78350f 100%)'
@@ -1427,6 +1445,11 @@ const GalaxyMap = ({
                       </div>
                     )}
 
+                    {isStarter && !isLocked && (
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap text-[8px] font-black uppercase tracking-widest text-[#0A192F] bg-teal-300 px-2 py-0.5 rounded-full border border-teal-400/80 shadow-sm z-20">
+                        {STORY_GALAXY.starterBadge}
+                      </div>
+                    )}
                     <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-white bg-[#0A192F] px-2 py-0.5 rounded border border-slate-800/80 max-w-[140px] truncate">
                       {isLocked ? `Lvl ${sector.required_level}` : shortLabel}
                     </div>
@@ -3274,6 +3297,7 @@ const TeacherHub = ({ sectors, students, student, refetchStudents }: { sectors: 
   };
 
   const accessMissionFromLibrary = (mission: Mission) => {
+    const embed = mission.embed_code || '';
     localStorage.setItem(
       'mission_setup_draft',
       JSON.stringify({
@@ -3283,7 +3307,7 @@ const TeacherHub = ({ sectors, students, student, refetchStudents }: { sectors: 
         difficulty: mission.difficulty || 'Medium',
         grade_level: mission.grade_level || '',
         xp_reward: Number(mission.xp_reward || 500),
-        embed_code: mission.embed_code || '',
+        embed_code: embed,
       })
     );
     setLibraryAccessFeedback(`Opened "${mission.title}" in Activity Builder.`);
@@ -5141,8 +5165,129 @@ function extractEmbedSrc(embed: string | null | undefined): string | null {
   return null;
 }
 
-const GamePlayer = ({ mission, onComplete }: { mission: Mission, onComplete: () => void }) => {
+/** Reject mission embeds that point at the SPA shell (/) instead of the activity file. */
+function isBrokenHomepageEmbed(embed: string | null | undefined): boolean {
+  const src = extractEmbedSrc(embed);
+  if (!src || typeof window === 'undefined') return false;
+  try {
+    const u = new URL(src, window.location.origin);
+    return u.origin === window.location.origin && (u.pathname === '/' || u.pathname === '');
+  } catch {
+    return false;
+  }
+}
+
+const ToolActivityPlayer = ({
+  mission,
+  onComplete,
+}: {
+  mission: Mission;
+  onComplete: () => void;
+}) => {
+  const config = parseToolActivityEmbed(mission.embed_code);
+  const src = config
+    ? toolActivityPlayerUrl(config, { missionId: mission.id })
+    : `/stemverse-tool-player.html?embed=1&mission_id=${mission.id}`;
+
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'STEMVERSE_COMPLETE') onComplete();
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [onComplete]);
+
+  return (
+    <iframe
+      key={src}
+      src={src}
+      name="stemverse-tool-activity"
+      className="fixed inset-0 w-full h-full border-0 z-[125]"
+      style={{ top: 0, left: 0, width: '100%', height: '100dvh', minHeight: '100dvh' }}
+      title={mission.title}
+      allow="autoplay"
+    />
+  );
+};
+
+const ElectricityPreFlowPlayer = ({
+  mission,
+  onComplete,
+}: {
+  mission: Mission;
+  onComplete: () => void;
+}) => {
+  useEffect(() => {
+    try {
+      localStorage.setItem('stemverse_parent', '1');
+    } catch {
+      /* ignore */
+    }
+    const onLaunch = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.complete) onComplete();
+    };
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'novaGameLaunch' && e.data?.detail?.complete) onComplete();
+    };
+    window.addEventListener('novaGameLaunch', onLaunch);
+    window.addEventListener('message', onMessage);
+    return () => {
+      window.removeEventListener('novaGameLaunch', onLaunch);
+      window.removeEventListener('message', onMessage);
+      try {
+        localStorage.removeItem('stemverse_parent');
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [onComplete]);
+
+  const src = electricityActivityUrl();
+
+  return (
+    <iframe
+      key={src}
+      src={src}
+      name="stemverse-electricity-activity"
+      className="fixed inset-0 w-full h-full border-0 z-[125]"
+      style={{ top: 0, left: 0, width: '100%', height: '100dvh', minHeight: '100dvh' }}
+      title={mission.title}
+      allow="autoplay"
+    />
+  );
+};
+
+const GamePlayer = ({
+  mission,
+  onComplete,
+  sectorName = null,
+}: {
+  mission: Mission;
+  onComplete: () => void;
+  sectorName?: string | null;
+}) => {
+  const isArduinoMission = isArduinoMissionByMetadata(mission);
+  const isElectricityMission =
+    isElectricityPreFlowMission(mission, sectorName) ||
+    isElectricityPreFlowEmbed(mission.embed_code) ||
+    isBrokenHomepageEmbed(mission.embed_code);
   const embedSrc = extractEmbedSrc(mission.embed_code);
+  if (isArduinoMission) {
+    return (
+      <ArduinoCodingMission
+        missionId={mission.id}
+        missionTitle={mission.title}
+        onComplete={onComplete}
+      />
+    );
+  }
+  if (isElectricityMission) {
+    return <ElectricityPreFlowPlayer mission={mission} onComplete={onComplete} />;
+  }
+  if (isToolActivityEmbed(mission.embed_code)) {
+    return <ToolActivityPlayer mission={mission} onComplete={onComplete} />;
+  }
   return (
     <div className="space-y-8">
       <div className="bg-black rounded-2xl border border-brand-blue/30 overflow-hidden aspect-video relative shadow-2xl shadow-brand-blue/10 min-h-[400px]">
@@ -5226,6 +5371,8 @@ const MissionSetup = ({
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
   const [publishMode, setPublishMode] = useState<'library' | 'assign'>('library');
+  const [screenConfig, setScreenConfig] = useState<ToolActivityConfig>(() => defaultBuilderState());
+  const [screenErrors, setScreenErrors] = useState<ToolBuilderValidation>({});
   const [allMissions, setAllMissions] = useState<Mission[]>([]);
   const [formData, setFormData] = useState({
     title: '',
@@ -5234,7 +5381,6 @@ const MissionSetup = ({
     difficulty: 'Medium',
     grade_level: '',
     xp_reward: 500,
-    embed_code: '',
     prerequisite_mission_id: null as number | null,
     learning_outcomes: [] as string[],
     domains: [] as string[],
@@ -5261,17 +5407,25 @@ const MissionSetup = ({
           difficulty: String(draft.difficulty ?? prev.difficulty),
           grade_level: String(draft.grade_level ?? prev.grade_level),
           xp_reward: Number(draft.xp_reward ?? prev.xp_reward) || prev.xp_reward,
-          embed_code: String(draft.embed_code ?? prev.embed_code),
           prerequisite_mission_id: Number(draft.prerequisite_mission_id || 0) || null,
           learning_outcomes: Array.isArray(draft.learning_outcomes) ? draft.learning_outcomes.map((x: unknown) => String(x)) : prev.learning_outcomes,
           domains: Array.isArray(draft.domains) ? draft.domains.map((x: unknown) => String(x)) : prev.domains,
         }));
         setInfoMessage('Loaded selected activity into builder.');
+        const embed = String(draft.embed_code ?? '');
+        if (isToolActivityEmbed(embed)) {
+          const parsed = parseToolActivityEmbed(embed);
+          if (parsed) setScreenConfig(parsed);
+        }
       }
     } catch {
       // ignore malformed draft
     }
   }, []);
+
+  useEffect(() => {
+    setScreenConfig((prev) => ({ ...prev, title: formData.title || prev.title }));
+  }, [formData.title]);
 
   useEffect(() => {
     safeFetch('/api/missions').then((data) => {
@@ -5303,14 +5457,17 @@ const MissionSetup = ({
     e.preventDefault();
     setStatus('submitting');
     setInfoMessage(null);
-    const embed = formData.embed_code?.trim();
-    const payload = {
-      ...formData,
-      embed_code: embed || undefined,
-      learning_outcomes: formData.learning_outcomes,
-      domains: formData.domains,
-      prerequisite_mission_id: formData.prerequisite_mission_id || undefined,
-    };
+    const validation = validateToolActivityConfig({
+      ...screenConfig,
+      title: formData.title.trim() || screenConfig.title,
+    });
+    setScreenErrors(validation);
+    if (hasValidationErrors(validation)) {
+      setStatus('idle');
+      setInfoMessage('Complete Screen 1 and at least Screen 2 before publishing.');
+      return;
+    }
+    const payload = buildMissionFromScreens(formData, screenConfig);
     try {
       const response = await fetchWithAuth('/api/missions', {
         method: 'POST',
@@ -5339,11 +5496,12 @@ const MissionSetup = ({
           difficulty: 'Medium',
           grade_level: '',
           xp_reward: 500,
-          embed_code: '',
           prerequisite_mission_id: null,
           learning_outcomes: [],
           domains: [],
         });
+        setScreenConfig(defaultBuilderState());
+        setScreenErrors({});
         setTimeout(() => setStatus('idle'), 3000);
       }
     } catch (error) {
@@ -5365,14 +5523,19 @@ const MissionSetup = ({
       </div>
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h3 className="text-3xl font-bold text-[var(--ca-on-surface)] tracking-tight">Create Activity</h3>
-          <p className="text-[var(--ca-on-surface-variant)] text-sm">Set up a mission and assign it to a class.</p>
+          <h3 className="text-3xl font-bold text-[var(--ca-on-surface)] tracking-tight">Mission Builder</h3>
+          <p className="text-[var(--ca-on-surface-variant)] text-sm">
+            Screen 1 intro, then Screen 2 onward — students play through in order with the live tool.
+          </p>
         </div>
         <div className="flex gap-3">
           <button
             type="button"
             onClick={() => {
-              localStorage.setItem('mission_setup_draft', JSON.stringify(formData));
+              localStorage.setItem(
+                'mission_setup_draft',
+                JSON.stringify({ ...formData, embed_code: buildMissionFromScreens(formData, screenConfig).embed_code }),
+              );
               const stamp = new Date().toLocaleString();
               setDraftSavedAt(stamp);
               setInfoMessage(`Draft saved on this browser at ${stamp}.`);
@@ -5400,11 +5563,14 @@ const MissionSetup = ({
                   difficulty: String(draft.difficulty ?? prev.difficulty),
                   grade_level: String(draft.grade_level ?? prev.grade_level),
                   xp_reward: Number(draft.xp_reward ?? prev.xp_reward) || prev.xp_reward,
-                  embed_code: String(draft.embed_code ?? prev.embed_code),
                   prerequisite_mission_id: Number(draft.prerequisite_mission_id || 0) || null,
                   learning_outcomes: Array.isArray(draft.learning_outcomes) ? draft.learning_outcomes.map((x: unknown) => String(x)) : prev.learning_outcomes,
                   domains: Array.isArray(draft.domains) ? draft.domains.map((x: unknown) => String(x)) : prev.domains,
                 }));
+                if (draft.embed_code && isToolActivityEmbed(String(draft.embed_code))) {
+                  const parsed = parseToolActivityEmbed(String(draft.embed_code));
+                  if (parsed) setScreenConfig(parsed);
+                }
                 setInfoMessage('Draft loaded from this browser.');
               } catch {
                 setInfoMessage('Draft data is invalid.');
@@ -5439,7 +5605,7 @@ const MissionSetup = ({
       </div>
 
       <form id="mission-setup-form" className="grid grid-cols-12 gap-6" onSubmit={handleSubmit}>
-        <div className="col-span-12 lg:col-span-8 space-y-6">
+        <div className="col-span-12 space-y-6">
           <section className="bg-white p-6 rounded-xl border border-slate-100 shadow-[0px_4px_20px_rgba(10,25,47,0.05)]">
             <div className="flex items-center gap-2 mb-6">
               <ClipboardList className="size-5 text-amber-500" />
@@ -5578,29 +5744,12 @@ const MissionSetup = ({
             </div>
           </section>
 
-          <section className="ca-glass-hud p-6 rounded-xl text-white relative overflow-hidden">
-            <div className="relative z-10">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-2">
-                  <Rocket className="size-5 text-amber-500" />
-                  <h4 className="text-xl font-semibold uppercase tracking-tight">Embed Preview</h4>
-                </div>
-                <span className="bg-amber-500 text-[#0D1C32] px-3 py-1 rounded text-xs font-black">Embed Link</span>
-              </div>
-              <div className="space-y-4">
-                <textarea
-                  rows={3}
-                  value={formData.embed_code}
-                  onChange={e => setFormData({ ...formData, embed_code: e.target.value })}
-                  placeholder="https://unity-cloud.stemverse.com/simulations/uuid-7782-x"
-                  className="w-full bg-[#0A192F]/80 border border-amber-500/30 rounded-lg p-4 font-mono text-amber-300 placeholder:text-amber-500/50 outline-none focus:border-amber-400"
-                />
-                <div className="w-full aspect-video bg-[#0A192F] rounded-lg border border-slate-700 flex flex-col items-center justify-center text-slate-400">
-                  <Play className="size-10 mb-3" />
-                  <p className="text-xs font-mono uppercase tracking-widest">Preview Pending</p>
-                </div>
-              </div>
-            </div>
+          <section className="col-span-12">
+            <MissionScreenBuilder
+              config={screenConfig}
+              onChange={setScreenConfig}
+              errors={screenErrors}
+            />
           </section>
 
           <section className="bg-white p-6 rounded-xl border border-slate-100 shadow-[0px_4px_20px_rgba(10,25,47,0.05)]">
@@ -6475,31 +6624,34 @@ const SettingsModal = ({
     }
     setSavingPassword(true);
     try {
-      const { data: sess } = await supabase.auth.getSession();
-      if (sess.session) {
-        const { error } = await supabase.auth.updateUser({ password: passwordForm.new });
-        if (error) {
-          setPasswordMessage({ type: 'error', text: error.message || 'Change failed.' });
-        } else {
-          setPasswordForm({ current: '', new: '', confirm: '' });
-          setPasswordMessage({ type: 'success', text: 'Password updated for your account.' });
+      if (supabase) {
+        const { data: sess } = await supabase.auth.getSession();
+        if (sess.session) {
+          const { error } = await supabase.auth.updateUser({ password: passwordForm.new });
+          if (error) {
+            setPasswordMessage({ type: 'error', text: error.message || 'Change failed.' });
+          } else {
+            setPasswordForm({ current: '', new: '', confirm: '' });
+            setPasswordMessage({ type: 'success', text: 'Password updated for your account.' });
+          }
+          setSavingPassword(false);
+          return;
         }
+      }
+      const res = await authFetch('/api/me/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          current_password: passwordForm.current,
+          new_password: passwordForm.new,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPasswordForm({ current: '', new: '', confirm: '' });
+        setPasswordMessage({ type: 'success', text: 'Password changed.' });
       } else {
-        const res = await authFetch('/api/me/change-password', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            current_password: passwordForm.current,
-            new_password: passwordForm.new,
-          }),
-        });
-        const data = await res.json();
-        if (data.success) {
-          setPasswordForm({ current: '', new: '', confirm: '' });
-          setPasswordMessage({ type: 'success', text: 'Password changed.' });
-        } else {
-          setPasswordMessage({ type: 'error', text: data.message || 'Change failed.' });
-        }
+        setPasswordMessage({ type: 'error', text: data.message || 'Change failed.' });
       }
     } catch {
       setPasswordMessage({ type: 'error', text: 'Network error.' });
@@ -6762,13 +6914,33 @@ export default function App() {
     safeFetch('/api/sectors').then(data => data && setSectors(data));
     safeFetch('/api/students').then(data => data && setStudents(data));
 
-    // Restore session if a valid cookie exists
-    safeFetch('/api/me').then(data => {
+    const restoreSession = async () => {
+      const token = localStorage.getItem('stemverse_access_token');
+      if (!token) return;
+      const res = await fetchWithAuth('/api/me');
+      if (res.status === 401) {
+        localStorage.removeItem('stemverse_access_token');
+        return;
+      }
+      const data = await res.json().catch(() => null);
       if (data?.authenticated && data.user) {
         setStudent(data.user);
         setIsLoggedIn(true);
+        if (data.user?.name) {
+          try {
+            localStorage.setItem('stemverse_player_name', String(data.user.name).split(' ')[0]);
+          } catch {
+            /* ignore */
+          }
+        }
+        if (data.user.role === 'student') {
+          safeFetch('/api/sectors').then((s) => s && setSectors(s));
+        }
+      } else if (!res.ok) {
+        localStorage.removeItem('stemverse_access_token');
       }
-    });
+    };
+    restoreSession();
   }, []);
 
   useEffect(() => {
@@ -6853,12 +7025,12 @@ export default function App() {
 
   const markNotificationRead = async (id: number) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: 1 } : n)));
-    await fetch(`/api/notifications/${id}/read`, { method: 'PATCH', credentials: 'include' }).catch(() => {});
+    await authFetch(`/api/notifications/${id}/read`, { method: 'PATCH' }).catch(() => {});
   };
 
   const markAllNotificationsRead = async () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: 1 })));
-    await fetch('/api/notifications/read-all', { method: 'PATCH', credentials: 'include' }).catch(() => {});
+    await authFetch('/api/notifications/read-all', { method: 'PATCH' }).catch(() => {});
   };
 
   const openNotificationLink = (link: string | null | undefined) => {
@@ -6918,8 +7090,15 @@ export default function App() {
   const handleLogin = (user: any) => {
     setStudent(user);
     setIsLoggedIn(true);
-    // Set initial view based on role (teachers see hub on dashboard; no separate Teacher tab)
+    if (user?.name) {
+      try {
+        localStorage.setItem('stemverse_player_name', String(user.name).split(' ')[0]);
+      } catch {
+        /* ignore */
+      }
+    }
     if (user.role === 'admin') setActiveView('admin');
+    else if (user.role === 'student') setActiveView('galaxy');
     else setActiveView('dashboard');
   };
 
@@ -6938,17 +7117,17 @@ export default function App() {
     setActiveMission(null);
 
     if (student.role === "student") {
-      await fetch(`/api/students/${student.id}/missions/${mission.id}/complete`, {
+      await authFetch(`/api/students/${student.id}/missions/${mission.id}/complete`, {
         method: "POST",
-        credentials: "include",
       });
+      safeFetch('/api/sectors').then((data) => data && setSectors(data));
     }
-    await fetch("/api/logs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    await authFetch('/api/logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: `Game "${mission.title}" completed successfully by ${student.name}.`,
-        type: "mission",
+        type: 'mission',
         xp_change: xp,
       }),
     });
@@ -6963,9 +7142,8 @@ export default function App() {
     setGeneratingQuiz(true);
     setQuizGenerateError(null);
     try {
-      const res = await fetch(`/api/missions/${quizPromptMission.id}/generate-quiz`, {
+      const res = await authFetch(`/api/missions/${quizPromptMission.id}/generate-quiz`, {
         method: 'POST',
-        credentials: 'include',
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.id) {
@@ -7574,27 +7752,46 @@ export default function App() {
       )}
 
       {activeMission && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-          <div className="cosmic-modal-overlay absolute inset-0" onClick={() => setActiveMission(null)} />
-          <motion.div 
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="cosmic-modal relative w-full max-w-4xl rounded-[var(--ca-radius-xl)] p-1 overflow-hidden"
-          >
-            {activeMission.embed_code ? (
-              <GamePlayer 
-                mission={activeMission} 
-                onComplete={() => handleMissionComplete(activeMission)} 
-              />
-            ) : (
-              <MissionSimulation 
-                mission={activeMission} 
-                onComplete={handleMissionComplete} 
-                onCancel={() => setActiveMission(null)} 
-              />
-            )}
-          </motion.div>
-        </div>
+        isFullscreenMission(activeMission, sectorNameForMission(activeMission, sectors, selectedSector)) ? (
+          <div className="fixed inset-0 z-[120] bg-[#050810]">
+            <button
+              type="button"
+              onClick={() => setActiveMission(null)}
+              className="fixed top-4 left-4 z-[130] w-12 h-12 flex items-center justify-center rounded-full bg-[#0d1c32]/80 backdrop-blur-xl border border-amber-400/25 text-amber-400 hover:scale-105 active:scale-95 transition-all shadow-[0_0_15px_rgba(245,158,11,0.35)]"
+              aria-label="Back"
+            >
+              <ArrowLeft className="size-5" />
+            </button>
+            <GamePlayer
+              mission={activeMission}
+              sectorName={sectorNameForMission(activeMission, sectors, selectedSector)}
+              onComplete={() => handleMissionComplete(activeMission)}
+            />
+          </div>
+        ) : (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <div className="cosmic-modal-overlay absolute inset-0" onClick={() => setActiveMission(null)} />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="cosmic-modal relative w-full max-w-4xl rounded-[var(--ca-radius-xl)] p-1 overflow-hidden"
+            >
+              {activeMission.embed_code || isElectricityPreFlowMission(activeMission, sectorNameForMission(activeMission, sectors, selectedSector)) ? (
+                <GamePlayer 
+                  mission={activeMission}
+                  sectorName={sectorNameForMission(activeMission, sectors, selectedSector)}
+                  onComplete={() => handleMissionComplete(activeMission)} 
+                />
+              ) : (
+                <MissionSimulation 
+                  mission={activeMission} 
+                  onComplete={handleMissionComplete} 
+                  onCancel={() => setActiveMission(null)} 
+                />
+              )}
+            </motion.div>
+          </div>
+        )
       )}
 
       {quizPromptMission && (
@@ -7699,12 +7896,11 @@ export default function App() {
         )}
         
         <button 
-          onClick={async () => { 
-            await supabase.auth.signOut();
-            await fetch('/api/logout', { method: 'POST' });
+          onClick={async () => {
+            await authFetch('/api/logout', { method: 'POST' });
             localStorage.removeItem('stemverse_access_token');
-            setIsLoggedIn(false); 
-            setStudent(null); 
+            setIsLoggedIn(false);
+            setStudent(null);
           }}
           className="flex flex-col items-center gap-1 group transition-all text-red-500/50 hover:text-red-500 hover:opacity-100"
         >

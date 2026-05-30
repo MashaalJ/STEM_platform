@@ -1,0 +1,2104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Dark City — Circuits &amp; LEDs | STEMverse</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --nova-teal: #00bfa5;
+      --nova-teal-dim: #44ddc1;
+      --circuit-orange: #ffb300;
+      --led-cyan: #00e5ff;
+      --power-amber: #ffb300;
+      --deep-space: #0a0f1a;
+      --dark-city: #121a2e;
+      --surface: #f7fafc;
+      --on-surface: #181c1e;
+      --outline: #6c7a76;
+      --error: #ba1a1a;
+      --success: #006b5c;
+      --transition: 300ms ease;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: "Space Grotesk", system-ui, sans-serif;
+      background: var(--deep-space);
+      color: #e8f4f2;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .screen {
+      position: absolute;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity var(--transition);
+      overflow: hidden;
+    }
+    .screen.active {
+      display: flex;
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* NOVA orb */
+    .nova-orb {
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, var(--nova-teal-dim), var(--nova-teal));
+      box-shadow: 0 0 30px rgba(0, 191, 165, 0.6), 0 0 60px rgba(0, 191, 165, 0.25);
+      animation: nova-pulse 2.2s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+    .nova-orb.sm { width: 80px; height: 80px; }
+    .nova-orb.lg { width: 120px; height: 120px; }
+    @keyframes nova-pulse {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 30px rgba(0, 191, 165, 0.5); }
+      50% { transform: scale(1.06); box-shadow: 0 0 45px rgba(0, 191, 165, 0.85); }
+    }
+
+    .speech-bubble {
+      background: rgba(20, 35, 50, 0.92);
+      border: 1px solid rgba(0, 191, 165, 0.35);
+      border-radius: 16px;
+      border-top-left-radius: 4px;
+      padding: 12px 16px;
+      max-width: min(320px, 85vw);
+      font-size: 0.95rem;
+      line-height: 1.45;
+    }
+
+    .btn-primary {
+      font-family: inherit;
+      font-weight: 700;
+      font-size: 1rem;
+      padding: 14px 28px;
+      border: none;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--nova-teal), #008f7a);
+      color: #001f24;
+      cursor: pointer;
+      transition: transform 0.15s, opacity 0.2s, box-shadow 0.2s;
+      box-shadow: 0 4px 20px rgba(0, 191, 165, 0.35);
+    }
+    .btn-primary:hover:not(:disabled) { transform: translateY(-2px); }
+    .btn-primary:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    .btn-amber {
+      background: linear-gradient(135deg, #ffc107, var(--power-amber));
+      color: #1a1200;
+      box-shadow: 0 0 24px rgba(255, 179, 0, 0.45);
+      animation: launch-pulse 2s ease-in-out infinite;
+    }
+    @keyframes launch-pulse {
+      0%, 100% { box-shadow: 0 0 20px rgba(255, 179, 0, 0.35); }
+      50% { box-shadow: 0 0 36px rgba(255, 179, 0, 0.7); }
+    }
+
+    .footer-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+      background: rgba(10, 15, 26, 0.95);
+      border-top: 1px solid rgba(0, 191, 165, 0.2);
+      display: flex;
+      justify-content: center;
+      z-index: 100;
+    }
+
+    .progress-dots {
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 8px;
+      z-index: 90;
+    }
+    .progress-dots span {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.2);
+    }
+    .progress-dots span.on { background: var(--nova-teal); }
+
+    .debug-bar {
+      display: none;
+      position: fixed;
+      top: 0;
+      right: 0;
+      z-index: 200;
+      padding: 8px;
+    }
+    body.debug .debug-bar { display: block; }
+
+    /* SCREEN 0 */
+    #screen-0 {
+      background: linear-gradient(160deg, #0d1525 0%, #1a2744 100%);
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      text-align: center;
+    }
+    #screen-0 .nova-row {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      text-align: left;
+    }
+    #screen-0 h1 {
+      font-size: clamp(1.75rem, 5vw, 2.75rem);
+      margin-bottom: 2rem;
+      opacity: 0;
+      animation: fade-in 0.8s forwards 0.2s;
+    }
+    @keyframes fade-in {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .concept-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-width: 360px;
+      width: 100%;
+      margin-bottom: 2rem;
+    }
+    .concept-card {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(0, 191, 165, 0.25);
+      border-radius: 16px;
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      opacity: 0;
+      transform: translateX(-24px);
+    }
+    .concept-card.show {
+      animation: card-in 0.5s forwards;
+    }
+    @keyframes card-in {
+      to { opacity: 1; transform: translateX(0); }
+    }
+    .concept-card svg { flex-shrink: 0; }
+
+    /* SCREEN 1 */
+    #screen-2 {
+      background: var(--surface);
+      color: var(--on-surface);
+    }
+    #screen-2 .s1-header {
+      padding: 12px 16px;
+      background: rgba(247,250,252,0.95);
+      border-bottom: 1px solid #e0e3e5;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    #screen-2 .s1-body {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+      overflow: hidden;
+    }
+    @media (max-width: 768px) {
+      #screen-2 .s1-body { flex-direction: column; }
+    }
+    .toolkit {
+      width: 220px;
+      min-width: 200px;
+      background: #ebeef0;
+      border-right: 1px solid #bbcac4;
+      padding: 16px;
+      overflow-y: auto;
+      flex-shrink: 0;
+    }
+    @media (max-width: 768px) {
+      .toolkit {
+        width: 100%;
+        max-height: 28vh;
+        border-right: none;
+        border-bottom: 1px solid #bbcac4;
+        display: flex;
+        flex-direction: column;
+      }
+      .toolkit-parts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+    }
+    .toolkit h2 {
+      font-size: 0.7rem;
+      letter-spacing: 0.12em;
+      color: var(--success);
+      margin-bottom: 12px;
+    }
+    .part-card {
+      background: #fff;
+      border: 1px solid #bbcac4;
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 10px;
+      cursor: grab;
+      text-align: center;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .part-card:active { cursor: grabbing; }
+    .part-card:hover { transform: translateX(4px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+    .part-card .bar { height: 4px; border-radius: 4px 4px 0 0; margin: -12px -12px 8px; }
+    .part-card span {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: #3c4a46;
+    }
+    .canvas-wrap {
+      flex: 1;
+      position: relative;
+      min-height: 280px;
+      background: #fff;
+    }
+    .dot-grid {
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(circle, #cbd5e1 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+  #wire-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 2;
+    }
+    #drop-zone {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+    }
+    #drop-zone.flash-success {
+      animation: canvas-flash 0.5s ease;
+    }
+    @keyframes canvas-flash {
+      0%, 100% { box-shadow: inset 0 0 0 0 transparent; }
+      50% { box-shadow: inset 0 0 80px rgba(0, 191, 165, 0.35); }
+    }
+    .canvas-nova {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 10;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      pointer-events: none;
+    }
+    .placed-comp {
+      position: absolute;
+      z-index: 3;
+      cursor: grab;
+      user-select: none;
+      touch-action: none;
+    }
+    .placed-comp.dragging {
+      cursor: grabbing;
+      z-index: 8;
+      opacity: 0.92;
+    }
+    .terminal {
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #fff;
+      border: 2px solid var(--circuit-orange);
+      cursor: crosshair;
+      z-index: 5;
+      transform: translate(-50%, -50%);
+    }
+    .terminal:hover { transform: translate(-50%, -50%) scale(1.2); }
+    .terminal.selected {
+      border-color: var(--led-cyan);
+      box-shadow: 0 0 8px var(--led-cyan);
+    }
+    .btn-clear {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      z-index: 10;
+      padding: 8px 14px;
+      font-size: 0.75rem;
+      border: 1px solid #bbcac4;
+      background: #fff;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .placed-comp.led-on .led-glow {
+      box-shadow: 0 0 40px rgba(0, 229, 255, 0.7);
+      border-color: var(--led-cyan);
+    }
+
+    /* SCREEN 2 */
+    #screen-3 {
+      background: linear-gradient(180deg, #0f1828, #1a2540);
+      padding: 24px 16px 100px;
+      overflow-y: auto;
+    }
+    #screen-3 h2 {
+      text-align: center;
+      font-size: clamp(1.25rem, 4vw, 1.75rem);
+      margin-bottom: 16px;
+    }
+    #screen-3 .nova-center {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    .circuit-panels {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      max-width: 720px;
+      margin: 0 auto 24px;
+    }
+    @media (max-width: 600px) {
+      .circuit-panels { grid-template-columns: 1fr; }
+    }
+    .circuit-panel {
+      background: rgba(255,255,255,0.05);
+      border-radius: 16px;
+      padding: 16px;
+      border: 2px solid transparent;
+    }
+    .circuit-panel.open-state { border-color: rgba(186, 26, 26, 0.4); }
+    .circuit-panel.closed-state { border-color: rgba(0, 191, 165, 0.4); }
+    .circuit-panel svg { width: 100%; height: auto; display: block; }
+    .panel-label {
+      text-align: center;
+      margin-top: 10px;
+      font-size: 0.85rem;
+      opacity: 0.85;
+    }
+    .toggle-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .big-toggle {
+      width: 72px;
+      height: 36px;
+      background: #334155;
+      border-radius: 999px;
+      position: relative;
+      cursor: pointer;
+      border: 2px solid rgba(255,255,255,0.15);
+    }
+    .big-toggle .knob {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 26px;
+      height: 26px;
+      background: #94a3b8;
+      border-radius: 50%;
+      transition: left 0.25s, background 0.25s;
+    }
+    .big-toggle.on { background: rgba(0, 191, 165, 0.35); }
+    .big-toggle.on .knob {
+      left: 39px;
+      background: var(--nova-teal);
+    }
+
+    /* SCREEN 3 */
+    #screen-4 {
+      background: #0f1520;
+      flex-direction: row;
+    }
+    @media (max-width: 768px) {
+      #screen-4 { flex-direction: column; }
+    }
+    .s3-left {
+      width: 38%;
+      min-width: 260px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      border-right: 1px solid rgba(0,191,165,0.2);
+    }
+    @media (max-width: 768px) {
+      .s3-left { width: 100%; min-width: 0; border-right: none; border-bottom: 1px solid rgba(0,191,165,0.2); }
+    }
+    .s3-right {
+      flex: 1;
+      padding: 16px;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .kit-canvas {
+      flex: 1;
+      background: #1a2235;
+      border-radius: 12px;
+      border: 1px solid #334155;
+      position: relative;
+      overflow: hidden;
+      min-height: 280px;
+    }
+    .kit-part {
+      position: absolute;
+      transition: transform 0.4s ease-in-out, opacity 0.3s;
+    }
+    .kit-part.highlight {
+      filter: drop-shadow(0 0 12px rgba(255, 179, 0, 0.9));
+      transform: scale(1.1);
+      z-index: 5;
+    }
+    .step-controls {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      justify-content: center;
+    }
+    .step-controls button {
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: 1px solid rgba(0,191,165,0.4);
+      background: transparent;
+      color: #e8f4f2;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .step-controls button:disabled { opacity: 0.35; cursor: not-allowed; }
+    .nova-emotion-curious { background: radial-gradient(circle at 30% 30%, #68fadd, var(--nova-teal)) !important; }
+    .nova-emotion-excited { background: radial-gradient(circle at 30% 30%, #ffe082, #ffb300) !important; }
+    .nova-emotion-happy { background: radial-gradient(circle at 30% 30%, #81c784, #2e7d32) !important; }
+    .nova-emotion-thrilled {
+      background: radial-gradient(circle at 30% 30%, #fff, #b2ebf2) !important;
+      animation: thrilled-pulse 0.8s ease-in-out infinite !important;
+    }
+    @keyframes thrilled-pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.12); }
+    }
+
+    /* SCREEN 4 */
+    #screen-5 {
+      background: #050810;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      overflow: hidden;
+    }
+    .skyline {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, #0a1020 0%, #151d35 40%, #1a1030 100%);
+      animation: pan-sky 20s linear infinite alternate;
+    }
+    @keyframes pan-sky {
+      from { background-position: 0% 50%; }
+      to { background-position: 100% 50%; }
+    }
+    .buildings {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 45%;
+      opacity: 0.5;
+    }
+    .zara-planet {
+      position: absolute;
+      top: 8%;
+      right: 8%;
+      width: min(120px, 25vw);
+      height: min(120px, 25vw);
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #6b4c9a, #2d1f4e 70%);
+      box-shadow: 0 0 60px rgba(107, 76, 154, 0.4);
+      opacity: 0.7;
+    }
+    #screen-5 .content {
+      position: relative;
+      z-index: 2;
+      padding: 24px;
+    }
+    #screen-5 .nova-fly {
+      margin: 0 auto 24px;
+      animation: fly-in 1.2s ease-out forwards;
+    }
+    @keyframes fly-in {
+      from { transform: translateX(120vw); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    #screen-5 h1 {
+      font-size: clamp(1.5rem, 5vw, 2.5rem);
+      margin-bottom: 12px;
+    }
+    #screen-5 .sub {
+      opacity: 0.8;
+      margin-bottom: 32px;
+      font-size: 1.1rem;
+    }
+
+    /* SCREEN 5 — DARK CITY GAME */
+    #screen-6 {
+      background: #050810;
+      flex-direction: column;
+    }
+    .game-hud {
+      flex-shrink: 0;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: rgba(10, 15, 26, 0.95);
+      border-bottom: 1px solid rgba(0, 191, 165, 0.25);
+      z-index: 20;
+    }
+    .game-hud .level-pill {
+      font-family: "Space Mono", monospace;
+      font-size: 0.65rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(0, 191, 165, 0.15);
+      border: 1px solid rgba(0, 191, 165, 0.35);
+      color: var(--nova-teal-dim);
+    }
+    .game-hud .xp-pill {
+      font-size: 0.75rem;
+      color: var(--circuit-orange);
+      font-weight: 700;
+    }
+    .game-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+  @media (min-width: 768px) {
+      .game-body { flex-direction: row; }
+    }
+    .game-city-wrap {
+      flex: 0 0 auto;
+      min-height: 32vh;
+      max-height: 38vh;
+      position: relative;
+      background: linear-gradient(180deg, #0a1020 0%, #121a2e 100%);
+      border-bottom: 1px solid rgba(0, 191, 165, 0.15);
+      overflow: hidden;
+    }
+    @media (min-width: 768px) {
+      .game-city-wrap {
+        flex: 1;
+        max-height: none;
+        border-bottom: none;
+        border-right: 1px solid rgba(0, 191, 165, 0.15);
+      }
+    }
+    .game-city {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 16px 8px;
+    }
+    .dc-building {
+      flex: 1;
+      max-width: 72px;
+      min-width: 44px;
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+      border: 1px solid #334155;
+      border-radius: 6px 6px 0 0;
+      padding: 6px 4px 0;
+      transition: box-shadow 0.5s, border-color 0.5s;
+    }
+    .dc-building.lit {
+      border-color: var(--led-cyan);
+      box-shadow: 0 0 24px rgba(0, 229, 255, 0.35), inset 0 0 20px rgba(0, 229, 255, 0.08);
+    }
+    .dc-windows {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      padding-bottom: 6px;
+    }
+    .dc-window {
+      aspect-ratio: 1;
+      background: #1e293b;
+      border-radius: 2px;
+      transition: background 0.4s, box-shadow 0.4s;
+    }
+    .dc-building.lit .dc-window {
+      background: rgba(0, 229, 255, 0.85);
+      box-shadow: 0 0 8px rgba(0, 229, 255, 0.6);
+    }
+    .game-zara {
+      position: absolute;
+      top: 8%;
+      right: 6%;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #6b4c9a, #2d1f4e 70%);
+      opacity: 0.35;
+      transition: opacity 0.8s, box-shadow 0.8s;
+    }
+    .game-zara.lit {
+      opacity: 1;
+      box-shadow: 0 0 48px rgba(167, 139, 250, 0.8);
+    }
+    .game-nova-float {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      z-index: 5;
+      pointer-events: none;
+    }
+    .game-nova-float .nova-orb { width: 48px; height: 48px; }
+    .game-nova-float .speech-bubble {
+      font-size: 0.8rem;
+      max-width: 200px;
+      padding: 8px 12px;
+    }
+    .game-workspace {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      background: #0f1520;
+    }
+    @media (min-width: 768px) {
+      .game-workspace { flex: 1.2; }
+    }
+    .game-workspace .s1-body { flex: 1; min-height: 200px; }
+    .game-workspace .toolkit { width: 100%; max-height: 22vh; }
+    @media (min-width: 768px) {
+      .game-workspace .toolkit { width: 180px; max-height: none; }
+    }
+    .level-toast {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.9);
+      z-index: 200;
+      background: rgba(10, 20, 35, 0.96);
+      border: 2px solid var(--nova-teal);
+      border-radius: 20px;
+      padding: 28px 32px;
+      text-align: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s, transform 0.3s;
+    }
+    .level-toast.show {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+      pointer-events: auto;
+    }
+    .level-toast h3 { color: var(--led-cyan); margin-bottom: 8px; font-size: 1.35rem; }
+    .game-actions {
+      flex-shrink: 0;
+      display: flex;
+      gap: 10px;
+      padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+      background: rgba(10, 15, 26, 0.98);
+      border-top: 1px solid rgba(0, 191, 165, 0.2);
+    }
+    .game-actions button {
+      flex: 1;
+      min-height: 48px;
+      font-family: inherit;
+      font-weight: 700;
+      font-size: 0.9rem;
+      border-radius: 12px;
+      border: none;
+      cursor: pointer;
+    }
+    .btn-secondary {
+      background: rgba(255,255,255,0.08);
+      color: #e8f4f2;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .btn-level-next {
+      background: linear-gradient(135deg, var(--nova-teal), #008f7a);
+      color: #001f24;
+      opacity: 0.4;
+      pointer-events: none;
+    }
+    .btn-level-next.ready {
+      opacity: 1;
+      pointer-events: auto;
+      box-shadow: 0 0 20px rgba(0, 191, 165, 0.4);
+    }
+
+    /* SCREEN 6 — VICTORY */
+    #screen-7 {
+      background: #050810;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+    #screen-7 .zara-planet {
+      width: min(160px, 40vw);
+      height: min(160px, 40vw);
+      opacity: 1;
+      animation: zara-glow 2s ease-in-out infinite alternate;
+    }
+    @keyframes zara-glow {
+      from { box-shadow: 0 0 40px rgba(167, 139, 250, 0.5); }
+      to { box-shadow: 0 0 80px rgba(0, 229, 255, 0.6); }
+    }
+    #screen-7 h1 { font-size: clamp(1.5rem, 5vw, 2.25rem); margin: 16px 0 8px; }
+    #screen-7 .stats {
+      display: flex;
+      gap: 24px;
+      justify-content: center;
+      margin: 20px 0 28px;
+      font-size: 0.9rem;
+      opacity: 0.85;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="progress-dots" id="progressDots"></div>
+    <div class="debug-bar">
+      <button type="button" class="btn-primary" id="debugSkip" style="font-size:0.75rem;padding:8px 12px;">DEBUG: skip</button>
+    </div>
+
+    <!-- SCREEN 0 -->
+    <section class="screen active" id="screen-0" data-screen="0">
+      <div class="nova-row">
+        <div class="nova-orb sm" aria-hidden="true"></div>
+        <div class="speech-bubble" id="s0-bubble">Hey <span id="playerName">Cadet</span>! A circuit is a path for electricity to travel. Let me show you!</div>
+      </div>
+      <h1>What is a circuit?</h1>
+      <div class="concept-cards" id="conceptCards"></div>
+      <button type="button" class="btn-primary" id="s0-next">I get it, NOVA!</button>
+    </section>
+
+    <!-- SCREEN 1 -->
+    <section class="screen" id="screen-1" data-screen="1">
+      <header class="s1-header">
+        <span style="font-weight:700;color:var(--success);letter-spacing:0.05em;">DARK CITY · CIRCUITS</span>
+      </header>
+      <div class="s1-body">
+        <aside class="toolkit">
+          <h2>YOUR PARTS</h2>
+          <div class="toolkit-parts">
+            <div class="part-card" draggable="true" data-part="battery">
+              <div class="bar" style="background:var(--power-amber)"></div>
+              <svg width="64" height="40" viewBox="0 0 64 40" aria-hidden="true">
+                <rect x="8" y="8" width="48" height="24" rx="4" fill="#FFB300"/>
+                <text x="14" y="26" fill="#1a1200" font-size="12" font-weight="bold">−</text>
+                <text x="44" y="26" fill="#1a1200" font-size="12" font-weight="bold">+</text>
+              </svg>
+              <span>BATTERY</span>
+            </div>
+            <div class="part-card" draggable="true" data-part="wire">
+              <div class="bar" style="background:var(--circuit-orange)"></div>
+              <svg width="64" height="24" viewBox="0 0 64 24" aria-hidden="true">
+                <line x1="4" y1="12" x2="60" y2="12" stroke="#FFB300" stroke-width="4" stroke-linecap="round"/>
+                <circle cx="4" cy="12" r="4" fill="#FFB300"/>
+                <circle cx="60" cy="12" r="4" fill="#FFB300"/>
+              </svg>
+              <span>WIRE</span>
+            </div>
+            <div class="part-card" draggable="true" data-part="led">
+              <div class="bar" style="background:var(--led-cyan)"></div>
+              <svg width="48" height="48" viewBox="0 0 48 48" aria-hidden="true">
+                <circle cx="24" cy="24" r="18" fill="rgba(0,229,255,0.2)" stroke="#00E5FF" stroke-width="3"/>
+                <circle cx="24" cy="20" r="6" fill="#00E5FF"/>
+              </svg>
+              <span>LED</span>
+            </div>
+            <div class="part-card" draggable="true" data-part="switch">
+              <div class="bar" style="background:#6c7a76"></div>
+              <svg width="56" height="32" viewBox="0 0 56 32" class="switch-icon" aria-hidden="true">
+                <line x1="4" y1="16" x2="22" y2="16" stroke="#94a3b8" stroke-width="3"/>
+                <line x1="34" y1="16" x2="52" y2="16" stroke="#94a3b8" stroke-width="3"/>
+              </svg>
+              <span>SWITCH</span>
+            </div>
+          </div>
+        </aside>
+        <div class="canvas-wrap">
+          <div class="dot-grid"></div>
+          <svg id="wire-layer"></svg>
+          <div id="drop-zone"></div>
+          <div class="canvas-nova">
+            <div class="nova-orb sm" style="width:56px;height:56px;"></div>
+            <div class="speech-bubble" id="s1-bubble">Drag parts onto the grid (drag again to move). Click two terminals to wire. Loop: Battery (+) → LED → Battery (−).</div>
+          </div>
+          <button type="button" class="btn-clear" id="clearCanvas">Clear canvas</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCREEN 2 -->
+    <section class="screen" id="screen-2" data-screen="2">
+      <h2>What makes a circuit work?</h2>
+      <div class="nova-center" style="display:flex;align-items:flex-start;gap:12px;max-width:520px;margin:0 auto 20px;padding:0 16px;">
+        <div class="nova-orb sm" style="width:64px;height:64px;flex-shrink:0;"></div>
+        <div class="speech-bubble" id="s2-bubble">A CLOSED circuit lets electricity flow. An OPEN circuit stops it. See the difference!</div>
+      </div>
+      <div class="circuit-panels">
+        <div class="circuit-panel open-state" id="panelOpen">
+          <svg viewBox="0 0 280 80" id="svgOpen">
+            <rect x="10" y="25" width="50" height="30" rx="4" fill="#FFB300"/>
+            <text x="18" y="45" fill="#1a1200" font-size="10">+</text>
+            <line x1="60" y1="40" x2="100" y2="40" stroke="#FFB300" stroke-width="3"/>
+            <line x1="120" y1="30" x2="120" y2="50" stroke="#ba1a1a" stroke-width="4" stroke-dasharray="4 4"/>
+            <line x1="140" y1="40" x2="180" y2="40" stroke="#64748b" stroke-width="3" opacity="0.4"/>
+            <circle cx="220" cy="40" r="16" fill="#334155" stroke="#64748b" stroke-width="2"/>
+            <text x="248" y="44" fill="#ba1a1a" font-size="18">✕</text>
+          </svg>
+          <p class="panel-label">Open — electricity can't flow</p>
+        </div>
+        <div class="circuit-panel closed-state" id="panelClosed">
+          <svg viewBox="0 0 280 80" id="svgClosed">
+            <rect x="10" y="25" width="50" height="30" rx="4" fill="#FFB300"/>
+            <text x="18" y="45" fill="#1a1200" font-size="10">+</text>
+            <line x1="60" y1="40" x2="200" y2="40" stroke="#FFB300" stroke-width="3" id="closedWire"/>
+            <circle cx="220" cy="40" r="16" fill="rgba(0,229,255,0.3)" stroke="#00E5FF" stroke-width="2" id="closedLed"/>
+            <g id="particles"></g>
+            <text x="248" y="44" fill="#00E5FF" font-size="16">✓</text>
+          </svg>
+          <p class="panel-label">Closed — electricity flows!</p>
+        </div>
+      </div>
+      <div class="toggle-wrap">
+        <span style="font-size:0.8rem;opacity:0.7;">Toggle the circuit</span>
+        <div class="big-toggle" id="circuitToggle" role="switch" aria-checked="false">
+          <div class="knob"></div>
+        </div>
+        <span id="toggleLabel">OPEN</span>
+      </div>
+    </section>
+
+    <!-- SCREEN 3 -->
+    <section class="screen" id="screen-3" data-screen="3">
+      <div class="s3-left">
+        <div class="nova-orb lg nova-emotion-curious" id="s3-nova"></div>
+        <div class="speech-bubble" id="s3-bubble" style="margin-top:16px;text-align:center;">Step text</div>
+        <p id="s3-counter" style="margin-top:12px;font-size:0.85rem;opacity:0.7;">Step 1 of 5</p>
+        <div class="step-controls">
+          <button type="button" id="s3-prev">Prev</button>
+          <button type="button" id="s3-next-step">Next</button>
+        </div>
+        <button type="button" class="btn-primary" id="s3-ready" style="margin-top:16px;display:none;">I'm ready!</button>
+      </div>
+      <div class="s3-right">
+        <h2 style="margin-bottom:4px;font-size:clamp(1rem,3vw,1.25rem);">STEMbot shows you how to build it</h2>
+        <h3 style="margin-bottom:8px;font-size:0.85rem;opacity:0.75;">STEMverse Kit — Top View</h3>
+        <div class="kit-canvas" id="kitCanvas"></div>
+      </div>
+    </section>
+
+    <!-- SCREEN 4 -->
+    <section class="screen" id="screen-4" data-screen="4">
+      <div class="skyline"></div>
+      <svg class="buildings" viewBox="0 0 400 120" preserveAspectRatio="none">
+        <path fill="#0d1220" d="M0 120 L0 80 L40 80 L40 50 L80 50 L80 90 L120 40 L160 70 L200 30 L240 60 L280 20 L320 55 L360 45 L400 75 L400 120 Z"/>
+      </svg>
+      <div class="zara-planet"></div>
+      <div class="content">
+        <div class="nova-orb lg nova-fly" id="s4-nova"></div>
+        <h1>Dark City needs you, Cadet.</h1>
+        <p class="sub">Light up the city. Save Zara.</p>
+        <button type="button" class="btn-primary btn-amber" id="s4-launch">ENTER DARK CITY →</button>
+      </div>
+    </section>
+
+    <!-- SCREEN 5 — GAME -->
+    <section class="screen" id="screen-5" data-screen="5">
+      <div class="game-hud">
+        <span class="level-pill" id="gameLevelLabel">Level 1 / 5</span>
+        <span class="xp-pill" id="gameXpLabel">+0 XP</span>
+        <span style="flex:1;min-width:8px;"></span>
+        <span class="level-pill" id="gameObjective" style="max-width:55%;text-align:right;">Light the alley</span>
+      </div>
+      <div class="game-body">
+        <div class="game-city-wrap">
+          <div class="game-zara" id="gameZara" aria-hidden="true"></div>
+          <div class="game-nova-float">
+            <div class="nova-orb" aria-hidden="true"></div>
+            <div class="speech-bubble" id="gameNovaBubble">Wire the circuit to restore power!</div>
+          </div>
+          <div class="game-city" id="gameCity"></div>
+        </div>
+        <div class="game-workspace">
+          <div class="s1-body">
+            <aside class="toolkit" id="gameToolkit">
+              <h2>YOUR PARTS</h2>
+              <div class="toolkit-parts" id="gameToolkitParts"></div>
+            </aside>
+            <div class="canvas-wrap">
+              <div class="dot-grid"></div>
+              <svg id="game-wire-layer"></svg>
+              <div id="game-drop-zone"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="game-actions">
+        <button type="button" class="btn-secondary" id="gameClearBtn">Clear</button>
+        <button type="button" class="btn-level-next" id="gameNextLevelBtn">Power next sector →</button>
+      </div>
+      <div class="level-toast" id="levelToast">
+        <h3 id="levelToastTitle">Sector powered!</h3>
+        <p id="levelToastMsg">The grid glows again.</p>
+        <button type="button" class="btn-primary" id="levelToastBtn" style="margin-top:16px;">Continue</button>
+      </div>
+    </section>
+
+    <!-- SCREEN 6 — VICTORY -->
+    <section class="screen" id="screen-6" data-screen="6">
+      <div class="skyline"></div>
+      <div class="zara-planet" style="opacity:1;"></div>
+      <div class="content" style="position:relative;z-index:2;padding:24px;">
+        <div class="nova-orb lg nova-emotion-thrilled" style="margin:0 auto 20px;"></div>
+        <h1>Zara is saved, <span id="victoryName">Cadet</span>!</h1>
+        <p class="sub" style="opacity:0.85;margin-bottom:8px;">Dark City shines again. The grid holds.</p>
+        <div class="stats">
+          <span>Levels: <strong id="victoryLevels">5/5</strong></span>
+          <span>XP: <strong id="victoryXp">+500</strong></span>
+        </div>
+        <button type="button" class="btn-primary btn-amber" id="s6-complete">Complete mission ✓</button>
+      </div>
+    </section>
+
+    <footer class="footer-nav" id="footerNav">
+      <button type="button" class="btn-primary" id="globalNext" disabled>Next →</button>
+    </footer>
+  </div>
+
+  <script>
+(function () {
+  'use strict';
+
+  const DEBUG = new URLSearchParams(location.search).has('debug');
+  if (DEBUG) document.body.classList.add('debug');
+
+  const playerName = localStorage.getItem('stemverse_player_name') || 'Cadet';
+  document.getElementById('playerName').textContent = playerName;
+
+  const GAME_LEVELS = [
+    {
+      name: 'Alley Block',
+      objective: 'Light 1 building — close the circuit with 1 LED.',
+      buildings: 3,
+      targetLeds: 1,
+      parts: { battery: 1, wire: 4, led: 1, switch: 0 },
+      nova: 'First blackout sector! Battery (+) through the LED, back to (−).',
+      xp: 40,
+    },
+    {
+      name: 'Twin Towers',
+      objective: 'Place 2 LEDs and light 2 buildings.',
+      buildings: 4,
+      targetLeds: 2,
+      parts: { battery: 1, wire: 6, led: 2, switch: 0 },
+      nova: 'Both towers need power — use two LEDs in your loop!',
+      xp: 60,
+    },
+    {
+      name: 'Switch Alley',
+      objective: 'Close the switch so electricity can flow.',
+      buildings: 3,
+      targetLeds: 1,
+      requireSwitchClosed: true,
+      parts: { battery: 1, wire: 5, led: 1, switch: 1 },
+      nova: 'Tap the switch on the canvas to close the gap!',
+      xp: 70,
+    },
+    {
+      name: 'Main Grid',
+      objective: 'Light 3 buildings with 3 LEDs in one circuit.',
+      buildings: 5,
+      targetLeds: 3,
+      parts: { battery: 1, wire: 8, led: 3, switch: 0 },
+      nova: 'The whole block is dark — wire all three loads!',
+      xp: 90,
+    },
+    {
+      name: 'Zara Relay',
+      objective: 'Restore the relay — power Zara!',
+      buildings: 1,
+      targetLeds: 1,
+      zara: true,
+      parts: { battery: 1, wire: 6, led: 2, switch: 1 },
+      nova: 'Final relay! Close every gap — Zara is counting on you!',
+      xp: 120,
+    },
+  ];
+
+  const state = {
+    currentScreen: 0,
+    s1: {
+      components: [],
+      connections: [],
+      selectedTerminal: null,
+      circuitValid: false,
+      litLedIds: new Set(),
+      nextId: 1,
+    },
+    s2: { toggled: false, isClosed: false },
+    s3: { step: 0, maxStep: 4 },
+    game: {
+      levelIndex: 0,
+      totalXp: 0,
+      levelComplete: false,
+      components: [],
+      connections: [],
+      selectedTerminal: null,
+      circuitValid: false,
+      nextId: 1,
+      partCounts: {},
+    },
+  };
+
+  const GRID = 60;
+  const screens = document.querySelectorAll('.screen');
+  const globalNext = document.getElementById('globalNext');
+  const progressDots = document.getElementById('progressDots');
+
+  for (let i = 0; i < 5; i++) {
+    const d = document.createElement('span');
+    progressDots.appendChild(d);
+  }
+
+  function log(msg) {
+    console.log('[electricity]', msg);
+  }
+
+  function canAdvance(screen) {
+    switch (screen) {
+      case 0: return true;
+      case 1: return state.s1.circuitValid;
+      case 2: return state.s2.toggled;
+      case 3: return state.s3.step >= 4;
+      case 4: return true;
+      default: return false;
+    }
+  }
+
+  function updateNextButton() {
+    const labels = ['', 'I built it! Let\'s go →', 'Next →', 'Next →', ''];
+    globalNext.disabled = !canAdvance(state.currentScreen);
+    globalNext.textContent = state.currentScreen === 1 && state.s1.circuitValid
+      ? 'I built it! Let\'s go →'
+      : state.currentScreen === 3 && state.s3.step >= 4
+        ? 'Next →'
+        : 'Next →';
+    const footer = document.getElementById('footerNav');
+    const dots = document.getElementById('progressDots');
+    if (state.currentScreen === 0 || state.currentScreen === 4 || state.currentScreen >= 5) {
+      footer.style.display = 'none';
+    } else {
+      footer.style.display = 'flex';
+    }
+    if (dots) dots.style.display = state.currentScreen >= 5 ? 'none' : 'flex';
+  }
+
+  function showScreen(n) {
+    document.querySelectorAll('.screen').forEach((s) => {
+      const num = parseInt(s.getAttribute('data-screen'), 10);
+      const on = num === n;
+      s.classList.toggle('active', on);
+      s.style.opacity = on ? '1' : '0';
+    });
+  }
+
+  function goToScreen(n) {
+    if (n < 0 || n > 6) return;
+    const prev = state.currentScreen;
+    const prevEl = document.getElementById('screen-' + prev);
+    if (prevEl) {
+      prevEl.classList.remove('active');
+      prevEl.style.opacity = '0';
+    }
+    setTimeout(() => {
+      showScreen(n);
+      state.currentScreen = n;
+      if (n <= 4) {
+        progressDots.querySelectorAll('span').forEach((dot, i) => dot.classList.toggle('on', i <= n));
+      }
+      log('screen ' + prev + ' → ' + n);
+      updateNextButton();
+      onScreenEnter(n);
+    }, 300);
+  }
+
+  function onScreenEnter(n) {
+    if (n === 0) initScreen0();
+    if (n === 1) initScreen1();
+    if (n === 2) initScreen2();
+    if (n === 3) initScreen3();
+    if (n === 4) initScreen4();
+    if (n === 5) initGameScreen();
+    if (n === 6) initVictoryScreen();
+  }
+
+  globalNext.addEventListener('click', () => {
+    if (!canAdvance(state.currentScreen)) return;
+    if (state.currentScreen < 4) goToScreen(state.currentScreen + 1);
+  });
+
+  document.getElementById('debugSkip').addEventListener('click', () => {
+    if (state.currentScreen < 6) goToScreen(state.currentScreen + 1);
+  });
+
+  document.getElementById('s0-next').addEventListener('click', () => goToScreen(1));
+
+  /* ——— SCREEN 0 ——— */
+  const conceptData = [
+    { icon: 'battery', title: 'Power Source — gives electricity', color: '#FFB300' },
+    { icon: 'wire', title: 'Conductor — carries electricity', color: '#FFB300' },
+    { icon: 'led', title: 'Load — uses electricity', color: '#00E5FF' },
+  ];
+
+  function initScreen0() {
+    const wrap = document.getElementById('conceptCards');
+    if (wrap.dataset.done) return;
+    wrap.dataset.done = '1';
+    wrap.innerHTML = '';
+    conceptData.forEach((c, i) => {
+      const card = document.createElement('div');
+      card.className = 'concept-card';
+      card.innerHTML = getConceptSvg(c.icon) + '<p style="font-weight:600;">' + c.title + '</p>';
+      wrap.appendChild(card);
+      setTimeout(() => card.classList.add('show'), 300 + i * 300);
+    });
+  }
+
+  function getConceptSvg(type) {
+    if (type === 'battery') {
+      return '<svg width="48" height="32" viewBox="0 0 48 32"><rect x="4" y="6" width="40" height="20" rx="3" fill="#FFB300"/></svg>';
+    }
+    if (type === 'wire') {
+      return '<svg width="48" height="24" viewBox="0 0 48 24"><line x1="2" y1="12" x2="46" y2="12" stroke="#FFB300" stroke-width="3"/></svg>';
+    }
+    return '<svg width="40" height="40" viewBox="0 0 40 40"><circle cx="20" cy="20" r="14" fill="rgba(0,229,255,0.3)" stroke="#00E5FF" stroke-width="2"/></svg>';
+  }
+
+  /* ——— SCREEN 1 ——— */
+  const dropZone = document.getElementById('drop-zone');
+  const wireLayer = document.getElementById('wire-layer');
+
+  function initScreen1() {
+    if (dropZone.dataset.inited) {
+      redrawWires();
+      return;
+    }
+    dropZone.dataset.inited = '1';
+    setupDragTray();
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+    dropZone.addEventListener('drop', onDrop);
+    dropZone.addEventListener('click', onCanvasClick);
+    document.getElementById('clearCanvas').addEventListener('click', clearCanvas);
+  }
+
+  function setupDragTray() {
+    document.querySelectorAll('.part-card[draggable]').forEach((card) => {
+      card.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/part', card.dataset.part);
+        e.dataTransfer.effectAllowed = 'copy';
+      });
+    });
+  }
+
+  function snap(v) {
+    return Math.round(v / GRID) * GRID;
+  }
+
+  function onDrop(e) {
+    e.preventDefault();
+    const type = e.dataTransfer.getData('text/part');
+    if (!type) return;
+    const rect = dropZone.getBoundingClientRect();
+    let x = snap(e.clientX - rect.left - 40);
+    let y = snap(e.clientY - rect.top - 24);
+    x = Math.max(GRID, Math.min(rect.width - GRID * 2, x));
+    y = Math.max(GRID, Math.min(rect.height - GRID * 2, y));
+    addComponent(type, x, y);
+  }
+
+  function addComponent(type, x, y) {
+    const id = 'c' + state.s1.nextId++;
+    const comp = { id, type, x, y, closed: type === 'switch' ? true : undefined };
+    state.s1.components.push(comp);
+    renderComponent(comp);
+    validateCircuit();
+  }
+
+  function renderComponent(comp) {
+    const el = document.createElement('div');
+    el.className = 'placed-comp';
+    el.dataset.id = comp.id;
+    el.style.left = comp.x + 'px';
+    el.style.top = comp.y + 'px';
+    el.innerHTML = getPlacedHtml(comp);
+    dropZone.appendChild(el);
+
+    ['left', 'right'].forEach((side) => {
+      const t = document.createElement('div');
+      t.className = 'terminal';
+      t.dataset.compId = comp.id;
+      t.dataset.side = side;
+      positionTerminal(t, comp, side);
+      dropZone.appendChild(t);
+    });
+
+    if (comp.type === 'switch') {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        comp.closed = !comp.closed;
+        validateCircuit();
+      });
+    }
+    setupComponentDrag(comp, dropZone, (final) => {
+      redrawWires();
+      if (final) validateCircuit();
+    });
+  }
+
+  function getPlacedHtml(comp, ledOn) {
+    const on = comp.type === 'led' && !!ledOn;
+    if (comp.type === 'battery') {
+      return '<div style="width:96px;height:56px;background:#FFB300;border-radius:8px;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-weight:bold;color:#1a1200;border:3px solid #fff;box-shadow:0 4px 12px rgba(0,0,0,0.15);"><span>−</span><span>+</span></div>';
+    }
+    if (comp.type === 'wire') {
+      return '<div style="width:80px;height:8px;background:#FFB300;border-radius:4px;box-shadow:0 2px 8px rgba(255,179,0,0.4);margin-top:24px;"></div>';
+    }
+    if (comp.type === 'led') {
+      return '<div class="led-glow" style="width:72px;height:72px;border-radius:50%;border:3px solid ' + (on ? '#00E5FF' : '#64748b') + ';background:' + (on ? 'rgba(0,229,255,0.35)' : '#334155') + ';display:flex;align-items:center;justify-content:center;"><svg width="36" height="36" viewBox="0 0 36 36"><circle cx="18" cy="18" r="10" fill="' + (on ? '#00E5FF' : '#64748b') + '"/></svg></div>';
+    }
+    if (comp.type === 'switch') {
+      const gap = comp.closed ? '8px' : '28px';
+      const col = comp.closed ? '#22c55e' : '#94a3b8';
+      return '<div style="width:80px;height:40px;display:flex;align-items:center;gap:' + gap + ';margin-top:8px;"><div style="flex:1;height:4px;background:' + col + ';"></div><div style="width:12px;height:12px;border-radius:50%;background:' + col + ';"></div><div style="flex:1;height:4px;background:' + col + ';"></div></div>';
+    }
+    return '';
+  }
+
+  function positionTerminal(termEl, comp, side) {
+    const w = comp.type === 'battery' ? 96 : comp.type === 'led' ? 72 : 80;
+    const h = comp.type === 'led' ? 72 : comp.type === 'battery' ? 56 : 40;
+    const left = comp.x + (side === 'left' ? 0 : w);
+    const top = comp.y + h / 2;
+    termEl.style.left = left + 'px';
+    termEl.style.top = top + 'px';
+  }
+
+  function termKey(compId, side) {
+    return compId + ':' + side;
+  }
+
+  /** Build conductivity graph. Battery + and − are NOT shorted internally. */
+  function buildCircuitGraph(components, connections) {
+    const adj = new Map();
+    function addEdge(a, b) {
+      if (!adj.has(a)) adj.set(a, []);
+      if (!adj.has(b)) adj.set(b, []);
+      if (!adj.get(a).includes(b)) adj.get(a).push(b);
+      if (!adj.get(b).includes(a)) adj.get(b).push(a);
+    }
+    components.forEach((c) => {
+      const L = termKey(c.id, 'left');
+      const R = termKey(c.id, 'right');
+      if (c.type === 'wire' || c.type === 'led') addEdge(L, R);
+      if (c.type === 'switch' && c.closed) addEdge(L, R);
+    });
+    connections.forEach((conn) => {
+      addEdge(termKey(conn.a.compId, conn.a.side), termKey(conn.b.compId, conn.b.side));
+    });
+    return adj;
+  }
+
+  function bfsPath(adj, start, end) {
+    if (start === end) return [start];
+    const queue = [start];
+    const visited = new Set([start]);
+    const parent = new Map();
+    while (queue.length) {
+      const node = queue.shift();
+      for (const nb of adj.get(node) || []) {
+        if (!visited.has(nb)) {
+          visited.add(nb);
+          parent.set(nb, node);
+          if (nb === end) {
+            const path = [nb];
+            let cur = node;
+            while (cur !== undefined) {
+              path.unshift(cur);
+              cur = parent.get(cur);
+            }
+            return path;
+          }
+          queue.push(nb);
+        }
+      }
+    }
+    return null;
+  }
+
+  function analyzeCircuit(components, connections, options) {
+    const opts = options || {};
+    const minConnections = opts.minConnections !== undefined ? opts.minConnections : 2;
+    const battery = components.find((c) => c.type === 'battery');
+    const leds = components.filter((c) => c.type === 'led');
+    if (!battery) return { valid: false, litLedIds: new Set(), reason: 'no-battery' };
+    if (leds.length === 0) return { valid: false, litLedIds: new Set(), reason: 'no-led' };
+    if (connections.length < minConnections) {
+      return { valid: false, litLedIds: new Set(), reason: 'need-more-wires' };
+    }
+    const adj = buildCircuitGraph(components, connections);
+    const plus = termKey(battery.id, 'right');
+    const minus = termKey(battery.id, 'left');
+    const path = bfsPath(adj, plus, minus);
+    if (!path) return { valid: false, litLedIds: new Set(), reason: 'open' };
+    const onPath = new Set();
+    path.forEach((node) => onPath.add(node.split(':')[0]));
+    const litLedIds = new Set();
+    leds.forEach((led) => {
+      if (onPath.has(led.id)) litLedIds.add(led.id);
+    });
+    const badSwitch = components.find((c) => c.type === 'switch' && onPath.has(c.id) && !c.closed);
+    if (badSwitch) return { valid: false, litLedIds: new Set(), reason: 'open-switch' };
+    const valid = litLedIds.size > 0;
+    return { valid, litLedIds, reason: valid ? 'ok' : 'no-led-in-loop' };
+  }
+
+  function syncComponentDom(comp, zoneEl, litLedIds) {
+    const el = zoneEl.querySelector('.placed-comp[data-id="' + comp.id + '"]');
+    if (!el) return;
+    const ledOn = comp.type === 'led' && litLedIds && litLedIds.has(comp.id);
+    el.innerHTML = getPlacedHtml(comp, ledOn);
+    el.classList.toggle('led-on', ledOn);
+    zoneEl.querySelectorAll('.terminal[data-comp-id="' + comp.id + '"]').forEach((t) => {
+      positionTerminal(t, comp, t.dataset.side);
+    });
+  }
+
+  function setupComponentDrag(comp, zoneEl, onMoved) {
+    const el = zoneEl.querySelector('.placed-comp[data-id="' + comp.id + '"]');
+    if (!el || el.dataset.dragBound) return;
+    el.dataset.dragBound = '1';
+    let dragging = false;
+    let startX = 0;
+    let startY = 0;
+    let origX = 0;
+    let origY = 0;
+
+    const onDown = (e) => {
+      if (e.target.closest('.terminal')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragging = true;
+      el.classList.add('dragging');
+      startX = e.clientX;
+      startY = e.clientY;
+      origX = comp.x;
+      origY = comp.y;
+    };
+
+    const onMove = (e) => {
+      if (!dragging) return;
+      const rect = zoneEl.getBoundingClientRect();
+      let x = snap(origX + (e.clientX - startX));
+      let y = snap(origY + (e.clientY - startY));
+      x = Math.max(GRID, Math.min(rect.width - GRID * 2, x));
+      y = Math.max(GRID, Math.min(rect.height - GRID * 2, y));
+      comp.x = x;
+      comp.y = y;
+      el.style.left = x + 'px';
+      el.style.top = y + 'px';
+      zoneEl.querySelectorAll('.terminal[data-comp-id="' + comp.id + '"]').forEach((t) => {
+        positionTerminal(t, comp, t.dataset.side);
+      });
+      onMoved();
+    };
+
+    const onUp = () => {
+      if (!dragging) return;
+      dragging = false;
+      el.classList.remove('dragging');
+      onMoved(true);
+    };
+
+    el.addEventListener('mousedown', onDown);
+    el.addEventListener('touchstart', (e) => {
+      const t = e.touches[0];
+      onDown({ clientX: t.clientX, clientY: t.clientY, preventDefault: () => e.preventDefault(), stopPropagation: () => e.stopPropagation(), target: e.target });
+    }, { passive: false });
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', (e) => {
+      if (!dragging) return;
+      const t = e.touches[0];
+      onMove({ clientX: t.clientX, clientY: t.clientY });
+    }, { passive: false });
+    window.addEventListener('touchend', onUp);
+  }
+
+  function onCanvasClick(e) {
+    const term = e.target.closest('.terminal');
+    if (!term) {
+      if (state.s1.selectedTerminal) {
+        state.s1.selectedTerminal = null;
+        document.querySelectorAll('.terminal').forEach((t) => t.classList.remove('selected'));
+      }
+      return;
+    }
+    const key = termKey(term.dataset.compId, term.dataset.side);
+    if (!state.s1.selectedTerminal) {
+      state.s1.selectedTerminal = { compId: term.dataset.compId, side: term.dataset.side, key };
+      term.classList.add('selected');
+      return;
+    }
+    const a = state.s1.selectedTerminal;
+    if (a.compId === term.dataset.compId && a.side === term.dataset.side) {
+      state.s1.selectedTerminal = null;
+      term.classList.remove('selected');
+      return;
+    }
+    const b = { compId: term.dataset.compId, side: term.dataset.side };
+    const exists = state.s1.connections.some(
+      (c) =>
+        (c.a.compId === a.compId && c.a.side === a.side && c.b.compId === b.compId && c.b.side === b.side) ||
+        (c.b.compId === a.compId && c.b.side === a.side && c.a.compId === b.compId && c.a.side === b.side)
+    );
+    if (!exists) {
+      state.s1.connections.push({ a: { compId: a.compId, side: a.side }, b: { compId: b.compId, side: b.side } });
+    }
+    document.querySelectorAll('.terminal').forEach((t) => t.classList.remove('selected'));
+    state.s1.selectedTerminal = null;
+    redrawWires();
+    validateCircuit();
+  }
+
+  function getTerminalPos(compId, side) {
+    const comp = state.s1.components.find((c) => c.id === compId);
+    if (!comp) return { x: 0, y: 0 };
+    const w = comp.type === 'battery' ? 96 : comp.type === 'led' ? 72 : 80;
+    const h = comp.type === 'led' ? 72 : comp.type === 'battery' ? 56 : 40;
+    return {
+      x: comp.x + (side === 'left' ? 0 : w),
+      y: comp.y + h / 2,
+    };
+  }
+
+  function redrawWires() {
+    const rect = dropZone.getBoundingClientRect();
+    wireLayer.setAttribute('viewBox', '0 0 ' + rect.width + ' ' + rect.height);
+    wireLayer.innerHTML = '';
+    state.s1.connections.forEach((conn) => {
+      const p1 = getTerminalPos(conn.a.compId, conn.a.side);
+      const p2 = getTerminalPos(conn.b.compId, conn.b.side);
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      const mx = (p1.x + p2.x) / 2;
+      path.setAttribute('d', 'M ' + p1.x + ' ' + p1.y + ' L ' + mx + ' ' + p1.y + ' L ' + mx + ' ' + p2.y + ' L ' + p2.x + ' ' + p2.y);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', '#FFB300');
+      path.setAttribute('stroke-width', '4');
+      path.setAttribute('stroke-linecap', 'round');
+      path.style.filter = 'drop-shadow(0 0 4px rgba(255,179,0,0.6))';
+      wireLayer.appendChild(path);
+    });
+  }
+
+  function validateCircuit() {
+    const result = analyzeCircuit(state.s1.components, state.s1.connections, { minConnections: 2 });
+    const wasValid = state.s1.circuitValid;
+    state.s1.circuitValid = result.valid;
+    state.s1.litLedIds = result.litLedIds;
+    state.s1.components.forEach((c) => syncComponentDom(c, dropZone, result.litLedIds));
+    const bubble = document.getElementById('s1-bubble');
+    if (result.valid && !wasValid) {
+      playBuzz();
+      dropZone.classList.add('flash-success');
+      setTimeout(() => dropZone.classList.remove('flash-success'), 500);
+      bubble.innerHTML = '<strong style="color:#00E5FF">YES!</strong> You closed the circuit! The LED is ON!';
+      bounceNova();
+    } else if (!result.valid && result.reason === 'need-more-wires') {
+      bubble.textContent = 'Connect terminals with wires — you need a full loop from battery + to − through the LED.';
+    } else if (!result.valid && result.reason === 'open-switch') {
+      bubble.textContent = 'The switch is OPEN — close it so electricity can flow!';
+    } else if (!result.valid && state.s1.components.length > 0) {
+      bubble.textContent = 'Build a closed loop: Battery (+) → wires → LED → wires → Battery (−).';
+    }
+    updateNextButton();
+  }
+
+  function playBuzz() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 220;
+      osc.type = 'square';
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.2);
+    } catch (e) {
+      log('audio: ' + e.message);
+    }
+  }
+
+  function bounceNova() {
+    const orb = document.querySelector('#screen-2 .canvas-nova .nova-orb');
+    orb.style.animation = 'none';
+    orb.offsetHeight;
+    orb.style.animation = 'nova-pulse 0.4s ease 3';
+  }
+
+  function clearCanvas() {
+    state.s1.components = [];
+    state.s1.connections = [];
+    state.s1.selectedTerminal = null;
+    state.s1.circuitValid = false;
+    dropZone.querySelectorAll('.placed-comp, .terminal').forEach((el) => el.remove());
+    wireLayer.innerHTML = '';
+    document.getElementById('s1-bubble').textContent = 'Canvas cleared. Build your circuit again!';
+    updateNextButton();
+  }
+
+  /* ——— SCREEN 2 ——— */
+  let particleAnim = null;
+
+  function initScreen2() {
+    const toggle = document.getElementById('circuitToggle');
+    if (toggle.dataset.inited) return;
+    toggle.dataset.inited = '1';
+    toggle.addEventListener('click', () => {
+      state.s2.toggled = true;
+      state.s2.isClosed = !state.s2.isClosed;
+      toggle.classList.toggle('on', state.s2.isClosed);
+      document.getElementById('toggleLabel').textContent = state.s2.isClosed ? 'CLOSED' : 'OPEN';
+      updateScreen2Visuals();
+      updateNextButton();
+    });
+    updateScreen2Visuals();
+  }
+
+  function updateScreen2Visuals() {
+    const bubble = document.getElementById('s2-bubble');
+    const closed = state.s2.isClosed;
+    bubble.textContent = closed
+      ? 'See those dots moving? Electricity is flowing through a CLOSED circuit!'
+      : 'The gap stops the flow. This OPEN circuit keeps the LED dark.';
+    document.getElementById('panelOpen').style.opacity = closed ? '0.45' : '1';
+    document.getElementById('panelClosed').style.opacity = closed ? '1' : '0.45';
+    const particles = document.getElementById('particles');
+    particles.innerHTML = '';
+    if (particleAnim) cancelAnimationFrame(particleAnim);
+    if (closed) startParticles();
+  }
+
+  function startParticles() {
+    const g = document.getElementById('particles');
+    const dots = [];
+    for (let i = 0; i < 5; i++) {
+      const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      c.setAttribute('r', '3');
+      c.setAttribute('fill', '#00E5FF');
+      g.appendChild(c);
+      dots.push({ el: c, t: i * 0.2 });
+    }
+    let start = null;
+    function frame(ts) {
+      if (!start) start = ts;
+      const elapsed = (ts - start) / 1000;
+      dots.forEach((d, i) => {
+        const p = ((elapsed + d.t) % 1);
+        const x = 60 + p * 140;
+        d.el.setAttribute('cx', x);
+        d.el.setAttribute('cy', '40');
+        d.el.setAttribute('opacity', String(1 - Math.abs(p - 0.5) * 2));
+      });
+      if (state.currentScreen === 2 && state.s2.isClosed) {
+        particleAnim = requestAnimationFrame(frame);
+      }
+    }
+    particleAnim = requestAnimationFrame(frame);
+  }
+
+  /* ——— SCREEN 3 ——— */
+  const stepTexts = [
+    'Find your orange conductive bars. These ARE the wires!',
+    'Click the red (+) bar into the top of your hub plate',
+    'Click the black (−) bar into the bottom',
+    'Now press your LED bolt-module into any bar hole',
+    'Plug in the USB — NOVA will take it from here!',
+  ];
+  const emotions = ['nova-emotion-curious', 'nova-emotion-excited', 'nova-emotion-excited', 'nova-emotion-happy', 'nova-emotion-thrilled'];
+
+  function initScreen3() {
+    if (!document.getElementById('kitCanvas').dataset.built) {
+      buildKitScene();
+      document.getElementById('kitCanvas').dataset.built = '1';
+    }
+    document.getElementById('s3-prev').onclick = () => {
+      if (state.s3.step > 0) {
+        state.s3.step--;
+        renderKitStep();
+      }
+    };
+    document.getElementById('s3-next-step').onclick = () => {
+      if (state.s3.step < 4) {
+        state.s3.step++;
+        renderKitStep();
+      }
+    };
+    document.getElementById('s3-ready').onclick = () => goToScreen(4);
+    renderKitStep();
+  }
+
+  function buildKitScene() {
+    const canvas = document.getElementById('kitCanvas');
+    canvas.innerHTML = `
+      <div class="kit-part hub" data-part="hub" style="left:50%;top:50%;transform:translate(-50%,-50%);width:100px;height:100px;background:#475569;border-radius:8px;border:2px solid #94a3b8;"></div>
+      <div class="kit-part bar-tray" data-part="bar1" style="left:12%;top:20%;width:70px;height:16px;background:#f97316;border-radius:4px;"></div>
+      <div class="kit-part bar-tray" data-part="bar2" style="left:12%;top:32%;width:70px;height:16px;background:#f97316;border-radius:4px;"></div>
+      <div class="kit-part led-tray" data-part="led" style="right:10%;top:25%;width:40px;height:40px;border-radius:50%;background:rgba(0,229,255,0.3);border:2px solid #00e5ff;"></div>
+    `;
+  }
+
+  function renderKitStep() {
+    const step = state.s3.step;
+    document.getElementById('s3-bubble').textContent = stepTexts[step];
+    document.getElementById('s3-counter').textContent = 'Step ' + (step + 1) + ' of 5';
+    const nova = document.getElementById('s3-nova');
+    nova.className = 'nova-orb lg ' + emotions[step];
+    document.getElementById('s3-prev').disabled = step === 0;
+    document.getElementById('s3-next-step').disabled = step >= 4;
+    document.getElementById('s3-ready').style.display = step >= 4 ? 'block' : 'none';
+    updateNextButton();
+
+    const canvas = document.getElementById('kitCanvas');
+    canvas.querySelectorAll('.kit-part').forEach((p) => p.classList.remove('highlight'));
+    canvas.querySelectorAll('.kit-arrow').forEach((a) => a.remove());
+
+    const hub = canvas.querySelector('[data-part="hub"]');
+    if (step === 0) {
+      canvas.querySelector('[data-part="bar1"]').classList.add('highlight');
+      canvas.querySelector('[data-part="bar2"]').classList.add('highlight');
+    }
+    if (step === 1) animateBarToHub('bar1', '#ef4444', '50%', '18%');
+    if (step === 2) animateBarToHub('bar2', '#1e293b', '50%', '82%');
+    if (step === 3) {
+      const led = canvas.querySelector('[data-part="led"]');
+      led.classList.add('highlight');
+      led.style.transition = 'all 0.4s ease-in-out';
+      led.style.left = '58%';
+      led.style.top = '42%';
+    }
+    if (step === 4) {
+      hub.style.boxShadow = '0 0 30px rgba(0,229,255,0.8)';
+      hub.style.background = '#64748b';
+      [hub, ...canvas.querySelectorAll('.kit-part')].forEach((p, i) => {
+        setTimeout(() => {
+          if (p.classList.contains('led-tray') || p.dataset.part === 'led') {
+            p.style.boxShadow = '0 0 20px #00e5ff';
+          }
+        }, i * 200);
+      });
+    }
+  }
+
+  function animateBarToHub(barKey, color, left, top) {
+    const canvas = document.getElementById('kitCanvas');
+    const bar = canvas.querySelector('[data-part="' + barKey + '"]');
+    if (!bar) return;
+    bar.classList.add('highlight');
+    bar.style.background = color;
+    bar.style.left = left;
+    bar.style.top = top;
+    bar.style.transform = 'translate(-50%, -50%) rotate(90deg)';
+    const arrow = document.createElement('div');
+    arrow.className = 'kit-arrow';
+    arrow.textContent = '↓';
+    arrow.style.cssText = 'position:absolute;left:' + left + ';top:calc(' + top + ' - 28px);transform:translateX(-50%);font-size:24px;color:#fbbf24;';
+    canvas.appendChild(arrow);
+  }
+
+  /* ——— SCREEN 4 ——— */
+  function initScreen4() {
+    document.getElementById('s4-launch').onclick = () => {
+      log('entering Dark City game');
+      state.game.levelIndex = 0;
+      state.game.totalXp = 0;
+      goToScreen(5);
+    };
+  }
+
+  function dispatchMissionComplete() {
+    const detail = { world: 'dark-city', module: 'electricity', complete: true };
+    log('novaGameLaunch — mission complete');
+    window.dispatchEvent(new CustomEvent('novaGameLaunch', { detail }));
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: 'novaGameLaunch', detail }, window.location.origin);
+    }
+  }
+
+  /* ——— DARK CITY GAME ——— */
+  const gameDropZone = () => document.getElementById('game-drop-zone');
+  const gameWireLayer = () => document.getElementById('game-wire-layer');
+
+  function initGameScreen() {
+    if (!document.getElementById('game-drop-zone').dataset.inited) {
+      document.getElementById('game-drop-zone').dataset.inited = '1';
+      gameDropZone().addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+      gameDropZone().addEventListener('drop', onGameDrop);
+      gameDropZone().addEventListener('click', onGameCanvasClick);
+      document.getElementById('gameClearBtn').addEventListener('click', clearGameCanvas);
+      document.getElementById('gameNextLevelBtn').addEventListener('click', advanceGameLevel);
+      document.getElementById('levelToastBtn').addEventListener('click', () => {
+        document.getElementById('levelToast').classList.remove('show');
+        advanceGameLevel();
+      });
+    }
+    loadGameLevel(state.game.levelIndex);
+  }
+
+  function buildGameToolkit(level) {
+    const wrap = document.getElementById('gameToolkitParts');
+    wrap.innerHTML = '';
+    const defs = [
+      { part: 'battery', label: 'BATTERY', color: 'var(--power-amber)' },
+      { part: 'wire', label: 'WIRE', color: 'var(--circuit-orange)' },
+      { part: 'led', label: 'LED', color: 'var(--led-cyan)' },
+      { part: 'switch', label: 'SWITCH', color: '#6c7a76' },
+    ];
+    defs.forEach((d) => {
+      const max = state.game.partCounts[d.part] || 0;
+      if (max < 1) return;
+      const card = document.createElement('div');
+      card.className = 'part-card';
+      card.draggable = true;
+      card.dataset.part = d.part;
+      card.innerHTML =
+        '<div class="bar" style="background:' + d.color + '"></div>' +
+        '<span style="font-size:1.5rem;">' + (d.part === 'battery' ? '🔋' : d.part === 'wire' ? '〰' : d.part === 'led' ? '💡' : '⏻') + '</span>' +
+        '<span>' + d.label + ' ×' + max + '</span>';
+      card.addEventListener('dragstart', (e) => {
+        const left = (state.game.partCounts[d.part] || 0);
+        if (left <= 0) { e.preventDefault(); return; }
+        e.dataTransfer.setData('text/part', d.part);
+      });
+      wrap.appendChild(card);
+    });
+  }
+
+  function renderGameCity(level) {
+    const city = document.getElementById('gameCity');
+    city.innerHTML = '';
+    for (let i = 0; i < level.buildings; i++) {
+      const b = document.createElement('div');
+      b.className = 'dc-building';
+      b.dataset.idx = String(i);
+      b.innerHTML = '<div class="dc-windows"><div class="dc-window"></div><div class="dc-window"></div><div class="dc-window"></div><div class="dc-window"></div></div>';
+      city.appendChild(b);
+    }
+    const zara = document.getElementById('gameZara');
+    zara.style.display = level.zara ? 'block' : 'none';
+    zara.classList.remove('lit');
+  }
+
+  function loadGameLevel(index) {
+    const level = GAME_LEVELS[index];
+    if (!level) return;
+    state.game.levelComplete = false;
+    state.game.components = [];
+    state.game.connections = [];
+    state.game.selectedTerminal = null;
+    state.game.circuitValid = false;
+    state.game.nextId = 1;
+    clearGameCanvas(false);
+    state.game.partCounts = Object.assign({}, level.parts);
+    buildGameToolkit(level);
+    renderGameCity(level);
+    document.getElementById('gameLevelLabel').textContent = 'Level ' + (index + 1) + ' / ' + GAME_LEVELS.length + ' · ' + level.name;
+    document.getElementById('gameObjective').textContent = level.objective;
+    document.getElementById('gameXpLabel').textContent = 'Total +' + state.game.totalXp + ' XP';
+    document.getElementById('gameNovaBubble').textContent = level.nova;
+    document.getElementById('gameNextLevelBtn').classList.remove('ready');
+    document.getElementById('gameNextLevelBtn').textContent =
+      index >= GAME_LEVELS.length - 1 ? 'Finish & save Zara →' : 'Power next sector →';
+  }
+
+  function countGameLeds() {
+    return state.game.components.filter((c) => c.type === 'led').length;
+  }
+
+  function onGameDrop(e) {
+    e.preventDefault();
+    const type = e.dataTransfer.getData('text/part');
+    if (!type || (state.game.partCounts[type] || 0) <= 0) return;
+    const rect = gameDropZone().getBoundingClientRect();
+    let x = snap(e.clientX - rect.left - 40);
+    let y = snap(e.clientY - rect.top - 24);
+    x = Math.max(GRID, Math.min(rect.width - GRID * 2, x));
+    y = Math.max(GRID, Math.min(rect.height - GRID * 2, y));
+    state.game.partCounts[type] -= 1;
+    addGameComponent(type, x, y);
+    buildGameToolkit(GAME_LEVELS[state.game.levelIndex]);
+  }
+
+  function addGameComponent(type, x, y) {
+    const id = 'g' + state.game.nextId++;
+    const comp = { id, type, x, y, closed: type === 'switch' ? true : undefined };
+    state.game.components.push(comp);
+    renderGameComponent(comp);
+    validateGameCircuit();
+  }
+
+  function renderGameComponent(comp) {
+    const el = document.createElement('div');
+    el.className = 'placed-comp';
+    el.dataset.id = comp.id;
+    el.style.left = comp.x + 'px';
+    el.style.top = comp.y + 'px';
+    el.innerHTML = getPlacedHtml(comp, state.game.circuitValid);
+    gameDropZone().appendChild(el);
+    ['left', 'right'].forEach((side) => {
+      const t = document.createElement('div');
+      t.className = 'terminal';
+      t.dataset.compId = comp.id;
+      t.dataset.side = side;
+      positionTerminal(t, comp, side);
+      gameDropZone().appendChild(t);
+    });
+    if (comp.type === 'switch') {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        comp.closed = !comp.closed;
+        validateGameCircuit();
+      });
+    }
+    const dz = gameDropZone();
+    setupComponentDrag(comp, dz, (final) => {
+      redrawGameWires();
+      if (final) validateGameCircuit();
+    });
+  }
+
+  function onGameCanvasClick(e) {
+    const term = e.target.closest('.terminal');
+    const g = state.game;
+    if (!term) {
+      if (g.selectedTerminal) {
+        g.selectedTerminal = null;
+        gameDropZone().querySelectorAll('.terminal').forEach((t) => t.classList.remove('selected'));
+      }
+      return;
+    }
+    const key = termKey(term.dataset.compId, term.dataset.side);
+    if (!g.selectedTerminal) {
+      g.selectedTerminal = { compId: term.dataset.compId, side: term.dataset.side, key };
+      term.classList.add('selected');
+      return;
+    }
+    const a = g.selectedTerminal;
+    if (a.compId === term.dataset.compId && a.side === term.dataset.side) {
+      g.selectedTerminal = null;
+      term.classList.remove('selected');
+      return;
+    }
+    const b = { compId: term.dataset.compId, side: term.dataset.side };
+    const exists = g.connections.some(
+      (c) =>
+        (c.a.compId === a.compId && c.a.side === a.side && c.b.compId === b.compId && c.b.side === b.side) ||
+        (c.b.compId === a.compId && c.b.side === a.side && c.a.compId === b.compId && c.a.side === b.side)
+    );
+    if (!exists) g.connections.push({ a: { compId: a.compId, side: a.side }, b: { compId: b.compId, side: b.side } });
+    gameDropZone().querySelectorAll('.terminal').forEach((t) => t.classList.remove('selected'));
+    g.selectedTerminal = null;
+    redrawGameWires();
+    validateGameCircuit();
+  }
+
+  function validateGameCircuit() {
+    const level = GAME_LEVELS[state.game.levelIndex];
+    const minConn = Math.max(2, level.targetLeds + 1);
+    const result = analyzeCircuit(state.game.components, state.game.connections, { minConnections: minConn });
+    const wasValid = state.game.circuitValid;
+    state.game.circuitValid = result.valid;
+    const dz = gameDropZone();
+    state.game.components.forEach((c) => syncComponentDom(c, dz, result.litLedIds));
+    const litCount = result.litLedIds.size;
+    const meetsLeds = result.valid && litCount >= level.targetLeds;
+    const bubble = document.getElementById('gameNovaBubble');
+    if (meetsLeds && !state.game.levelComplete) {
+      onGameLevelSuccess(level);
+    } else {
+      state.game.levelComplete = false;
+      document.getElementById('gameNextLevelBtn').classList.remove('ready');
+      updateCityLights(meetsLeds ? litCount : 0);
+      if (!result.valid && result.reason === 'need-more-wires') {
+        bubble.textContent = 'Click two terminals to add a wire. You need a full path from + to −.';
+      } else if (!result.valid && result.reason === 'open-switch') {
+        bubble.textContent = 'Close the switch — tap it on the canvas!';
+      } else if (!meetsLeds && result.valid) {
+        bubble.textContent = 'Circuit works! Add ' + (level.targetLeds - litCount) + ' more LED(s) in the loop.';
+      }
+    }
+    if (result.valid && !wasValid) playBuzz();
+    redrawGameWires();
+  }
+
+  function updateCityLights(litCount) {
+    const buildings = document.querySelectorAll('#gameCity .dc-building');
+    buildings.forEach((b, i) => b.classList.toggle('lit', i < litCount));
+    if (GAME_LEVELS[state.game.levelIndex].zara && litCount > 0) {
+      document.getElementById('gameZara').classList.add('lit');
+    }
+  }
+
+  function onGameLevelSuccess(level) {
+    state.game.levelComplete = true;
+    state.game.totalXp += level.xp;
+    playBuzz();
+    gameDropZone().classList.add('flash-success');
+    setTimeout(() => gameDropZone().classList.remove('flash-success'), 500);
+    updateCityLights(Math.min(level.buildings, level.targetLeds));
+    document.getElementById('gameXpLabel').textContent = 'Total +' + state.game.totalXp + ' XP';
+    document.getElementById('gameNextLevelBtn').classList.add('ready');
+    document.getElementById('gameNovaBubble').innerHTML =
+      '<strong style="color:#00E5FF">POWERED!</strong> ' + level.name + ' is back online!';
+    const toast = document.getElementById('levelToast');
+    document.getElementById('levelToastTitle').textContent = level.zara ? 'Zara Relay Online!' : 'Sector powered!';
+    document.getElementById('levelToastMsg').textContent = '+' + level.xp + ' XP — ' + (level.zara ? 'Zara glows in the sky!' : 'Keep going, Cadet!');
+    toast.classList.add('show');
+  }
+
+  function advanceGameLevel() {
+    if (!state.game.levelComplete) return;
+    document.getElementById('levelToast').classList.remove('show');
+    const next = state.game.levelIndex + 1;
+    if (next >= GAME_LEVELS.length) {
+      goToScreen(6);
+      return;
+    }
+    state.game.levelIndex = next;
+    loadGameLevel(next);
+  }
+
+  function redrawGameWires() {
+    const dz = gameDropZone();
+    const wl = gameWireLayer();
+    const rect = dz.getBoundingClientRect();
+    wl.setAttribute('viewBox', '0 0 ' + rect.width + ' ' + rect.height);
+    wl.innerHTML = '';
+    state.game.connections.forEach((conn) => {
+      const compA = state.game.components.find((c) => c.id === conn.a.compId);
+      const compB = state.game.components.find((c) => c.id === conn.b.compId);
+      if (!compA || !compB) return;
+      const p1 = getTerminalPosFromComp(compA, conn.a.side);
+      const p2 = getTerminalPosFromComp(compB, conn.b.side);
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      const mx = (p1.x + p2.x) / 2;
+      path.setAttribute('d', 'M ' + p1.x + ' ' + p1.y + ' L ' + mx + ' ' + p1.y + ' L ' + mx + ' ' + p2.y + ' L ' + p2.x + ' ' + p2.y);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', '#FFB300');
+      path.setAttribute('stroke-width', '4');
+      path.setAttribute('stroke-linecap', 'round');
+      path.style.filter = 'drop-shadow(0 0 4px rgba(255,179,0,0.6))';
+      wl.appendChild(path);
+    });
+  }
+
+  function getTerminalPosFromComp(comp, side) {
+    const w = comp.type === 'battery' ? 96 : comp.type === 'led' ? 72 : 80;
+    const h = comp.type === 'led' ? 72 : comp.type === 'battery' ? 56 : 40;
+    return { x: comp.x + (side === 'left' ? 0 : w), y: comp.y + h / 2 };
+  }
+
+  function clearGameCanvas(refreshToolkit) {
+    state.game.components = [];
+    state.game.connections = [];
+    state.game.selectedTerminal = null;
+    state.game.circuitValid = false;
+    state.game.levelComplete = false;
+    const dz = gameDropZone();
+    if (dz) dz.querySelectorAll('.placed-comp, .terminal').forEach((el) => el.remove());
+    if (gameWireLayer()) gameWireLayer().innerHTML = '';
+    document.getElementById('gameNextLevelBtn').classList.remove('ready');
+    updateCityLights(0);
+    if (refreshToolkit !== false && GAME_LEVELS[state.game.levelIndex]) {
+      state.game.partCounts = Object.assign({}, GAME_LEVELS[state.game.levelIndex].parts);
+      buildGameToolkit(GAME_LEVELS[state.game.levelIndex]);
+    }
+  }
+
+  function initVictoryScreen() {
+    document.getElementById('victoryName').textContent = playerName;
+    document.getElementById('victoryXp').textContent = '+' + state.game.totalXp;
+    document.getElementById('victoryLevels').textContent = GAME_LEVELS.length + '/' + GAME_LEVELS.length;
+    document.getElementById('s6-complete').onclick = () => dispatchMissionComplete();
+  }
+
+  window.addEventListener('resize', () => {
+    if (state.currentScreen === 1) redrawWires();
+    if (state.currentScreen === 5) redrawGameWires();
+  });
+
+  initScreen0();
+  updateNextButton();
+  if (new URLSearchParams(location.search).get('game') === '1') {
+    state.game.levelIndex = 0;
+    goToScreen(5);
+  } else if (DEBUG) {
+    /* debug can skip with ?debug=1 */
+  }
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({ type: 'electricityReady' }, window.location.origin);
+  }
+  log('electricity pre-flow + Dark City game ready');
+})();
+  </script>
+</body>
+</html>

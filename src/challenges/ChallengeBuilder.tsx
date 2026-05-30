@@ -25,6 +25,7 @@ import {
   ListChecks,
   MessageSquare,
   ArrowUpDown,
+  Code2,
   X,
 } from 'lucide-react';
 import type { ChallengeType, ChallengeContent, ChallengeRecord } from './types';
@@ -52,6 +53,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   MousePointer2,
   Crosshair,
   ArrowUpDown,
+  Code2,
   Puzzle,
   LayoutGrid,
 };

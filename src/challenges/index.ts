@@ -15,9 +15,18 @@ import * as Hotspot from './plugins/hotspot';
 import * as Sorting from './plugins/sorting';
 import * as MultiQuestion from './plugins/multiQuestion';
 import * as Flashcards from './plugins/flashcards';
+import * as CodingLab from './plugins/codingLab';
 import { createStubPlugin } from './plugins/stub';
 
 // Register question/challenge types (H5P Studio–style: icon + category for gallery)
+registerChallengeType({
+  meta: { id: 'coding_lab', label: 'Advanced Coding Lab', description: 'Blockly-style robotics coding challenge with sequence + code checks', icon: 'Code2', category: 'interactive' },
+  defaultContent: CodingLab.defaultContent,
+  Editor: CodingLab.CodingLabEditor,
+  Player: CodingLab.CodingLabPlayer,
+  evaluate: CodingLab.evaluate,
+} as ChallengeTypePlugin);
+
 registerChallengeType({
   meta: { id: 'multi_question', label: 'Multi‑question Challenge', description: 'Bundle multiple questions into one challenge (H5P-style quiz)', icon: 'Layers', category: 'quiz' },
   defaultContent: MultiQuestion.defaultContent,

@@ -1,266 +1,54 @@
 import "dotenv/config";
+import dns from "node:dns/promises";
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
 import bcrypt from "bcryptjs";
-import cookieSession from "cookie-session";
-import { createClient } from "@supabase/supabase-js";
-import { supabaseAdmin, hasSupabaseAdmin } from "./lib/supabaseAdmin";
+import { createClient, type User } from "@supabase/supabase-js";
+import { supabaseAdmin, hasSupabaseAdmin, supabaseAnonKey } from "./lib/supabaseAdmin";
+import {
+  db,
+  selectOne,
+  selectMany,
+  insertOne,
+  insertMany,
+  updateRow,
+  deleteRows,
+  countRows,
+  countRowsGte,
+  upsertRow,
+  insertIgnore,
+  isUuid,
+  optionalUuid,
+  startOfTodayIso,
+  STUDENT_SELECT_PUBLIC,
+  getStudentPublic,
+  getStudentRole,
+  findStudentByName,
+  findSectorByName,
+  findStudentByEmailOrUsername,
+  usernameExists,
+  joinCodeExists,
+  selectDistinctSchools,
+  type DbRow,
+} from "./lib/db";
+import * as SQ from "./lib/serverQueries";
+
+// Schema managed in Supabase dashboard
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DB_PATH = process.env.DB_PATH || "stemverse.db";
-const db = new Database(DB_PATH);
-
 const hashPassword = (plain: string) => bcrypt.hashSync(plain, 12);
-
-// Initialize Database
-db.exec(`
-  CREATE TABLE IF NOT EXISTS sectors (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    description TEXT,
-    xp_reward INTEGER,
-    required_level INTEGER,
-    mastery_percent INTEGER DEFAULT 0,
-    status TEXT DEFAULT 'locked',
-    image_url TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS missions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sector_id INTEGER,
-    title TEXT NOT NULL,
-    description TEXT,
-    difficulty TEXT,
-    xp_reward INTEGER,
-    status TEXT DEFAULT 'available',
-    image_url TEXT,
-    embed_code TEXT,
-    grade_level TEXT,
-    prerequisite_mission_id INTEGER,
-    learning_outcomes_json TEXT,
-    domains_json TEXT,
-    FOREIGN KEY(sector_id) REFERENCES sectors(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS classes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    teacher_id INTEGER,
-    description TEXT,
-    curriculum_track TEXT,
-    FOREIGN KEY(teacher_id) REFERENCES students(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS class_students (
-    class_id INTEGER,
-    student_id INTEGER,
-    PRIMARY KEY(class_id, student_id),
-    FOREIGN KEY(class_id) REFERENCES classes(id),
-    FOREIGN KEY(student_id) REFERENCES students(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS class_missions (
-    class_id INTEGER,
-    mission_id INTEGER,
-    assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY(class_id, mission_id),
-    FOREIGN KEY(class_id) REFERENCES classes(id),
-    FOREIGN KEY(mission_id) REFERENCES missions(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS class_quizzes (
-    class_id INTEGER,
-    quiz_id INTEGER,
-    assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY(class_id, quiz_id),
-    FOREIGN KEY(class_id) REFERENCES classes(id),
-    FOREIGN KEY(quiz_id) REFERENCES quizzes(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS student_badges (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    student_id INTEGER,
-    badge_name TEXT NOT NULL,
-    badge_icon TEXT,
-    earned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(student_id) REFERENCES students(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS student_mission_completions (
-    student_id INTEGER NOT NULL,
-    mission_id INTEGER NOT NULL,
-    completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY(student_id, mission_id),
-    FOREIGN KEY(student_id) REFERENCES students(id),
-    FOREIGN KEY(mission_id) REFERENCES missions(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS student_quizzes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    student_id INTEGER,
-    quiz_id INTEGER,
-    score INTEGER,
-    auto_score INTEGER DEFAULT 0,
-    reviewed_score INTEGER DEFAULT 0,
-    pending_reviews INTEGER DEFAULT 0,
-    total_questions INTEGER,
-    completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(student_id) REFERENCES students(id),
-    FOREIGN KEY(quiz_id) REFERENCES quizzes(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS quiz_review_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    student_quiz_id INTEGER NOT NULL,
-    student_id INTEGER NOT NULL,
-    quiz_id INTEGER NOT NULL,
-    question_index INTEGER NOT NULL,
-    question_type TEXT NOT NULL,
-    prompt TEXT,
-    response_text TEXT,
-    max_score INTEGER DEFAULT 1,
-    awarded_score INTEGER DEFAULT 0,
-    review_status TEXT DEFAULT 'pending',
-    reviewed_by INTEGER,
-    reviewed_at DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(student_quiz_id) REFERENCES student_quizzes(id),
-    FOREIGN KEY(student_id) REFERENCES students(id),
-    FOREIGN KEY(quiz_id) REFERENCES quizzes(id),
-    FOREIGN KEY(reviewed_by) REFERENCES students(id)
-  );
-  CREATE INDEX IF NOT EXISTS idx_quiz_review_items_pending ON quiz_review_items(review_status, created_at);
-  CREATE INDEX IF NOT EXISTS idx_quiz_review_items_student_quiz ON quiz_review_items(student_quiz_id);
-
-  CREATE TABLE IF NOT EXISTS students (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    username TEXT,
-    password TEXT DEFAULT 'password123',
-    level INTEGER DEFAULT 1,
-    xp INTEGER DEFAULT 0,
-    avatar_url TEXT,
-    role TEXT CHECK(role IN ('student', 'teacher', 'admin')) DEFAULT 'student',
-    age INTEGER,
-    grade TEXT,
-    school TEXT,
-    city TEXT,
-    email TEXT,
-    parent_email TEXT,
-    contact_number TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS quizzes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    grade_level TEXT,
-    questions TEXT, -- JSON string
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS challenges (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    type TEXT NOT NULL,
-    world TEXT,
-    zone TEXT,
-    grade_level TEXT,
-    xp_reward INTEGER DEFAULT 100,
-    xp_bonus_first_try INTEGER DEFAULT 0,
-    xp_retry_penalty INTEGER DEFAULT 0,
-    content_json TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS challenge_attempts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    student_id INTEGER NOT NULL,
-    challenge_id INTEGER NOT NULL,
-    attempt_number INTEGER DEFAULT 1,
-    score REAL NOT NULL,
-    correct INTEGER NOT NULL,
-    response_json TEXT,
-    time_ms INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (student_id) REFERENCES students(id),
-    FOREIGN KEY (challenge_id) REFERENCES challenges(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS class_challenges (
-    class_id INTEGER NOT NULL,
-    challenge_id INTEGER NOT NULL,
-    assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (class_id, challenge_id),
-    FOREIGN KEY (class_id) REFERENCES classes(id),
-    FOREIGN KEY (challenge_id) REFERENCES challenges(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS notifications (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    type TEXT NOT NULL,
-    title TEXT NOT NULL,
-    message TEXT NOT NULL,
-    link TEXT,
-    is_read INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES students(id)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
-  CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, is_read);
-
-  CREATE TABLE IF NOT EXISTS logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-    message TEXT NOT NULL,
-    type TEXT,
-    xp_change INTEGER
-  );
-
-  CREATE TABLE IF NOT EXISTS ai_usage_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    endpoint TEXT NOT NULL,
-    user_id INTEGER,
-    success INTEGER DEFAULT 1,
-    reason TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_created_at ON ai_usage_logs(created_at);
-  CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_endpoint_created ON ai_usage_logs(endpoint, created_at);
-  CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_user_created ON ai_usage_logs(user_id, created_at);
-
-  CREATE TABLE IF NOT EXISTS student_interest_votes (
-    student_id INTEGER NOT NULL,
-    interest_key TEXT NOT NULL,
-    weight INTEGER DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY(student_id, interest_key),
-    FOREIGN KEY(student_id) REFERENCES students(id)
-  );
-  CREATE INDEX IF NOT EXISTS idx_student_interest_votes_interest ON student_interest_votes(interest_key);
-`);
-
-// Add Supabase linkage columns without requiring a destructive migration.
-try {
-  db.exec("ALTER TABLE students ADD COLUMN supabase_user_id TEXT");
-} catch {}
-try {
-  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_students_supabase_user_id ON students(supabase_user_id)");
-} catch {}
-try {
-  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_students_username_nocase ON students(username COLLATE NOCASE)");
-} catch {}
 
 const ALLOWED_GENDERS = new Set(["female", "male", "non_binary", "prefer_not_say", "other"]);
 
 const normalizeGender = (raw: unknown): string | null => {
-  const s = String(raw || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const s = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
   if (!s) return null;
   if (s === "nonbinary") return "non_binary";
   if (ALLOWED_GENDERS.has(s)) return s;
@@ -268,130 +56,31 @@ const normalizeGender = (raw: unknown): string | null => {
 };
 
 const normalizeCountryCode = (raw: unknown): string | null => {
-  const s = String(raw || "").trim().toUpperCase();
+  const s = String(raw || "")
+    .trim()
+    .toUpperCase();
   if (s.length === 2 && /^[A-Z]{2}$/.test(s)) return s;
   return null;
 };
 
-/** Idempotent column adds for analytics / billing (existing DBs). */
-const STUDENT_ANALYTICS_ALTER = [
-  "ALTER TABLE students ADD COLUMN created_at DATETIME",
-  "ALTER TABLE students ADD COLUMN gender TEXT",
-  "ALTER TABLE students ADD COLUMN country_code TEXT",
-  "ALTER TABLE students ADD COLUMN region TEXT",
-  "ALTER TABLE students ADD COLUMN timezone TEXT",
-  "ALTER TABLE students ADD COLUMN subscription_status TEXT DEFAULT 'free'",
-  "ALTER TABLE students ADD COLUMN subscription_plan TEXT DEFAULT 'free'",
-  "ALTER TABLE students ADD COLUMN billing_provider TEXT DEFAULT 'none'",
-  "ALTER TABLE students ADD COLUMN mrr_cents INTEGER DEFAULT 0",
-  "ALTER TABLE students ADD COLUMN ltv_cents INTEGER DEFAULT 0",
-  "ALTER TABLE students ADD COLUMN last_active_at DATETIME",
-];
-for (const stmt of STUDENT_ANALYTICS_ALTER) {
-  try {
-    db.exec(stmt);
-  } catch (e: any) {
-    if (!/duplicate column name/i.test(e?.message || "")) {
-      console.warn("students migration:", stmt, e?.message);
-    }
-  }
-}
+const DARK_CITY_SECTOR_NAME = "Dark City";
+const ELECTRICITY_PRE_FLOW_EMBED = "stemverse://electricity-pre-flow";
 
-const STUDENT_QUIZZES_ALTER = [
-  "ALTER TABLE student_quizzes ADD COLUMN auto_score INTEGER DEFAULT 0",
-  "ALTER TABLE student_quizzes ADD COLUMN reviewed_score INTEGER DEFAULT 0",
-  "ALTER TABLE student_quizzes ADD COLUMN pending_reviews INTEGER DEFAULT 0",
-];
-for (const stmt of STUDENT_QUIZZES_ALTER) {
-  try {
-    db.exec(stmt);
-  } catch (e: any) {
-    if (!/duplicate column name/i.test(e?.message || "")) {
-      console.warn("student_quizzes migration:", stmt, e?.message);
-    }
-  }
-}
-
-const MISSIONS_ALTER = [
-  "ALTER TABLE missions ADD COLUMN prerequisite_mission_id INTEGER",
-  "ALTER TABLE missions ADD COLUMN learning_outcomes_json TEXT",
-  "ALTER TABLE missions ADD COLUMN domains_json TEXT",
-  "ALTER TABLE missions ADD COLUMN grade_level TEXT",
-];
-for (const stmt of MISSIONS_ALTER) {
-  try {
-    db.exec(stmt);
-  } catch (e: any) {
-    if (!/duplicate column name/i.test(e?.message || "")) {
-      console.warn("missions migration:", stmt, e?.message);
-    }
-  }
-}
-
-const QUIZZES_ALTER = ["ALTER TABLE quizzes ADD COLUMN grade_level TEXT"];
-for (const stmt of QUIZZES_ALTER) {
-  try {
-    db.exec(stmt);
-  } catch (e: any) {
-    if (!/duplicate column name/i.test(e?.message || "")) {
-      console.warn("quizzes migration:", stmt, e?.message);
-    }
-  }
-}
-
-const CHALLENGES_ALTER = ["ALTER TABLE challenges ADD COLUMN grade_level TEXT"];
-for (const stmt of CHALLENGES_ALTER) {
-  try {
-    db.exec(stmt);
-  } catch (e: any) {
-    if (!/duplicate column name/i.test(e?.message || "")) {
-      console.warn("challenges migration:", stmt, e?.message);
-    }
-  }
-}
-
-try {
-  db.exec(`UPDATE students SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL`);
-} catch {
-  /* ignore */
-}
-
-const STUDENT_SELECT_PUBLIC =
-  "id, name, username, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number, created_at, gender, country_code, region, timezone, subscription_status, subscription_plan, billing_provider, mrr_cents, ltv_cents, last_active_at";
-
-const STUDENT_SELECT_LOGIN = `${STUDENT_SELECT_PUBLIC.replace(
-  "role, age",
-  "role, password, age",
-)}`;
-
-const lastActiveThrottle = new Map<number, number>();
+const lastActiveThrottle = new Map<string, number>();
 const LAST_ACTIVE_MIN_MS = 15 * 60 * 1000;
 
-const bumpLastActive = (userId: number) => {
-  if (!Number.isInteger(userId) || userId < 1) return;
+const bumpLastActive = async (userId: string) => {
+  if (!isUuid(userId)) return;
   const now = Date.now();
   const prev = lastActiveThrottle.get(userId) || 0;
   if (now - prev < LAST_ACTIVE_MIN_MS) return;
   lastActiveThrottle.set(userId, now);
   try {
-    db.prepare("UPDATE students SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?").run(userId);
+    await updateRow("students", { id: userId }, { last_active_at: new Date().toISOString() });
   } catch {
     /* ignore */
   }
 };
-
-// Migration: add join_code to classes if missing
-try {
-  db.exec(`ALTER TABLE classes ADD COLUMN join_code TEXT;`);
-} catch (e: any) {
-  if (!/duplicate column name/i.test(e?.message || "")) throw e;
-}
-try {
-  db.exec(`ALTER TABLE classes ADD COLUMN curriculum_track TEXT;`);
-} catch (e: any) {
-  if (!/duplicate column name/i.test(e?.message || "")) throw e;
-}
-// Backfill join_code for existing classes (run after ensureUniqueJoinCode is defined below)
 
 const generateJoinCode = (): string => {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -400,164 +89,387 @@ const generateJoinCode = (): string => {
   return code;
 };
 
-const ensureUniqueJoinCode = (): string => {
+const ensureUniqueJoinCode = async (): Promise<string> => {
   let code = generateJoinCode();
-  const exists = db.prepare("SELECT 1 FROM classes WHERE join_code = ?").get(code);
-  if (exists) return ensureUniqueJoinCode();
+  while (await joinCodeExists(code)) code = generateJoinCode();
   return code;
 };
 
 const normalizeUsername = (raw: string): string => {
-  const base = raw.toLowerCase().trim().replace(/\s+/g, "").replace(/[^a-z0-9_]/g, "");
+  const base = raw
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/[^a-z0-9_]/g, "");
   return base || "player";
 };
 
-const ensureUniqueUsername = (raw: string): string => {
+const ensureUniqueUsername = async (raw: string): Promise<string> => {
   const base = normalizeUsername(raw);
   let candidate = base;
   let i = 1;
-  while (db.prepare("SELECT 1 FROM students WHERE username = ? COLLATE NOCASE LIMIT 1").get(candidate)) {
+  while (await usernameExists(candidate)) {
     i += 1;
     candidate = `${base}${i}`;
   }
   return candidate;
 };
 
-// Backfill join_code for existing classes
-const nullJoinCodes = db.prepare("SELECT id FROM classes WHERE join_code IS NULL OR join_code = ''").all() as { id: number }[];
-const updateJoinCode = db.prepare("UPDATE classes SET join_code = ? WHERE id = ?");
-nullJoinCodes.forEach((row) => {
-  updateJoinCode.run(ensureUniqueJoinCode(), row.id);
-});
-
-// Migration: Add password column if it doesn't exist
-try {
-  db.prepare("ALTER TABLE students ADD COLUMN password TEXT DEFAULT 'password123'").run();
-} catch (e) {
-  // Column already exists
-}
-
-// Migration: Add role check if needed (SQLite doesn't support easy check constraint changes, but we can ensure the column exists)
-try {
-  db.prepare("ALTER TABLE students ADD COLUMN role TEXT DEFAULT 'student'").run();
-} catch (e) {
-  // Column already exists
-}
-
-// Migration: Add additional profile fields if they don't exist
-for (const column of [
-  "username TEXT",
-  "age INTEGER",
-  "grade TEXT",
-  "school TEXT",
-  "city TEXT",
-  "email TEXT",
-  "parent_email TEXT",
-  "contact_number TEXT",
-]) {
-  try {
-    db.prepare(`ALTER TABLE students ADD COLUMN ${column}`).run();
-  } catch (e) {
-    // Column already exists
-  }
-}
-
-// Seed initial data if empty
-const sectorCount = db.prepare("SELECT COUNT(*) as count FROM sectors").get() as { count: number };
-if (sectorCount.count === 0) {
-  const insertSector = db.prepare("INSERT INTO sectors (name, description, xp_reward, required_level, mastery_percent, status, image_url) VALUES (?, ?, ?, ?, ?, ?, ?)");
-  insertSector.run("Quantum Mechanics", "Navigate the subatomic world.", 1000, 1, 100, "active", "https://lh3.googleusercontent.com/aida-public/AB6AXuDXHBpzwclGGdMn6hXD2NIggtnHTgO40Tn-JWyUpvmQTs-J9le-zT-UJrgi1VWc2tYhx8kmdgcvm5GdfblMLlGaNKc8VXekyIv1yOEcjXCTd5zi2paH3Ijf86_uiT_u5th485TnF65Y5IyPSaHJyiAUbHBy8UCLZoaZ38bIX-EEz6Y49gbzLhlh6ZRlaowrvba-T0woONYDwbNWBj2WzkeTXmyTjfuwN4e2AlT8ICLOiOiLJRlJq57Sux0F8YfloV_MixuF4Say-Qgc");
-  insertSector.run("Robotics Lab", "Build and program advanced automatons.", 1000, 10, 0, "maintenance", "https://lh3.googleusercontent.com/aida-public/AB6AXuDVea3b3rIa3oFe4eljXprd3h6SQUlc9O7_CIe3IIB3XTdw4l_1Q8Oy2tVhhveJaWU-_TXuzey3qqk9tiZpplM0DVtpMO05SYgTiNdirAx9iaMf8dHsDLiiXGfQmL5o9lyl31CPpzgKeFX_GOOlnyKZwiA2Rv4MXj0iR5dFDFvsuj-vm4-gdNP_rWCARfIggBjG9AqTJNredrtmNLciGG4kkKdHbloafqaujzhYbuAlLlD52mtfA-MzvvW54uppyW37_FxRR_N9eZL3");
-  insertSector.run("Bio-Engineering", "Edit the code of life itself.", 1000, 20, 68, "active", "https://lh3.googleusercontent.com/aida-public/AB6AXuBZVjiI-ihuKWjerO_v5LRt1eAcUZVNUN2GPHVWKcIM_1aMWZqppLwtzIGbOrE0NbY7jVFmmvXRO4qtf8pd1URIIp4KodOdPEcumtJan8d9XULDBPjqAncMyxSCQ8m0dsbBb5i2Q3xUpbWhwm3_DDRhDg4sXbFpC7-n_SillCtE0zS5aFrCnEXELsjDgArVzxOPHpE6CGENZQ08jC6Z_ftiSibXwCgNcogES4QeDtOqNO3NgW_Fn20P2MycTXxZDppbr4oXSH3bLW19");
-  insertSector.run("Astrophysics", "Explore the mysteries of the cosmos.", 1200, 15, 0, "locked", "https://lh3.googleusercontent.com/aida-public/AB6AXuBqBx-UKRVrJND2UTvghlrFvdPgdX0b87Nhg_r940aHk8howkvoyFhj44MDXEIkalOB7qHtunXockNyxBH6YItau2fFbJwBTlhk6NPt5fvNBkY3eqW5MOfY_Qn8-rH0vauyiUIVT_3vdpUeHXO-HG81MGYrZwFQA6CQ-g42o-xfDs9OzAa6kqhprizFXlAwj9M7EQE9Bl81e8wB89h9cUMBPTBPJcCJy-hyWtYMo8LgauetV_xLsnJubM1NGbvFi6H3LviT_RyK-yF3");
-  
-  const insertMission = db.prepare("INSERT INTO missions (sector_id, title, description, difficulty, xp_reward, status, image_url) VALUES (?, ?, ?, ?, ?, ?, ?)");
-  insertMission.run(3, "Protein Folding Protocol", "Master the 3D geometry of amino acids.", "Hard", 500, "available", "https://lh3.googleusercontent.com/aida-public/AB6AXuBTnHhMk1Nhi765AAmaKvSiMJImDRG4oTQ1kmGGFapcUkh4rq3o0Jl349xR26hdbA7f4XfqqFv8cefjXtobBbuQ4ozwEN5kqFkvItAiZAo9-fZjxy5kmDYBVExp9pr8DVUj4TxODYISMJO8ZHXJ7GHZ6bcfFHzkswGM_MEi0eMXkWrEtQ7EgHJcOr9WlEp1eAypnP27jHg5uX4bx-HOXYhWUvcgX6VEwn-Ud6itbZQ3fGy2GhrhhSyvc1YZ6wSiCE5W5feMB181yyDs");
-  insertMission.run(3, "Enzyme Matcher", "Catalyze chemical reactions.", "Medium", 350, "available", "https://lh3.googleusercontent.com/aida-public/AB6AXuAwcHWGbjlsrOR2oCWHOJLI34ZupiabZlWa-UJhEhoI8HRq4Ha5flXhG4I7GKSchD3YSZJY1LEgRgCJ8s-kG3oCpu3XV-Wp6yaRZw34aSw6FoFsu5tvSQeDICvVIodY8FaU_vta-rDeRcfQfcETjbv0z6zl7aWEp-yJoodRWCQQaJmY4R9YVq9kJf4FLuH-ew4fOqHQklxNRe_t9eCOuy_SNCD2eauNa0X1xjiOt0-eSObzUO92OHdC_gYOnBR09NDKEQQAYcavh_wC");
-}
-
-const studentCount = db.prepare("SELECT COUNT(*) as count FROM students").get() as { count: number };
-if (studentCount.count === 0) {
-  const insertStudent = db.prepare("INSERT INTO students (name, password, level, xp, avatar_url, role) VALUES (?, ?, ?, ?, ?, ?)");
-  insertStudent.run("Alex Rivera", hashPassword("student123"), 24, 2400, "https://lh3.googleusercontent.com/aida-public/AB6AXuBGs2llALBKq9Rb7P9C8nAY2mYk963EhuwdMC2TX5aZ7RNBDSRI0O_uc5RVbLF31T7rIrnUdAmjmS0UKDL-RMkmX8syI6qtUoFqvHHE2tv9kzwKj34qwZUMyO-UVvfIFtMEozkoth1VRxbawNDHHr9G2HNEyrPsQt1yae30Hr0jJ1QQkXFjuVlxcV85UvNiHiYFdqviKHGW2_ZWmjPJPIG_OD3CdBWJSG32Jq6Jl0U_BLuR6W_ijCpW94vmdrfEFJo-AXgu_UwJDW82", "student");
-  insertStudent.run("Professor Nova", hashPassword("teacher123"), 50, 10000, "https://picsum.photos/seed/teacher/200", "teacher");
-  insertStudent.run("Admin Core", hashPassword("admin123"), 99, 99999, "https://picsum.photos/seed/admin/200", "admin");
-}
-
-// Ensure demo accounts always have correct bcrypt passwords (fixes DBs created before hashing or with plain-text default)
-const DEMO_ACCOUNTS = [
-  { name: "Alex Rivera", username: "alexrivera", email: "student@example.com", role: "student", password: "student123" },
-  { name: "Professor Nova", username: "professornova", email: "teacher@example.com", role: "teacher", password: "teacher123" },
-  { name: "Admin Core", username: "admincore", email: "admin@example.com", role: "admin", password: "admin123" },
-] as const;
 const isBcryptHash = (s: string | null) => typeof s === "string" && /^\$2[aby]\$\d+\$/.test(s);
-const updatePasswordById = db.prepare("UPDATE students SET password = ? WHERE id = ?");
-for (const { name, username, email, role, password } of DEMO_ACCOUNTS) {
-  const row = db
-    .prepare("SELECT id, password FROM students WHERE name = ? COLLATE NOCASE OR email = ? COLLATE NOCASE LIMIT 1")
-    .get(name, email) as { id: number; password: string } | undefined;
-  if (!row) {
-    const insertStudent = db.prepare(
-      "INSERT INTO students (name, username, password, level, xp, avatar_url, role, email) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    );
-    insertStudent.run(
-      name,
-      username,
-      hashPassword(password),
-      role === "admin" ? 99 : role === "teacher" ? 50 : 24,
-      role === "admin" ? 99999 : role === "teacher" ? 10000 : 2400,
-      `https://picsum.photos/seed/${encodeURIComponent(username)}/200`,
-      role,
-      email,
-    );
-    continue;
+
+async function ensureDarkCityStarterContent() {
+  let sector = await findSectorByName(DARK_CITY_SECTOR_NAME);
+
+  if (!sector) {
+    const allSectors = await selectMany<DbRow>("sectors", "id, sort_order, is_starter");
+    for (const s of allSectors) {
+      if (!s.is_starter) {
+        await updateRow("sectors", { id: s.id as string }, { sort_order: (Number(s.sort_order) || 0) + 1 });
+      }
+    }
+    sector = await insertOne("sectors", {
+      name: DARK_CITY_SECTOR_NAME,
+      description: "Restore power to the grid. Learn circuits and LEDs with NOVA in the neon dark.",
+      xp_reward: 500,
+      required_level: 1,
+      mastery_percent: 0,
+      status: "active",
+      image_url: "https://picsum.photos/seed/dark-city-electricity/400/400",
+      sort_order: 0,
+      is_starter: true,
+    });
+  } else {
+    await updateRow("sectors", { id: sector.id as string }, {
+      sort_order: 0,
+      is_starter: true,
+      status: "active",
+      required_level: 1,
+      description: "Restore power to the grid. Learn circuits and LEDs with NOVA in the neon dark.",
+    });
   }
-  if (!isBcryptHash(row.password)) updatePasswordById.run(hashPassword(password), row.id);
-  db.prepare("UPDATE students SET name = ?, username = COALESCE(username, ?), email = COALESCE(email, ?), role = ? WHERE id = ?")
-    .run(name, username, email, role, row.id);
+
+  const sectorId = String(sector.id);
+  const missions = await selectMany<DbRow>("missions", "*", { sector_id: sectorId });
+  let mission = missions.find(
+    (m) =>
+      String(m.embed_code || "").toLowerCase() === ELECTRICITY_PRE_FLOW_EMBED.toLowerCase() ||
+      String(m.title || "").includes("Circuit Rescue"),
+  );
+
+  if (!mission) {
+    mission = await insertOne("missions", {
+      sector_id: sectorId,
+      title: "Circuit Rescue: Power the Grid",
+      description: "NOVA's 5-step electricity pre-flow — build circuits, then launch into Dark City.",
+      difficulty: "Easy",
+      grade_level: "",
+      xp_reward: 200,
+      status: "available",
+      image_url: "https://picsum.photos/seed/dark-city-circuit/400/300",
+      embed_code: ELECTRICITY_PRE_FLOW_EMBED,
+      domains_json: JSON.stringify(["Electronics"]),
+      learning_outcomes_json: JSON.stringify([
+        "Define a circuit and its parts",
+        "Build a closed circuit",
+        "Compare open vs closed circuits",
+      ]),
+    });
+  } else {
+    await updateRow("missions", { id: mission.id as string }, {
+      embed_code: ELECTRICITY_PRE_FLOW_EMBED,
+      status: "available",
+      sector_id: sectorId,
+    });
+  }
+
+  const classes = await selectMany<{ id: string }>("classes", "id");
+  for (const c of classes) {
+    await insertIgnore("class_missions", { class_id: c.id, mission_id: mission.id }, "class_id,mission_id");
+  }
+
+  return { sectorId, missionId: String(mission.id) };
 }
 
-/** Sample demographics / billing for dev quick-access accounts (idempotent). */
-try {
-  db.prepare(
-    `UPDATE students SET gender = 'male', country_code = 'US', region = 'CA', created_at = COALESCE(created_at, CURRENT_TIMESTAMP),
-     subscription_status = 'trial', subscription_plan = 'pro', billing_provider = 'manual', mrr_cents = 0
-     WHERE email = 'student@example.com' COLLATE NOCASE`,
-  ).run();
-  db.prepare(
-    `UPDATE students SET gender = 'female', country_code = 'CA', region = 'ON', created_at = COALESCE(created_at, CURRENT_TIMESTAMP),
-     subscription_status = 'active', subscription_plan = 'school', billing_provider = 'manual', mrr_cents = 2999, ltv_cents = 8997
-     WHERE email = 'teacher@example.com' COLLATE NOCASE`,
-  ).run();
-  db.prepare(
-    `UPDATE students SET country_code = 'US', subscription_status = 'free', subscription_plan = 'free', billing_provider = 'none', mrr_cents = 0
-     WHERE email = 'admin@example.com' COLLATE NOCASE`,
-  ).run();
-} catch {
-  /* ignore */
+async function checkSupabaseHost(): Promise<{ ok: boolean; hostname: string; reason?: string }> {
+  const raw = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+  if (!raw) return { ok: false, hostname: "", reason: "SUPABASE_URL not set" };
+  let hostname = raw;
+  try {
+    hostname = new URL(raw).hostname;
+    await dns.lookup(hostname);
+    return { ok: true, hostname };
+  } catch (err) {
+    return {
+      ok: false,
+      hostname,
+      reason: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+async function verifySupabaseSchema(): Promise<boolean> {
+  if (!hasSupabaseAdmin) return false;
+  const hostCheck = await checkSupabaseHost();
+  if (!hostCheck.ok) return false;
+  try {
+    const { error: studentsErr } = await db().from("students").select("id").limit(1);
+    if (studentsErr) {
+      console.error(
+        "[stemverse] Database schema is missing or incomplete (students table).\n" +
+          "  → Open Supabase Dashboard → SQL Editor\n" +
+          "  → Paste and run: supabase/migrations/001_stemverse_schema.sql\n" +
+          "  → Restart: npm run dev",
+      );
+      return false;
+    }
+    const { error: sectorsErr } = await db().from("sectors").select("id, image_url").limit(1);
+    if (sectorsErr) {
+      console.error(
+        "[stemverse] Database schema is outdated (sectors table).\n" +
+          "  → Run supabase/migrations/001_stemverse_schema.sql in Supabase SQL Editor, then restart.",
+      );
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("[stemverse] Schema check failed:", err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
+async function bootstrapData() {
+  if (!hasSupabaseAdmin || !supabaseAdmin) {
+    console.warn(
+      "[stemverse] Supabase not configured — skipping data bootstrap. " +
+        "Copy .env.example to .env and set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY.",
+    );
+    return;
+  }
+  const hostCheck = await checkSupabaseHost();
+  if (!hostCheck.ok) {
+    console.warn(
+      `[stemverse] Skipping data bootstrap — cannot reach Supabase (${hostCheck.hostname || "unknown"}). ` +
+        "Check SUPABASE_URL in .env (Supabase Dashboard → Settings → API → Project URL).",
+    );
+    return;
+  }
+  try {
+    if ((await countRows("sectors")) === 0) {
+    await insertOne("sectors", {
+      name: DARK_CITY_SECTOR_NAME,
+      description: "Restore power to the grid. Learn circuits and LEDs with NOVA in the neon dark.",
+      xp_reward: 500,
+      required_level: 1,
+      mastery_percent: 0,
+      status: "active",
+      image_url: "https://picsum.photos/seed/dark-city-electricity/400/400",
+      sort_order: 0,
+      is_starter: true,
+    });
+    await insertMany("sectors", [
+      {
+        name: "Quantum Mechanics",
+        description: "Navigate the subatomic world.",
+        xp_reward: 1000,
+        required_level: 1,
+        mastery_percent: 100,
+        status: "locked",
+        image_url:
+          "https://lh3.googleusercontent.com/aida-public/AB6AXuDXHBpzwclGGdMn6hXD2NIggtnHTgO40Tn-JWyUpvmQTs-J9le-zT-UJrgi1VWc2tYhx8kmdgcvm5GdfblMLlGaNKc8VXekyIv1yOEcjXCTd5zi2paH3Ijf86_uiT_u5th485TnF65Y5IyPSaHJyiAUbHBy8UCLZoaZ38bIX-EEz6Y49gbzLhlh6ZRlaowrvba-T0woONYDwbNWBj2WzkeTXmyTjfuwN4e2AlT8ICLOiOiLJRlJq57Sux0F8YfloV_MixuF4Say-Qgc",
+        sort_order: 1,
+        is_starter: false,
+      },
+      {
+        name: "Robotics Lab",
+        description: "Build and program advanced automatons.",
+        xp_reward: 1000,
+        required_level: 10,
+        mastery_percent: 0,
+        status: "locked",
+        image_url:
+          "https://lh3.googleusercontent.com/aida-public/AB6AXuDVea3b3rIa3oFe4eljXprd3h6SQUlc9O7_CIe3IIB3XTdw4l_1Q8Oy2tVhhveJaWU-_TXuzey3qqk9tiZpplM0DVtpMO05SYgTiNdirAx9iaMf8dHsDLiiXGfQmL5o9lyl31CPpzgKeFX_GOOlnyKZwiA2Rv4MXj0iR5dFDFvsuj-vm4-gdNP_rWCARfIggBjG9AqTJNredrtmNLciGG4kkKdHbloafqaujzhYbuAlLlD52mtfA-MzvvW54uppyW37_FxRR_N9eZL3",
+        sort_order: 2,
+        is_starter: false,
+      },
+      {
+        name: "Bio-Engineering",
+        description: "Edit the code of life itself.",
+        xp_reward: 1000,
+        required_level: 20,
+        mastery_percent: 68,
+        status: "locked",
+        image_url:
+          "https://lh3.googleusercontent.com/aida-public/AB6AXuBZVjiI-ihuKWjerO_v5LRt1eAcUZVNUN2GPHVWKcIM_1aMWZqppLwtzIGbOrE0NbY7jVFmmvXRO4qtf8pd1URIIp4KodOdPEcumtJan8d9XULDBPjqAncMyxSCQ8m0dsbBb5i2Q3xUpbWhwm3_DDRhDg4sXbFpC7-n_SillCtE0zS5aFrCnEXELsjDgArVzxOPHpE6CGENZQ08jC6Z_ftiSibXwCgNcogES4QeDtOqNO3NgW_Fn20P2MycTXxZDppbr4oXSH3bLW19",
+        sort_order: 3,
+        is_starter: false,
+      },
+      {
+        name: "Astrophysics",
+        description: "Explore the mysteries of the cosmos.",
+        xp_reward: 1200,
+        required_level: 15,
+        mastery_percent: 0,
+        status: "locked",
+        image_url:
+          "https://lh3.googleusercontent.com/aida-public/AB6AXuBqBx-UKRVrJND2UTvghlrFvdPgdX0b87Nhg_r940aHk8howkvoyFhj44MDXEIkalOB7qHtunXockNyxBH6YItau2fFbJwBTlhk6NPt5fvNBkY3eqW5MOfY_Qn8-rH0vauyiUIVT_3vdpUeHXO-HG81MGYrZwFQA6CQ-g42o-xfDs9OzAa6kqhprizFXlAwj9M7EQE9Bl81e8wB89h9cUMBPTBPJcCJy-hyWtYMo8LgauetV_xLsnJubM1NGbvFi6H3LviT_RyK-yF3",
+        sort_order: 4,
+        is_starter: false,
+      },
+    ]);
+
+    const darkCity = await findSectorByName(DARK_CITY_SECTOR_NAME);
+    if (darkCity) {
+      await insertOne("missions", {
+        sector_id: darkCity.id,
+        title: "Circuit Rescue: Power the Grid",
+        description: "NOVA's electricity pre-flow — your first mission in Dark City.",
+        difficulty: "Easy",
+        xp_reward: 200,
+        status: "available",
+        image_url: "https://picsum.photos/seed/dark-city-circuit/400/300",
+        embed_code: ELECTRICITY_PRE_FLOW_EMBED,
+        domains_json: JSON.stringify(["Electronics"]),
+      });
+      const bio = await findSectorByName("Bio-Engineering");
+      if (bio) {
+        await insertMany("missions", [
+          {
+            sector_id: bio.id,
+            title: "Protein Folding Protocol",
+            description: "Master the 3D geometry of amino acids.",
+            difficulty: "Hard",
+            xp_reward: 500,
+            status: "available",
+            image_url:
+              "https://lh3.googleusercontent.com/aida-public/AB6AXuBTnHhMk1Nhi765AAmaKvSiMJImDRG4oTQ1kmGGFapcUkh4rq3o0Jl349xR26hdbA7f4XfqqFv8cefjXtobBbuQ4ozwEN5kqFkvItAiZAo9-fZjxy5kmDYBVExp9pr8DVUj4TxODYISMJO8ZHXJ7GHZ6bcfFHzkswGM_MEi0eMXkWrEtQ7EgHJcOr9WlEp1eAypnP27jHg5uX4bx-HOXYhWUvcgX6VEwn-Ud6itbZQ3fGy2GhrhhSyvc1YZ6wSiCE5W5feMB181yyDs",
+          },
+          {
+            sector_id: bio.id,
+            title: "Enzyme Matcher",
+            description: "Catalyze chemical reactions.",
+            difficulty: "Medium",
+            xp_reward: 350,
+            status: "available",
+            image_url:
+              "https://lh3.googleusercontent.com/aida-public/AB6AXuAwcHWGbjlsrOR2oCWHOJLI34ZupiabZlWa-UJhEhoI8HRq4Ha5flXhG4I7GKSchD3YSZJY1LEgRgCJ8s-kG3oCpu3XV-Wp6yaRZw34aSw6FoFsu5tvSQeDICvVIodY8FaU_vta-rDeRcfQfcETjbv0z6zl7aWEp-yJoodRWCQQaJmY4R9YVq9kJf4FLuH-ew4fOqHQklxNRe_t9eCOuy_SNCD2eauNa0X1xjiOt0-eSObzUO92OHdC_gYOnBR09NDKEQQAYcavh_wC",
+          },
+        ]);
+      }
+    }
+    }
+
+  await ensureDarkCityStarterContent();
+
+  const { data: nullJoinClasses } = await db().from("classes").select("id").or("join_code.is.null,join_code.eq.");
+  for (const row of nullJoinClasses || []) {
+    await updateRow("classes", { id: (row as { id: string }).id }, { join_code: await ensureUniqueJoinCode() });
+  }
+
+  const DEMO_ACCOUNTS = [
+    { name: "Alex Rivera", username: "alexrivera", email: "student@example.com", role: "student", password: "student123" },
+    { name: "Professor Nova", username: "professornova", email: "teacher@example.com", role: "teacher", password: "teacher123" },
+    { name: "Admin Core", username: "admincore", email: "admin@example.com", role: "admin", password: "admin123" },
+  ] as const;
+
+  for (const { name, username, email, role, password } of DEMO_ACCOUNTS) {
+    const { data: rows } = await db()
+      .from("students")
+      .select("id, password")
+      .or(`email.ilike.${email},name.ilike.${name}`)
+      .limit(1);
+    const row = rows?.[0] as { id: string; password?: string } | undefined;
+    if (!row) continue;
+    if (!isBcryptHash(row.password || null)) {
+      await updateRow("students", { id: row.id }, { password: hashPassword(password) });
+    }
+    await updateRow("students", { id: row.id }, { name, username, email, role });
+  }
+
+  try {
+    await db()
+      .from("students")
+      .update({
+        gender: "male",
+        country_code: "US",
+        region: "CA",
+        subscription_status: "trial",
+        subscription_plan: "pro",
+        billing_provider: "manual",
+        mrr_cents: 0,
+      })
+      .ilike("email", "student@example.com");
+    await db()
+      .from("students")
+      .update({
+        gender: "female",
+        country_code: "CA",
+        region: "ON",
+        subscription_status: "active",
+        subscription_plan: "school",
+        billing_provider: "manual",
+        mrr_cents: 2999,
+        ltv_cents: 8997,
+      })
+      .ilike("email", "teacher@example.com");
+    await db()
+      .from("students")
+      .update({
+        country_code: "US",
+        subscription_status: "free",
+        subscription_plan: "free",
+        billing_provider: "none",
+        mrr_cents: 0,
+      })
+      .ilike("email", "admin@example.com");
+  } catch {
+    /* ignore */
+  }
+  } catch (err) {
+    console.warn(
+      "[stemverse] Data bootstrap failed (is the schema applied in Supabase?):",
+      err instanceof Error ? err.message : err,
+    );
+  }
 }
 
 async function startServer() {
+  try {
+    await bootstrapData();
+  } catch (err) {
+    console.warn("[stemverse] Bootstrap error:", err instanceof Error ? err.message : err);
+  }
+
+  if (!hasSupabaseAdmin) {
+    console.warn(
+      "[stemverse] Running without Supabase admin client — auth and API routes will return 503 until .env is configured.",
+    );
+  } else {
+    const schemaOk = await verifySupabaseSchema();
+    if (!schemaOk) {
+      console.warn("[stemverse] Login and signup will not work until the schema SQL has been applied.");
+    }
+  }
+
   const isProduction = process.env.NODE_ENV === "production";
   const ENABLE_TEST_ACCOUNTS =
     String(process.env.ENABLE_TEST_ACCOUNTS || "true").toLowerCase() === "true";
   const ALLOW_LOCAL_AUTH_FALLBACK =
     String(process.env.ALLOW_LOCAL_AUTH_FALLBACK || (isProduction ? "false" : "true")).toLowerCase() === "true";
-  const SESSION_SECRET = process.env.SESSION_SECRET || "dev-change-me-please";
-  if (isProduction && (!SESSION_SECRET || SESSION_SECRET === "dev-change-me-please")) {
-    console.error("FATAL: Set SESSION_SECRET to a long random string in production (e.g. 32+ chars).");
-    process.exit(1);
-  }
 
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
   // Required on platforms like Render/Cloud Run so secure cookies work behind a reverse proxy.
   app.set("trust proxy", 1);
 
+  /** Pages that may load inside same-origin iframes (mission embed player). */
+  const FRAMEABLE_PATHS = new Set(["/electricity.html", "/stemverse-tool-player.html"]);
+
   // Security headers (reduce XSS, clickjacking, MIME sniffing)
-  app.use((_req, res, next) => {
+  app.use((req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("X-Frame-Options", "DENY");
+    // Dev: allow same-origin mission iframes. Prod: only explicit embed pages (e.g. electricity.html).
+    const allowSameOriginFrame = !isProduction || FRAMEABLE_PATHS.has(req.path);
+    res.setHeader("X-Frame-Options", allowSameOriginFrame ? "SAMEORIGIN" : "DENY");
     res.setHeader("X-XSS-Protection", "1; mode=block");
     if (isProduction) {
       res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
@@ -567,18 +479,30 @@ async function startServer() {
 
   app.use(express.json({ limit: "256kb" }));
 
-  app.use(
-    cookieSession({
-      name: "stemverse_sess",
-      keys: [SESSION_SECRET],
-      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: "lax",
-    }),
-  );
+  const asyncRoute =
+    (fn: (req: express.Request, res: express.Response) => Promise<unknown>) =>
+    (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      Promise.resolve(fn(req, res)).catch(next);
+    };
 
-  type SessionUser = { id: number; name: string; role: string };
+  type SessionUser = { id: string; name: string; role: string };
+
+  /** req.user = Supabase auth user; req.sessionUser = linked students row for handlers. */
+  type AuthRequest = express.Request & { user?: User; sessionUser?: SessionUser };
+
+  const getReqUser = (req: express.Request): SessionUser | undefined => (req as AuthRequest).sessionUser;
+
+  const setSessionUser = (req: express.Request, user: SessionUser) => {
+    (req as AuthRequest).sessionUser = user;
+  };
+
+  const getSupabasePublicClient = () => {
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+    if (!supabaseUrl || !supabaseAnonKey) return null;
+    return createClient(supabaseUrl, supabaseAnonKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+  };
 
   /** Drop revenue fields for non-admin viewers (admin UI loads full rows via session). */
   const sanitizeUser = (user: any, viewerRole?: string) => {
@@ -615,8 +539,33 @@ async function startServer() {
   const sanitizeEmbedCode = (input: string): string | null => {
     const s = input.trim();
     if (!s) return null;
+    const token = s.toLowerCase();
+    if (
+      token === "stemverse://arduino-uno-blockly" ||
+      token === "stemverse://arduino-blockly" ||
+      token === "stemverse://arduino-ide"
+    ) {
+      return "stemverse://arduino-uno-blockly";
+    }
+    if (token === "stemverse://electricity-pre-flow" || token.endsWith("/electricity.html")) {
+      return "stemverse://electricity-pre-flow";
+    }
+    if (token.startsWith("stemverse://tool-activity")) {
+      return s;
+    }
+    if (token.includes("/stemverse-tool-player.html")) {
+      return s;
+    }
     // Plain URL (http/https)
     if (/^https?:\/\/[^\s<>"']+$/i.test(s)) {
+      try {
+        const parsed = new URL(s);
+        if (parsed.pathname === "/" || parsed.pathname === "") {
+          return "stemverse://electricity-pre-flow";
+        }
+      } catch {
+        /* ignore */
+      }
       const url = toEmbeddableUrl(s).replace(/["'<>]/g, "");
       return `<iframe src="${url}" class="w-full h-full min-h-[400px]" allowfullscreen></iframe>`;
     }
@@ -685,68 +634,58 @@ async function startServer() {
     }
   };
 
-  const getAiUsageCountToday = (endpoint?: string, userId?: number) => {
-    if (endpoint && userId != null) {
-      const row = db
-        .prepare(
-          `SELECT COUNT(*) as count
-           FROM ai_usage_logs
-           WHERE date(created_at) = date('now')
-             AND endpoint = ?
-             AND user_id = ?`,
-        )
-        .get(endpoint, userId) as { count: number };
-      return Number(row?.count || 0);
+  const getAiUsageCountToday = async (endpoint?: string, userId?: string) => {
+    const since = startOfTodayIso();
+    if (endpoint && userId) {
+      return countRowsGte("ai_usage_logs", "created_at", since, { endpoint, user_id: userId });
     }
     if (endpoint) {
-      const row = db
-        .prepare(
-          `SELECT COUNT(*) as count
-           FROM ai_usage_logs
-           WHERE date(created_at) = date('now')
-             AND endpoint = ?`,
-        )
-        .get(endpoint) as { count: number };
-      return Number(row?.count || 0);
+      return countRowsGte("ai_usage_logs", "created_at", since, { endpoint });
     }
-    const row = db
-      .prepare(`SELECT COUNT(*) as count FROM ai_usage_logs WHERE date(created_at) = date('now')`)
-      .get() as { count: number };
-    return Number(row?.count || 0);
+    return countRowsGte("ai_usage_logs", "created_at", since);
   };
 
-  const logAiUsage = (endpoint: "generate_quiz" | "recommendations", userId: number, success: 0 | 1, reason?: string) => {
-    db.prepare("INSERT INTO ai_usage_logs (endpoint, user_id, success, reason) VALUES (?, ?, ?, ?)")
-      .run(endpoint, userId, success, reason || null);
+  const logAiUsage = async (
+    endpoint: "generate_quiz" | "recommendations",
+    userId: string,
+    success: 0 | 1,
+    reason?: string,
+  ) => {
+    await insertOne("ai_usage_logs", {
+      endpoint,
+      user_id: userId,
+      success,
+      reason: reason || null,
+    });
   };
 
-  const checkAndLogAiQuota = (endpoint: "generate_quiz" | "recommendations", userId: number) => {
-    const globalCount = getAiUsageCountToday();
+  const checkAndLogAiQuota = async (endpoint: "generate_quiz" | "recommendations", userId: string) => {
+    const globalCount = await getAiUsageCountToday();
     if (globalCount >= AI_DAILY_GLOBAL_LIMIT) {
-      logAiUsage(endpoint, userId, 0, "global_limit");
+      await logAiUsage(endpoint, userId, 0, "global_limit");
       return {
         ok: false,
         message: "AI daily platform limit reached. Please try again tomorrow.",
       } as const;
     }
     const perUserLimit = endpoint === "generate_quiz" ? AI_DAILY_QUIZ_LIMIT_PER_USER : AI_DAILY_RECOMMEND_LIMIT_PER_USER;
-    const userCount = getAiUsageCountToday(endpoint, userId);
+    const userCount = await getAiUsageCountToday(endpoint, userId);
     if (userCount >= perUserLimit) {
-      logAiUsage(endpoint, userId, 0, "user_limit");
+      await logAiUsage(endpoint, userId, 0, "user_limit");
       return {
         ok: false,
         message: `Daily AI limit reached for this feature (${perUserLimit}/day). Please try again tomorrow.`,
       } as const;
     }
-    logAiUsage(endpoint, userId, 1, "accepted");
+    await logAiUsage(endpoint, userId, 1, "accepted");
     return { ok: true, message: "" } as const;
   };
 
-  /** Map Supabase user + metadata to a local SQLite students row (numeric id) for existing app APIs. */
-  const linkSupabaseUserToLocalStudent = (
+  /** Upsert students row keyed by auth user UUID (students.id = auth.users.id). */
+  const linkSupabaseUserToLocalStudent = async (
     sbUser: { id: string; email?: string | null },
     metadata: Record<string, any>,
-  ): SessionUser | undefined => {
+  ): Promise<SessionUser | undefined> => {
     const email = sbUser.email || null;
     const rawRole = String(metadata.role || "student").toLowerCase();
     const desiredRole =
@@ -754,45 +693,66 @@ async function startServer() {
     const displayName = String(
       metadata.display_name || metadata.full_name || metadata.name || (email ? email.split("@")[0] : "Student"),
     ).trim();
-    const preferredUsername = ensureUniqueUsername(displayName);
+    const preferredUsername = await ensureUniqueUsername(displayName);
     const avatarSeed = encodeURIComponent(displayName.toLowerCase().replace(/\s+/g, "-"));
 
-    let localUser = db
-      .prepare(
-        "SELECT id, name, role, username FROM students WHERE supabase_user_id = ? OR (email IS NOT NULL AND email = ?) LIMIT 1",
-      )
-      .get(sbUser.id, email) as (SessionUser & { username?: string | null }) | undefined;
-
-    if (!localUser) {
-      const inserted = db
-        .prepare(
-          `INSERT INTO students
-           (name, username, password, level, xp, avatar_url, role, email, supabase_user_id, created_at, subscription_status, subscription_plan, billing_provider, mrr_cents, ltv_cents)
-           VALUES (?, ?, ?, 1, 0, ?, ?, ?, ?, CURRENT_TIMESTAMP, 'free', 'free', 'none', 0, 0)`,
-        )
-        .run(
-          displayName,
-          preferredUsername,
-          hashPassword(String(Math.random())),
-          `https://picsum.photos/seed/${avatarSeed}/200`,
-          desiredRole,
-          email,
-          sbUser.id,
-        );
-      localUser = db.prepare("SELECT id, name, role, username FROM students WHERE id = ?").get(inserted.lastInsertRowid) as (SessionUser & { username?: string | null }) | undefined;
+    const existing = await selectOne<{ username?: string | null }>("students", "username", { id: sbUser.id });
+    if (!existing) {
+      await insertOne("students", {
+        id: sbUser.id,
+        name: displayName,
+        username: preferredUsername,
+        password: hashPassword(String(Math.random())),
+        level: 1,
+        xp: 0,
+        avatar_url: `https://picsum.photos/seed/${avatarSeed}/200`,
+        role: desiredRole,
+        email,
+        subscription_status: "free",
+        subscription_plan: "free",
+        billing_provider: "none",
+        mrr_cents: 0,
+        ltv_cents: 0,
+      });
     } else {
-      db.prepare("UPDATE students SET supabase_user_id = ?, email = COALESCE(email, ?) WHERE id = ?").run(sbUser.id, email, localUser.id);
-      if (!localUser.username) {
-        const generated = ensureUniqueUsername(displayName);
-        db.prepare("UPDATE students SET username = ? WHERE id = ?").run(generated, localUser.id);
-      }
+      await updateRow("students", { id: sbUser.id }, {
+        name: displayName,
+        role: desiredRole,
+        email: email ?? undefined,
+        ...(!existing.username ? { username: preferredUsername } : {}),
+      });
     }
-    return localUser ? { id: localUser.id, name: localUser.name, role: localUser.role } : undefined;
+
+    const row = await selectOne<SessionUser>("students", "id, name, role", { id: sbUser.id });
+    return row ?? undefined;
+  };
+
+  const tryAttachUserFromAuthorizationHeader = async (req: express.Request): Promise<boolean> => {
+    if (!hasSupabaseAdmin || !supabaseAdmin) return false;
+    const token = req.headers.authorization?.split("Bearer ")[1];
+    if (!token) return false;
+    const { data, error } = await supabaseAdmin.auth.getUser(token);
+    if (error || !data?.user) return false;
+    const authReq = req as AuthRequest;
+    authReq.user = data.user;
+    const meta = (data.user.user_metadata || {}) as Record<string, unknown>;
+    const sessionUser = await linkSupabaseUserToLocalStudent(data.user, meta);
+    if (!sessionUser) return false;
+    authReq.sessionUser = sessionUser;
+    return true;
   };
 
   const ensureBuiltinTestAccounts = async () => {
     if (!hasSupabaseAdmin || !supabaseAdmin) return;
     if (String(process.env.ENABLE_TEST_ACCOUNTS || "true").toLowerCase() === "false") return;
+
+    const hostCheck = await checkSupabaseHost();
+    if (!hostCheck.ok) {
+      console.warn(
+        `[stemverse] Skipping test account sync — cannot reach Supabase (${hostCheck.hostname || "unknown"}).`,
+      );
+      return;
+    }
 
     const accounts = [
       { email: "student@example.com", password: "student123", role: "student", name: "Alex Rivera" },
@@ -802,75 +762,105 @@ async function startServer() {
 
     const asSupabaseRole = (role: string) => (role === "teacher" ? "educator" : role);
 
-    const listed = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-    const byEmail = new Map<string, string>();
-    for (const u of listed.data?.users || []) {
-      if (u.email) byEmail.set(u.email.toLowerCase(), u.id);
-    }
-
-    for (const account of accounts) {
-      const email = account.email.toLowerCase();
-      const userId = byEmail.get(email);
-      let finalId: string | null = null;
-
-      if (userId) {
-        const updated = await supabaseAdmin.auth.admin.updateUserById(userId, {
-          password: account.password,
-          email_confirm: true,
-          user_metadata: {
-            role: asSupabaseRole(account.role),
-            display_name: account.name,
-            name: account.name,
-          },
-        });
-        if (!updated.error && updated.data?.user) finalId = updated.data.user.id;
-      } else {
-        const created = await supabaseAdmin.auth.admin.createUser({
-          email,
-          password: account.password,
-          email_confirm: true,
-          user_metadata: {
-            role: asSupabaseRole(account.role),
-            display_name: account.name,
-            name: account.name,
-          },
-        });
-        if (!created.error && created.data?.user) finalId = created.data.user.id;
+    try {
+      const listed = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+      if (listed.error) {
+        console.warn("[stemverse] Test account sync skipped:", listed.error.message);
+        return;
       }
 
-      if (!finalId) continue;
+      const byEmail = new Map<string, string>();
+      for (const u of listed.data?.users || []) {
+        if (u.email) byEmail.set(u.email.toLowerCase(), u.id);
+      }
 
-      const linked = linkSupabaseUserToLocalStudent(
-        { id: finalId, email },
-        { role: asSupabaseRole(account.role), display_name: account.name, name: account.name },
+      for (const account of accounts) {
+        try {
+          const email = account.email.toLowerCase();
+          const userId = byEmail.get(email);
+          let finalId: string | null = null;
+
+          if (userId) {
+            const updated = await supabaseAdmin.auth.admin.updateUserById(userId, {
+              password: account.password,
+              email_confirm: true,
+              user_metadata: {
+                role: asSupabaseRole(account.role),
+                display_name: account.name,
+                name: account.name,
+              },
+            });
+            if (updated.error) {
+              console.warn(`[stemverse] Test account ${email}:`, updated.error.message);
+              continue;
+            }
+            if (updated.data?.user) finalId = updated.data.user.id;
+          } else {
+            const created = await supabaseAdmin.auth.admin.createUser({
+              email,
+              password: account.password,
+              email_confirm: true,
+              user_metadata: {
+                role: asSupabaseRole(account.role),
+                display_name: account.name,
+                name: account.name,
+              },
+            });
+            if (created.error) {
+              console.warn(`[stemverse] Test account ${email}:`, created.error.message);
+              continue;
+            }
+            if (created.data?.user) finalId = created.data.user.id;
+          }
+
+          if (!finalId) continue;
+
+          const linked = await linkSupabaseUserToLocalStudent(
+            { id: finalId, email },
+            { role: asSupabaseRole(account.role), display_name: account.name, name: account.name },
+          );
+          if (linked) {
+            const username = await ensureUniqueUsername(account.name);
+            await updateRow("students", { id: finalId }, {
+              name: account.name,
+              role: account.role,
+              email,
+              username,
+              password: hashPassword(account.password),
+            });
+          }
+        } catch (err) {
+          console.warn(
+            `[stemverse] Test account ${account.email} skipped:`,
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }
+    } catch (err) {
+      console.warn(
+        "[stemverse] Test account sync skipped:",
+        err instanceof Error ? err.message : err,
       );
-      if (linked) {
-        const username = ensureUniqueUsername(account.name);
-        db.prepare(
-          `UPDATE students
-           SET name = ?, role = ?, email = COALESCE(email, ?), username = COALESCE(username, ?), password = ?, supabase_user_id = ?
-           WHERE id = ?`,
-        ).run(account.name, account.role, email, username, hashPassword(account.password), finalId, linked.id);
-      }
     }
   };
 
   await ensureBuiltinTestAccounts();
 
+  app.get("/favicon.ico", (_req, res) => {
+    res.redirect(302, "/icons/icon-192x192.svg");
+  });
+
   app.get("/api/auth/health", (_req, res) => {
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
-    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
     const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-    const hasSessionSecret = Boolean(process.env.SESSION_SECRET && String(process.env.SESSION_SECRET).trim().length > 0);
     res.json({
       success: true,
       auth: {
-        mode: hasSupabaseAdmin ? "supabase" : "local",
+        mode: hasSupabaseAdmin ? "supabase_bearer" : "unconfigured",
         has_supabase_admin: hasSupabaseAdmin,
         has_supabase_url: Boolean(supabaseUrl),
         has_supabase_anon_key: Boolean(supabaseAnonKey),
         has_supabase_service_role_key: Boolean(supabaseServiceRoleKey),
-        has_session_secret: hasSessionSecret,
         allow_local_auth_fallback: ALLOW_LOCAL_AUTH_FALLBACK,
         enable_test_accounts: String(process.env.ENABLE_TEST_ACCOUNTS || "true").toLowerCase() === "true",
       },
@@ -878,59 +868,71 @@ async function startServer() {
   });
 
   const requireAuth: express.RequestHandler = async (req, res, next) => {
-    const sessionUser = (req.session as any)?.user as SessionUser | undefined;
-    if (sessionUser) return next();
-
-    // Supabase bearer auth fallback for API routes (production-safe, key stays server-side).
-    const authHeader = req.headers.authorization || "";
-    const tokenMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-    const token = tokenMatch?.[1];
-    if (!token || !hasSupabaseAdmin || !supabaseAdmin) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
+    if (!hasSupabaseAdmin || !supabaseAdmin) {
+      return res.status(503).json({ error: "Auth not configured" });
     }
-
+    const token = req.headers.authorization?.split("Bearer ")[1];
+    if (!token) return res.status(401).json({ error: "No token" });
     const { data, error } = await supabaseAdmin.auth.getUser(token);
-    if (error || !data?.user) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
-    }
-    const sbUser = data.user;
-    const metadata = (sbUser.user_metadata || {}) as Record<string, any>;
-    const localUser = linkSupabaseUserToLocalStudent(sbUser, metadata);
+    if (error || !data?.user) return res.status(401).json({ error: "Invalid token" });
+    const authReq = req as AuthRequest;
+    authReq.user = data.user;
+    const meta = (data.user.user_metadata || {}) as Record<string, unknown>;
+    const sessionUser = await linkSupabaseUserToLocalStudent(data.user, meta);
+    if (!sessionUser) return res.status(401).json({ error: "Invalid token" });
+    authReq.sessionUser = sessionUser;
+    next();
+  };
 
-    if (!localUser) return res.status(401).json({ success: false, message: "Unauthorized" });
-    (req.session as any).user = { id: localUser.id, name: localUser.name, role: localUser.role };
+  const optionalAuth: express.RequestHandler = async (req, _res, next) => {
+    await tryAttachUserFromAuthorizationHeader(req);
     next();
   };
 
   const requireRole = (roles: Array<SessionUser["role"]>): express.RequestHandler => {
-    return (req, res, next) => {
-      const user = (req.session as any)?.user as SessionUser | undefined;
-      if (!user || !roles.includes(user.role)) {
+    return async (req, res, next) => {
+      const authUser = (req as AuthRequest).user;
+      if (!authUser) {
+        return res.status(401).json({ error: "No token" });
+      }
+      const role = (await getStudentRole(authUser.id)) || getReqUser(req)?.role;
+      if (!role || !roles.includes(role)) {
         return res.status(403).json({ success: false, message: "Forbidden" });
       }
+      const sessionUser = getReqUser(req);
+      if (sessionUser) setSessionUser(req, { ...sessionUser, role });
       next();
     };
   };
 
   /** Students can only access their own id; teachers/admins can access any student. */
-  const requireStudentAccess: express.RequestHandler = (req, res, next) => {
-    const user = (req.session as any)?.user as SessionUser | undefined;
+  const requireStudentAccess: express.RequestHandler = async (req, res, next) => {
+    const user = getReqUser(req);
     if (!user) return res.status(401).json({ success: false, message: "Unauthorized" });
-    const studentId = Number(req.params.id);
-    if (Number.isNaN(studentId)) return res.status(400).json({ success: false, message: "Invalid id" });
-    if (user.role === "student" && user.id !== studentId) {
+    const studentId = req.params.id;
+    if (!isUuid(studentId)) return res.status(400).json({ success: false, message: "Invalid id" });
+    const role = (await getStudentRole(user.id)) || user.role;
+    if (role === "student" && user.id !== studentId) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
     next();
   };
 
-  const ensureClassAccess = (req: express.Request, res: express.Response, classId: number): { ok: boolean } => {
-    const user = (req.session as any)?.user as SessionUser | undefined;
+  const ensureClassAccess = async (
+    req: express.Request,
+    res: express.Response,
+    classId: string,
+  ): Promise<{ ok: boolean }> => {
+    const user = getReqUser(req);
     if (!user) {
       res.status(401).json({ success: false, message: "Unauthorized" });
       return { ok: false };
     }
-    const cls = db.prepare("SELECT id, teacher_id FROM classes WHERE id = ?").get(classId) as { id: number; teacher_id: number } | undefined;
+    if (!isUuid(classId)) {
+      res.status(400).json({ success: false, message: "Invalid class id" });
+      return { ok: false };
+    }
+    const cls = await selectOne<{ id: string; teacher_id: string | null }>("classes", "id, teacher_id", { id: classId });
     if (!cls) {
       res.status(404).json({ success: false, message: "Class not found" });
       return { ok: false };
@@ -966,19 +968,200 @@ async function startServer() {
     next();
   };
 
+  type SignupProfilePayload = {
+    name: string;
+    role: string;
+    age?: number | null;
+    grade?: string | null;
+    school?: string | null;
+    city?: string | null;
+    email?: string | null;
+    parent_email?: string | null;
+    contact_number?: string | null;
+    gender?: string | null;
+    country_code?: string | null;
+    region?: string | null;
+    timezone?: string | null;
+  };
+
+  const syncLocalStudentProfile = async (
+    supabaseUserId: string,
+    profile: SignupProfilePayload,
+  ): Promise<{ user: Record<string, unknown>; username: string } | null> => {
+    const {
+      name,
+      role,
+      age,
+      grade,
+      school,
+      city,
+      email,
+      parent_email,
+      contact_number,
+      gender: genderRaw,
+      country_code: countryRaw,
+      region: regionRaw,
+      timezone: timezoneRaw,
+    } = profile;
+    if (!name || !role || (role !== "student" && role !== "teacher")) return null;
+
+    const gender = genderRaw != null ? normalizeGender(genderRaw) : null;
+    const country_code = countryRaw != null ? normalizeCountryCode(countryRaw) : null;
+    const region = regionRaw != null ? String(regionRaw).trim() || null : null;
+    const timezone = timezoneRaw != null ? String(timezoneRaw).trim() || null : null;
+    const normalizedSchool = String(school || "").trim();
+    const avatarSeed = encodeURIComponent(name.trim().toLowerCase().replace(/\s+/g, "-"));
+    const avatar_url = `https://picsum.photos/seed/${avatarSeed}/200`;
+    const username = await ensureUniqueUsername(name);
+
+    const user = await SQ.upsertStudentProfile(
+      supabaseUserId,
+      {
+        name,
+        role,
+        username,
+        avatar_url,
+        age: age ?? null,
+        grade: grade ?? null,
+        school: normalizedSchool || null,
+        city: city ?? null,
+        email: email ?? null,
+        parent_email: parent_email ?? null,
+        contact_number: contact_number ?? null,
+        gender,
+        country_code,
+        region,
+        timezone,
+      },
+      hashPassword(String(Math.random())),
+    );
+    if (!user) return null;
+    await bumpLastActive(supabaseUserId);
+    return { user, username: String((user as { username?: string }).username || username) };
+  };
+
+  const resolveEmailForLoginIdentifier = async (identifier: string): Promise<string | null> => {
+    const trimmed = identifier.trim();
+    if (!trimmed) return null;
+    if (trimmed.includes("@")) return trimmed;
+    const row = await findStudentByEmailOrUsername(trimmed);
+    return String(row?.email || "").trim() || null;
+  };
+
   // API Routes
-  app.get("/api/sectors", (req, res) => {
-    const sectors = db.prepare("SELECT * FROM sectors").all();
+  app.get("/api/auth/resolve-email", rateLimitAuth, async (req, res) => {
+    const identifier = String(req.query.identifier || "").trim();
+    if (!identifier) {
+      return res.status(400).json({ success: false, message: "identifier is required" });
+    }
+    const email = await resolveEmailForLoginIdentifier(identifier);
+    if (!email) {
+      return res.status(404).json({ success: false, message: "No account found for this username. Try email login once." });
+    }
+    res.json({ success: true, email });
+  });
+
+  app.post("/api/auth/complete-signup", requireAuth, async (req, res) => {
+    const sessionUser = getReqUser(req)!;
+    const authHeader = req.headers.authorization || "";
+    const token = authHeader.match(/^Bearer\s+(.+)$/i)?.[1];
+    if (!token || !hasSupabaseAdmin || !supabaseAdmin) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+    const { data, error } = await supabaseAdmin.auth.getUser(token);
+    if (error || !data?.user) {
+      return res.status(401).json({ success: false, message: "Invalid session" });
+    }
+    const supabaseUserId = data.user.id;
+    if (sessionUser.id !== supabaseUserId) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+
+    const {
+      name,
+      role,
+      age,
+      grade,
+      school,
+      city,
+      email,
+      parent_email,
+      contact_number,
+      gender: genderRaw,
+      country_code: countryRaw,
+      region: regionRaw,
+      timezone: timezoneRaw,
+    } = req.body;
+
+    if (!name || !role) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
+    }
+    if (role !== "student" && role !== "teacher") {
+      return res.status(400).json({ success: false, message: "Invalid role" });
+    }
+    const normalizedSchool = String(school || "").trim();
+    if (role === "teacher" && !normalizedSchool) {
+      return res.status(400).json({ success: false, message: "Teacher signup requires a school selection." });
+    }
+    const gender = normalizeGender(genderRaw);
+    if (genderRaw != null && String(genderRaw).trim() !== "" && gender === null) {
+      return res.status(400).json({ success: false, message: "Invalid gender value" });
+    }
+    const country_code = normalizeCountryCode(countryRaw);
+    if (countryRaw != null && String(countryRaw).trim() !== "" && country_code === null) {
+      return res.status(400).json({ success: false, message: "country_code must be ISO 3166-1 alpha-2 (e.g. US)" });
+    }
+    const region = regionRaw != null ? String(regionRaw).trim() || null : null;
+    const timezone = timezoneRaw != null ? String(timezoneRaw).trim() || null : null;
+
+    const synced = await syncLocalStudentProfile(supabaseUserId, {
+      name,
+      role,
+      age: age != null ? Number(age) : null,
+      grade: grade || null,
+      school: normalizedSchool || null,
+      city: city || null,
+      email: email || data.user.email || null,
+      parent_email: parent_email || null,
+      contact_number: contact_number || null,
+      gender,
+      country_code,
+      region,
+      timezone,
+    });
+    if (!synced) {
+      return res.status(500).json({ success: false, message: "Could not create local profile" });
+    }
+    res.json({ success: true, username: synced.username, user: sanitizeUser(synced.user) });
+  });
+
+  app.get("/api/sectors", optionalAuth, async (req, res) => {
+    const rows = await SQ.listSectorsOrdered();
+    const sessionUser = getReqUser(req);
+    let sectors = rows;
+
+    if (sessionUser?.role === "student") {
+      const starterDone = await SQ.studentCompletedStarterMission(sessionUser.id);
+      if (!starterDone) {
+        sectors = rows.map((s) => {
+          const isStarter = Boolean(s.is_starter);
+          if (isStarter) return s;
+          return { ...s, status: "locked" };
+        });
+      }
+    }
+
     res.json(sectors);
   });
 
-  app.get("/api/sectors/:id", (req, res) => {
-    const sector = db.prepare("SELECT * FROM sectors WHERE id = ?").get(req.params.id);
+  app.get("/api/sectors/:id", async (req, res) => {
+    if (!isUuid(req.params.id)) return res.status(400).json({ error: "Invalid sector id" });
+    const sector = await selectOne("sectors", "*", { id: req.params.id });
     if (!sector) return res.status(404).json({ error: "Sector not found" });
     res.json(sector);
   });
 
-  app.post("/api/sectors", requireAuth, requireRole(["admin"]), (req, res) => {
+  app.post("/api/sectors", requireAuth, requireRole(["admin"]), async (req, res) => {
     const {
       name,
       description,
@@ -1002,100 +1185,47 @@ async function startServer() {
     const safeStatus = ["active", "locked", "maintenance"].includes(safeStatusRaw) ? safeStatusRaw : "locked";
     const safeImageUrl = String(image_url || "").trim() || "https://picsum.photos/seed/sector/400/300";
 
-    const insert = db.prepare(
-      "INSERT INTO sectors (name, description, xp_reward, required_level, mastery_percent, status, image_url) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    );
-    const result = insert.run(
-      trimmedName,
-      safeDescription,
-      safeXp,
-      safeRequiredLevel,
-      safeMastery,
-      safeStatus,
-      safeImageUrl
-    );
-    const created = db.prepare("SELECT * FROM sectors WHERE id = ?").get(result.lastInsertRowid);
+    const created = await insertOne("sectors", {
+      name: trimmedName,
+      description: safeDescription,
+      xp_reward: safeXp,
+      required_level: safeRequiredLevel,
+      mastery_percent: safeMastery,
+      status: safeStatus,
+      image_url: safeImageUrl,
+    });
     return res.json({ success: true, sector: created });
   });
 
   /** Missions in this sector. Students see only missions assigned to their class(es); teachers/admins see all. */
-  app.get("/api/sectors/:id/missions", requireAuth, (req, res) => {
+  app.get("/api/sectors/:id/missions", requireAuth, async (req, res) => {
     const sectorId = req.params.id;
-    const sector = db.prepare("SELECT * FROM sectors WHERE id = ?").get(sectorId);
+    if (!isUuid(sectorId)) return res.status(400).json({ error: "Invalid sector id" });
+    const sector = await selectOne("sectors", "*", { id: sectorId });
     if (!sector) return res.status(404).json({ error: "Sector not found" });
 
-    const sessionUser = (req.session as any)?.user as SessionUser;
-    let missions: unknown[];
-
-    let completedMissionIds: number[] = [];
+    const sessionUser = getReqUser(req)!;
     if (sessionUser.role === "student") {
-      const rows = db
-        .prepare(
-          `SELECT DISTINCT
-             m.*,
-             CASE
-               WHEN m.prerequisite_mission_id IS NOT NULL
-                    AND m.prerequisite_mission_id NOT IN (
-                      SELECT smc.mission_id FROM student_mission_completions smc WHERE smc.student_id = ?
-                    )
-               THEN 'locked'
-               ELSE COALESCE(m.status, 'available')
-             END AS status
-           FROM missions m
-           JOIN class_missions cm ON cm.mission_id = m.id
-           JOIN class_students cs ON cs.class_id = cm.class_id
-           WHERE cs.student_id = ? AND m.sector_id = ?
-           ORDER BY m.id`
-        )
-        .all(sessionUser.id, sessionUser.id, sectorId);
-      missions = rows;
-      const completed = db
-        .prepare(
-          `SELECT mission_id FROM student_mission_completions WHERE student_id = ? AND mission_id IN (SELECT id FROM missions WHERE sector_id = ?)`
-        )
-        .all(sessionUser.id, sectorId) as { mission_id: number }[];
-      completedMissionIds = completed.map((c) => c.mission_id);
-    } else {
-      missions = db.prepare("SELECT * FROM missions WHERE sector_id = ? ORDER BY id").all(sectorId);
+      const result = await SQ.getMissionsForSectorStudent(sectorId, sessionUser.id);
+      return res.json(result);
     }
-
-    res.json({ missions, completedMissionIds });
+    const missions = await selectMany("missions", "*", { sector_id: sectorId }, { column: "created_at", ascending: true });
+    res.json({ missions, completedMissionIds: [] });
   });
 
-  app.get("/api/students", requireAuth, (req, res) => {
-    const sessionUser = (req.session as any)?.user as SessionUser;
-    if (sessionUser.role === "admin") {
-      const students = db.prepare("SELECT " + STUDENT_SELECT_PUBLIC + " FROM students ORDER BY id").all();
-      return res.json(students);
-    }
-    const students = db.prepare("SELECT id, name, level, xp, avatar_url, role FROM students").all();
+  app.get("/api/students", requireAuth, async (req, res) => {
+    const sessionUser = getReqUser(req)!;
+    const students = await SQ.listStudentsPublic(sessionUser.role === "admin");
     res.json(students);
   });
 
-  app.post("/api/students", (req, res) => {
-    const { name, level, xp, avatar_url, role, password } = req.body;
-    const insert = db.prepare("INSERT INTO students (name, level, xp, avatar_url, role, password) VALUES (?, ?, ?, ?, ?, ?)");
-    const result = insert.run(
-      name,
-      level || 1,
-      xp || 0,
-      avatar_url || "https://picsum.photos/seed/user/200",
-      role || "student",
-      hashPassword(password || "password123"),
-    );
-    res.json({ success: true, id: result.lastInsertRowid });
-  });
-
-  app.get("/api/schools", (_req, res) => {
-    const rows = db
-      .prepare(
-        `SELECT DISTINCT TRIM(school) AS school
-         FROM students
-         WHERE school IS NOT NULL AND TRIM(school) <> ''
-         ORDER BY school COLLATE NOCASE`,
-      )
-      .all() as Array<{ school: string }>;
-    res.json(rows.map((r) => r.school));
+  app.get("/api/schools", async (_req, res) => {
+    try {
+      res.json(await SQ.selectDistinctSchools());
+    } catch (err) {
+      console.warn("[stemverse] /api/schools:", err instanceof Error ? err.message : err);
+      res.json([]);
+    }
   });
 
   app.post("/api/signup", rateLimitAuth, async (req, res) => {
@@ -1139,386 +1269,200 @@ async function startServer() {
       return res.status(400).json({ success: false, message: "Teacher signup requires a school selection." });
     }
 
-    const avatarSeed = encodeURIComponent(name.trim().toLowerCase().replace(/\s+/g, "-"));
-    const avatar_url = `https://picsum.photos/seed/${avatarSeed}/200`;
-    const username = ensureUniqueUsername(name);
+    if (!hasSupabaseAdmin || !supabaseAdmin) {
+      return res.status(503).json({ success: false, message: "Supabase auth is not configured." });
+    }
 
-    // Supabase-first signup path
-    if (hasSupabaseAdmin && supabaseAdmin) {
-      const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
-      const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
-      if (!supabaseUrl || !supabaseAnonKey) {
-        return res.status(500).json({ success: false, message: "Supabase environment is not configured." });
-      }
-      const supabasePublic = createClient(supabaseUrl, supabaseAnonKey, {
-        auth: { autoRefreshToken: false, persistSession: false },
-      });
-      const mappedRole = role === "teacher" ? "educator" : role;
-      const signUp = await supabasePublic.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            role: mappedRole,
-            username,
-            display_name: name,
-            age: age || null,
-            grade_level: grade || null,
-            school: normalizedSchool || null,
-            city: city || null,
-            parent_email: parent_email || null,
-            contact_number: contact_number || null,
-            gender: gender || null,
-            country_code: country_code || null,
-            region,
-            timezone,
-          },
-        },
-      });
-      if (signUp.error || !signUp.data.user) {
-        const msg = String(signUp.error?.message || "Signup failed");
-        if (/already|exists|registered/i.test(msg)) {
-          // If account exists, allow immediate sign-in with provided password to avoid signup/login loops.
-          const existingSignIn = await supabasePublic.auth.signInWithPassword({ email, password });
-          if (!existingSignIn.error && existingSignIn.data.user) {
-            const existingMeta = (existingSignIn.data.user.user_metadata || {}) as Record<string, any>;
-            const linked = linkSupabaseUserToLocalStudent(existingSignIn.data.user, existingMeta);
-            const fullUser = linked
-              ? db
-                  .prepare(
-                    "SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE id = ?",
-                  )
-                  .get(linked.id)
-              : null;
-            if (linked && fullUser) {
-              (req.session as any).user = { id: (fullUser as any).id, name: (fullUser as any).name, role: (fullUser as any).role };
-              bumpLastActive((fullUser as any).id);
-              return res.json({
-                success: true,
-                already_exists: true,
-                message: "Account already existed. You are now signed in.",
-                access_token: existingSignIn.data.session?.access_token || null,
-                user: sanitizeUser(fullUser, (fullUser as any).role),
-              });
-            }
-          }
-          return res.status(409).json({ success: false, message: "User already exists. Please sign in instead." });
-        }
-        return res.status(400).json({ success: false, message: msg });
-      }
-      const sbNew = signUp.data.user;
-      await supabaseAdmin.from("profiles").upsert({
-        id: sbNew.id,
+    const username = await ensureUniqueUsername(name);
+    const mappedRole = role === "teacher" ? "educator" : role;
+
+    const created = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: {
         role: mappedRole,
+        username,
         display_name: name,
-        school: normalizedSchool || null,
+        age: age || null,
         grade_level: grade || null,
-        avatar_url,
+        school: normalizedSchool || null,
+        city: city || null,
+        parent_email: parent_email || null,
+        contact_number: contact_number || null,
         gender: gender || null,
         country_code: country_code || null,
         region,
         timezone,
-        subscription_status: "free",
-        subscription_plan: "free",
-        billing_provider: "none",
-        mrr_cents: 0,
-        ltv_cents: 0,
-      });
-      if (!signUp.data.session?.access_token) {
-        return res.json({
-          success: true,
-          needs_email_confirmation: true,
-          access_token: null,
-          message: "Check your email to verify your account, then sign in.",
-        });
+      },
+    });
+
+    if (created.error || !created.data.user) {
+      const msg = String(created.error?.message || "Signup failed");
+      if (/already|exists|registered/i.test(msg)) {
+        const existingSignIn = await supabaseAdmin.auth.signInWithPassword({ email, password });
+        if (!existingSignIn.error && existingSignIn.data.user && existingSignIn.data.session?.access_token) {
+          const existingMeta = (existingSignIn.data.user.user_metadata || {}) as Record<string, unknown>;
+          const linked = await linkSupabaseUserToLocalStudent(existingSignIn.data.user, existingMeta);
+          const fullUser = linked ? await getStudentPublic(linked.id) : null;
+          if (linked && fullUser) {
+            await bumpLastActive(linked.id);
+            return res.json({
+              success: true,
+              already_exists: true,
+              message: "Account already existed. You are now signed in.",
+              access_token: existingSignIn.data.session.access_token,
+              user: sanitizeUser(fullUser, (fullUser as { role?: string }).role),
+            });
+          }
+        }
+        return res.status(409).json({ success: false, message: "User already exists. Please sign in instead." });
       }
-      let localUser = db
-        .prepare("SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE supabase_user_id = ? OR (email IS NOT NULL AND email = ?) LIMIT 1")
-        .get(sbNew.id, email) as Record<string, unknown> | undefined;
-      if (!localUser) {
-        const inserted = db
-          .prepare(
-            `INSERT INTO students
-             (name, username, password, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number, supabase_user_id, created_at, gender, country_code, region, timezone)
-             VALUES (?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?)`,
-          )
-          .run(
-            name,
-            username,
-            hashPassword(String(Math.random())),
-            avatar_url,
-            role,
-            age || null,
-            grade || null,
-            normalizedSchool || null,
-            city || null,
-            email || null,
-            parent_email || null,
-            contact_number || null,
-            sbNew.id,
-            gender,
-            country_code,
-            region,
-            timezone,
-          );
-        localUser = db
-          .prepare(
-            "SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE id = ?",
-          )
-          .get(inserted.lastInsertRowid) as Record<string, unknown>;
-      } else {
-        db.prepare(
-          "UPDATE students SET name = ?, username = COALESCE(username, ?), role = ?, avatar_url = ?, age = ?, grade = ?, school = ?, city = ?, email = ?, parent_email = ?, contact_number = ?, supabase_user_id = ?, gender = COALESCE(?, gender), country_code = COALESCE(?, country_code), region = COALESCE(?, region), timezone = COALESCE(?, timezone), created_at = COALESCE(created_at, CURRENT_TIMESTAMP) WHERE id = ?",
-        ).run(
-          name,
-          username,
-          role,
-          avatar_url,
-          age || null,
-          grade || null,
-          normalizedSchool || null,
-          city || null,
-          email || null,
-          parent_email || null,
-          contact_number || null,
-          sbNew.id,
-          gender,
-          country_code,
-          region,
-          timezone,
-          localUser.id,
-        );
-        localUser = db
-          .prepare(
-            "SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE id = ?",
-          )
-          .get(localUser.id) as Record<string, unknown>;
-      }
-      (req.session as any).user = { id: (localUser as any).id, name: (localUser as any).name, role: (localUser as any).role };
-      bumpLastActive((localUser as any).id);
-      return res.json({ success: true, access_token: signUp.data.session.access_token, username: (localUser as any).username, user: sanitizeUser(localUser) });
+      return res.status(400).json({ success: false, message: msg });
     }
 
-    const insert = db.prepare(
-      `INSERT INTO students
-        (name, username, password, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number, created_at, gender, country_code, region, timezone)
-       VALUES (?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?)`,
-    );
-
-    const result = insert.run(
+    const sbNew = created.data.user;
+    const synced = await syncLocalStudentProfile(sbNew.id, {
       name,
-      username,
-      hashPassword(password),
-      avatar_url,
       role,
-      age || null,
-      grade || null,
-      normalizedSchool || null,
-      city || null,
-      email || null,
-      parent_email || null,
-      contact_number || null,
+      age: age != null ? Number(age) : null,
+      grade: grade || null,
+      school: normalizedSchool || null,
+      city: city || null,
+      email: email || sbNew.email || null,
+      parent_email: parent_email || null,
+      contact_number: contact_number || null,
       gender,
       country_code,
       region,
       timezone,
-    );
+    });
+    if (!synced?.user) {
+      return res.status(500).json({ success: false, message: "Could not create profile" });
+    }
 
-    const user = db
-      .prepare(
-        "SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE id = ?",
-      )
-      .get(result.lastInsertRowid);
+    const signIn = await supabaseAdmin.auth.signInWithPassword({ email, password });
+    if (signIn.error || !signIn.data.session?.access_token) {
+      return res.json({
+        success: true,
+        needs_email_confirmation: true,
+        access_token: null,
+        username: synced.username,
+        user: sanitizeUser(synced.user),
+        message: "Account created. Sign in with your email and password.",
+      });
+    }
 
-    (req.session as any).user = { id: (user as any).id, name: (user as any).name, role: (user as any).role };
-
-    bumpLastActive((user as any).id);
-    res.json({ success: true, username: (user as any).username, user });
+    await bumpLastActive(sbNew.id);
+    return res.json({
+      success: true,
+      access_token: signIn.data.session.access_token,
+      username: synced.username,
+      user: sanitizeUser(synced.user),
+    });
   });
 
   app.post("/api/login", rateLimitAuth, async (req, res) => {
+    try {
     const { name, username, email, password } = req.body;
     const identifier = String(email || username || name || "").trim();
     console.log(`Login attempt for: ${identifier}`);
 
-    if (hasSupabaseAdmin && supabaseAdmin) {
-      const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
-      const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
-      if (!supabaseUrl || !supabaseAnonKey) {
-        return res.status(500).json({ success: false, message: "Supabase environment is not configured." });
-      }
-      if (!identifier || !password) {
-        return res.status(400).json({ success: false, message: "Username/email and password are required." });
-      }
-      let emailForAuth = identifier.includes("@") ? identifier : "";
-      if (!emailForAuth) {
-        const row = db
-          .prepare("SELECT email FROM students WHERE username = ? COLLATE NOCASE OR name = ? COLLATE NOCASE LIMIT 1")
-          .get(identifier, identifier) as { email?: string | null } | undefined;
-        emailForAuth = String(row?.email || "").trim();
-      }
-      if (!emailForAuth) {
-        return res.status(401).json({ success: false, message: "No account found for this username. Try email login once." });
-      }
-      const supabasePublic = createClient(supabaseUrl, supabaseAnonKey, {
-        auth: { autoRefreshToken: false, persistSession: false },
+    if (!hasSupabaseAdmin || !supabaseAdmin) {
+      return res.status(503).json({ success: false, message: "Supabase auth is not configured." });
+    }
+    if (!identifier || !password) {
+      return res.status(400).json({ success: false, message: "Username/email and password are required." });
+    }
+    let emailForAuth = identifier.includes("@") ? identifier : "";
+    if (!emailForAuth) {
+      emailForAuth = (await resolveEmailForLoginIdentifier(identifier)) || "";
+    }
+    if (!emailForAuth) {
+      return res.status(401).json({ success: false, message: "No account found for this username. Try email login once." });
+    }
+    const signIn = await supabaseAdmin.auth.signInWithPassword({ email: emailForAuth, password });
+    if (signIn.error || !signIn.data.user || !signIn.data.session?.access_token) {
+      return res.status(401).json({
+        success: false,
+        message: signIn.error?.message || "Invalid credentials",
       });
-      const signIn = await supabasePublic.auth.signInWithPassword({ email: emailForAuth, password });
-      if (signIn.error || !signIn.data.user) {
-        if (!ALLOW_LOCAL_AUTH_FALLBACK) {
-          return res.status(401).json({
-            success: false,
-            message: signIn.error?.message || "Invalid credentials",
-          });
-        }
-        // Local fallback for testing and resilience when Supabase user store is out of sync.
-        const localUser = db
-          .prepare(
-            "SELECT " + STUDENT_SELECT_LOGIN + " FROM students WHERE username = ? COLLATE NOCASE OR name = ? COLLATE NOCASE OR email = ? COLLATE NOCASE LIMIT 1",
-          )
-          .get(identifier, identifier, identifier) as any;
-        if (!localUser || !bcrypt.compareSync(password, localUser.password)) {
-          return res.status(401).json({ success: false, message: signIn.error?.message || "Invalid credentials" });
-        }
-        (req.session as any).user = { id: localUser.id, name: localUser.name, role: localUser.role };
-        bumpLastActive(localUser.id);
-        return res.json({ success: true, access_token: null, user: sanitizeUser(localUser) });
-      }
-      const sbUser = signIn.data.user;
-      const meta = (sbUser.user_metadata || {}) as Record<string, any>;
-      const metaRole = String(meta.role || "student").toLowerCase();
-      let roleFromMeta =
-        metaRole === "educator" || metaRole === "teacher" ? "teacher" : metaRole === "admin" ? "admin" : "student";
-      let prof: { role?: string; display_name?: string } | null = null;
-      const { data: profRow } = await supabaseAdmin
-        .from("profiles")
-        .select("role, display_name")
-        .eq("id", sbUser.id)
-        .maybeSingle();
-      prof = profRow;
-      if (prof?.role) {
-        const pr = String(prof.role).toLowerCase();
-        roleFromMeta = pr === "educator" || pr === "teacher" ? "teacher" : pr === "admin" ? "admin" : "student";
-      }
-      const metaForLink: Record<string, any> = { ...meta, role: roleFromMeta };
-      if (prof?.display_name) metaForLink.display_name = prof.display_name;
-
-      const linked = linkSupabaseUserToLocalStudent(sbUser, metaForLink);
-      if (!linked) {
-        return res.status(500).json({ success: false, message: "Could not link account to local profile." });
-      }
-
-      const displayName = String(
-        metaForLink.display_name || metaForLink.full_name || metaForLink.name || (sbUser.email ? sbUser.email.split("@")[0] : "User"),
-      );
-      const avatar = `https://picsum.photos/seed/${encodeURIComponent(displayName.toLowerCase().replace(/\s+/g, "-"))}/200`;
-
-      db.prepare("UPDATE students SET name = ?, role = ?, avatar_url = ?, email = COALESCE(email, ?), supabase_user_id = ? WHERE id = ?").run(
-        displayName,
-        roleFromMeta,
-        avatar,
-        sbUser.email || null,
-        sbUser.id,
-        linked.id,
-      );
-
-      const fullUser = db
-        .prepare(
-          "SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE id = ?",
-        )
-        .get(linked.id);
-      if (!fullUser) {
-        return res.status(500).json({ success: false, message: "Could not load user profile." });
-      }
-
-      (req.session as any).user = { id: (fullUser as any).id, name: (fullUser as any).name, role: (fullUser as any).role };
-      bumpLastActive((fullUser as any).id);
-      return res.json({
-        success: true,
-        access_token: signIn.data.session?.access_token || null,
-        user: sanitizeUser(fullUser),
+    }
+    const sbUser = signIn.data.user;
+    const meta = (sbUser.user_metadata || {}) as Record<string, unknown>;
+    const linked = await linkSupabaseUserToLocalStudent(sbUser, meta);
+    if (!linked) {
+      return res.status(500).json({
+        success: false,
+        message:
+          "Could not link account to local profile. Run supabase/migrations/001_stemverse_schema.sql in Supabase SQL Editor, then restart the server.",
       });
     }
 
-    const user = db
-      .prepare(
-        "SELECT " + STUDENT_SELECT_LOGIN + " FROM students WHERE username = ? COLLATE NOCASE OR name = ? COLLATE NOCASE OR email = ? COLLATE NOCASE",
-      )
-      .get(identifier, identifier, identifier);
+    const displayName = String(
+      meta.display_name || meta.full_name || meta.name || (sbUser.email ? sbUser.email.split("@")[0] : "User"),
+    );
+    const avatar = `https://picsum.photos/seed/${encodeURIComponent(displayName.toLowerCase().replace(/\s+/g, "-"))}/200`;
 
-    if (!user) {
-      console.log(`Login failed: ${identifier} (no such user)`);
-      return res.status(401).json({ success: false, message: "Invalid credentials" });
+    await updateRow("students", { id: linked.id }, {
+      name: displayName,
+      avatar_url: avatar,
+      email: sbUser.email || undefined,
+    });
+
+    const fullUser = await getStudentPublic(linked.id);
+    if (!fullUser) {
+      return res.status(500).json({ success: false, message: "Could not load user profile." });
     }
 
-    const matches = bcrypt.compareSync(password, (user as any).password);
-
-    if (!matches) {
-      console.log(`Login failed: ${identifier} (bad password)`);
-      return res.status(401).json({ success: false, message: "Invalid credentials" });
+    await bumpLastActive(linked.id);
+    return res.json({
+      success: true,
+      access_token: signIn.data.session.access_token,
+      user: sanitizeUser(fullUser),
+    });
+    } catch (err) {
+      console.error("[stemverse] /api/login:", err instanceof Error ? err.message : err);
+      return res.status(500).json({
+        success: false,
+        message:
+          err instanceof Error && /students|schema cache/i.test(err.message)
+            ? "Database schema not set up. Run supabase/migrations/001_stemverse_schema.sql in Supabase, then restart."
+            : "Login failed due to a server error.",
+      });
     }
-
-    console.log(`Login success: ${identifier} (${(user as any).role})`);
-
-    (req.session as any).user = { id: (user as any).id, name: (user as any).name, role: (user as any).role };
-
-    res.json({ success: true, user: sanitizeUser(user) });
   });
 
-  app.get("/api/quizzes", requireAuth, (req, res) => {
-    const quizzes = db.prepare("SELECT * FROM quizzes ORDER BY created_at DESC").all();
-    res.json(quizzes);
+  app.get("/api/quizzes", requireAuth, async (_req, res) => {
+    res.json(await SQ.listQuizzes());
   });
 
-  app.get("/api/quizzes/:id", requireAuth, (req, res) => {
-    const row = db.prepare("SELECT * FROM quizzes WHERE id = ?").get(req.params.id);
+  app.get("/api/quizzes/:id", requireAuth, async (req, res) => {
+    if (!isUuid(req.params.id)) return res.status(400).json({ error: "Invalid quiz id" });
+    const row = await selectOne("quizzes", "*", { id: req.params.id });
     if (!row) return res.status(404).json({ error: "Quiz not found" });
     res.json(row);
   });
 
-  app.patch("/api/quizzes/:id", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const id = req.params.id;
-    const existing = db.prepare("SELECT id FROM quizzes WHERE id = ?").get(id);
-    if (!existing) return res.status(404).json({ error: "Quiz not found" });
-    const { title, questions, grade_level } = req.body;
-    if (title !== undefined) db.prepare("UPDATE quizzes SET title = ? WHERE id = ?").run(title, id);
-    if (questions !== undefined) db.prepare("UPDATE quizzes SET questions = ? WHERE id = ?").run(typeof questions === "string" ? questions : JSON.stringify(questions), id);
-    if (grade_level !== undefined) db.prepare("UPDATE quizzes SET grade_level = ? WHERE id = ?").run(String(grade_level || "").trim() || null, id);
-    res.json({ success: true });
-  });
-
-  app.delete("/api/quizzes/:id", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const id = req.params.id;
-    db.prepare("DELETE FROM class_quizzes WHERE quiz_id = ?").run(id);
-    db.prepare("DELETE FROM student_quizzes WHERE quiz_id = ?").run(id);
-    db.prepare("DELETE FROM quizzes WHERE id = ?").run(id);
-    res.json({ success: true });
-  });
-
-  app.get("/api/missions", (req, res) => {
-    const missions = db.prepare("SELECT * FROM missions").all();
-    res.json(missions);
+  app.get("/api/missions", async (_req, res) => {
+    res.json(await SQ.listMissions());
   });
 
   // AI-style quiz generation for a completed mission (unique per student/request)
-  app.post("/api/missions/:id/generate-quiz", requireAuth, requireRole(["student"]), (req, res) => {
-    const sessionUser = (req.session as any)?.user as SessionUser;
-    const quota = checkAndLogAiQuota("generate_quiz", sessionUser.id);
+  app.post("/api/missions/:id/generate-quiz", requireAuth, requireRole(["student"]), async (req, res) => {
+    const sessionUser = getReqUser(req)!;
+    const quota = await checkAndLogAiQuota("generate_quiz", sessionUser.id);
     if (!quota.ok) {
       return res.status(429).json({ success: false, message: quota.message });
     }
-    const missionId = Number(req.params.id);
-    if (!Number.isInteger(missionId) || missionId < 1) {
+    const missionId = req.params.id;
+    if (!isUuid(missionId)) {
       return res.status(400).json({ success: false, message: "Invalid mission id" });
     }
-    const mission = db.prepare("SELECT id, sector_id, title, description FROM missions WHERE id = ?").get(missionId) as
-      | { id: number; sector_id: number; title: string; description: string | null }
-      | undefined;
+    const mission = await SQ.getMissionBrief(missionId);
     if (!mission) return res.status(404).json({ success: false, message: "Mission not found" });
 
-    const sector = db.prepare("SELECT name, description FROM sectors WHERE id = ?").get(mission.sector_id) as
-      | { name: string; description: string | null }
-      | undefined;
+    const sector = await SQ.getSectorBrief(mission.sector_id);
     const topic = `${sector?.name || "STEM"} ${mission.title} ${mission.description || ""}`.trim();
 
     const conceptPool = [
@@ -1543,7 +1487,10 @@ async function startServer() {
       let x = Math.sin(seed) * 10000;
       return x - Math.floor(x);
     };
-    const seedBase = Date.now() + sessionUser.id * 997 + missionId * 151;
+    const idSeed =
+      sessionUser.id.split("").reduce((a, c) => a + c.charCodeAt(0), 0) +
+      missionId.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+    const seedBase = Date.now() + idSeed * 997;
     const pick = <T,>(arr: T[], seed: number) => arr[Math.floor(random(seed) * arr.length)];
     const shuffle = <T,>(arr: T[], seed: number) =>
       [...arr].sort((a, b) => (random(seed + String(a).length) - random(seed + String(b).length)));
@@ -1580,24 +1527,23 @@ async function startServer() {
       };
     });
 
-    const finalizeAndSave = (questions: any[]) => {
-      const normalized = (Array.isArray(questions) ? questions : [])
-        .filter((q) => q && q.type === "multiple_choice" && q.content?.question && Array.isArray(q.content?.options))
-        .slice(0, 5);
+    const finalizeAndSave = async (questions: unknown[]) => {
+      const isMcq = (q: unknown): q is { type: string; content: { question: string; options: unknown[] } } =>
+        Boolean(
+          q &&
+            typeof q === "object" &&
+            (q as { type?: string }).type === "multiple_choice" &&
+            (q as { content?: { question?: string; options?: unknown } }).content?.question &&
+            Array.isArray((q as { content?: { options?: unknown } }).content?.options),
+        );
+      const normalized = (Array.isArray(questions) ? questions : []).filter(isMcq).slice(0, 5);
       const useQuestions = normalized.length === 5 ? normalized : fallbackQuestions;
       const title = `${mission.title} · Auto Quiz`;
-      const result = db
-        .prepare("INSERT INTO quizzes (title, questions) VALUES (?, ?)")
-        .run(title, JSON.stringify(useQuestions));
-      res.json({ success: true, id: Number(result.lastInsertRowid), title, question_count: useQuestions.length });
+      const quizId = await SQ.insertQuiz(title, JSON.stringify(useQuestions));
+      res.json({ success: true, id: quizId, title, question_count: useQuestions.length });
     };
 
-    const studentStats = db.prepare(
-      `SELECT
-         COALESCE(AVG(CAST(score AS FLOAT) / NULLIF(total_questions,0)) * 100, 0) as avg_score,
-         COUNT(*) as quizzes_completed
-       FROM student_quizzes WHERE student_id = ?`
-    ).get(sessionUser.id) as { avg_score: number; quizzes_completed: number };
+    const studentStats = await SQ.getStudentQuizStats(sessionUser.id);
 
     const aiSystem = `You generate adaptive STEM multiple-choice quizzes.
 Return ONLY valid JSON with this exact shape:
@@ -1628,88 +1574,82 @@ Student profile:
 - quizzes_completed: ${Number(studentStats?.quizzes_completed || 0)}
 Create the quiz now.`;
 
-    callAiJson<{ questions?: any[] }>(aiSystem, aiUser)
-      .then((ai) => {
-        if (ai?.questions && Array.isArray(ai.questions)) return finalizeAndSave(ai.questions);
-        return finalizeAndSave(fallbackQuestions);
-      })
-      .catch(() => finalizeAndSave(fallbackQuestions));
+    try {
+      const ai = await callAiJson<{ questions?: unknown[] }>(aiSystem, aiUser);
+      if (ai?.questions && Array.isArray(ai.questions)) await finalizeAndSave(ai.questions);
+      else await finalizeAndSave(fallbackQuestions);
+    } catch {
+      await finalizeAndSave(fallbackQuestions);
+    }
   });
 
   // AI mission recommendations (adaptive next-skill path)
-  app.get("/api/students/:id/recommendations", requireAuth, requireStudentAccess, async (req, res) => {
-    const sessionUser = (req.session as any)?.user as SessionUser;
-    const quota = checkAndLogAiQuota("recommendations", sessionUser.id);
+  app.get("/api/students/:id/recommendations", requireAuth, requireStudentAccess, asyncRoute(async (req, res) => {
+    const sessionUser = getReqUser(req)!;
+    const quota = await checkAndLogAiQuota("recommendations", sessionUser.id);
     if (!quota.ok) {
       return res.status(429).json({ success: false, message: quota.message, recommendations: [] });
     }
-    const studentId = Number(req.params.id);
-    if (!Number.isInteger(studentId) || studentId < 1) return res.status(400).json({ success: false, message: "Invalid student id" });
+    const studentId = req.params.id;
 
-    const studentRow = db
-      .prepare("SELECT grade FROM students WHERE id = ?")
-      .get(studentId) as { grade?: string | null } | undefined;
+    const studentRow = await selectOne<{ grade?: string | null }>("students", "grade", { id: studentId });
     const normalizedGrade = String(studentRow?.grade || "")
       .trim()
       .toLowerCase();
 
-    let assigned = db.prepare(`
-      SELECT m.*, s.name as sector_name
-      FROM missions m
-      JOIN class_missions cm ON cm.mission_id = m.id
-      JOIN class_students cs ON cs.class_id = cm.class_id
-      JOIN sectors s ON s.id = m.sector_id
-      WHERE cs.student_id = ?
-      ORDER BY m.id ASC
-    `).all(studentId) as Array<any>;
-    if (assigned.length === 0) {
-      assigned = db
-        .prepare(
-          `
-          SELECT m.*, s.name as sector_name
-          FROM missions m
-          JOIN sectors s ON s.id = m.sector_id
-          WHERE m.status = 'available'
-            AND (
-              ? = ''
-              OR
-              m.grade_level IS NULL
-              OR TRIM(m.grade_level) = ''
-              OR LOWER(TRIM(m.grade_level)) = ?
-            )
-          ORDER BY m.id ASC
-          LIMIT 30
-        `,
-        )
-        .all(normalizedGrade, normalizedGrade) as Array<any>;
+    let assigned: Array<DbRow & { sector_name?: string }> = [];
+    const { data: classRows } = await db().from("class_students").select("class_id").eq("student_id", studentId);
+    const classIds = (classRows || []).map((r) => (r as { class_id: string }).class_id);
+    if (classIds.length) {
+      const { data: cmRows } = await db().from("class_missions").select("mission_id").in("class_id", classIds);
+      const missionIds = [...new Set((cmRows || []).map((r) => (r as { mission_id: string }).mission_id))];
+      if (missionIds.length) {
+        const missions = await selectMany<DbRow>("missions", "*");
+        const sectors = await selectMany<{ id: string; name: string }>("sectors", "id, name");
+        const sectorMap = new Map(sectors.map((s) => [s.id, s.name]));
+        assigned = missions
+          .filter((m) => missionIds.includes(String(m.id)))
+          .map((m) => ({ ...m, sector_name: sectorMap.get(String(m.sector_id)) }));
+      }
     }
-    const completedSet = new Set<number>(
-      (db.prepare(`SELECT mission_id FROM student_mission_completions WHERE student_id = ?`).all(studentId) as Array<{ mission_id: number }>).map(r => r.mission_id)
+    if (assigned.length === 0) {
+      const allMissions = await selectMany<DbRow>("missions", "*", { status: "available" });
+      const sectors = await selectMany<{ id: string; name: string }>("sectors", "id, name");
+      const sectorMap = new Map(sectors.map((s) => [s.id, s.name]));
+      assigned = allMissions
+        .filter((m) => {
+          if (!normalizedGrade) return true;
+          const gl = String(m.grade_level || "").trim().toLowerCase();
+          return !gl || gl === normalizedGrade;
+        })
+        .slice(0, 30)
+        .map((m) => ({ ...m, sector_name: sectorMap.get(String(m.sector_id)) }));
+    }
+    const completions = await selectMany<{ mission_id: string }>("student_mission_completions", "mission_id", {
+      student_id: studentId,
+    });
+    const completedSet = new Set(completions.map((r) => r.mission_id));
+    const pending = assigned.filter((m) => !completedSet.has(String(m.id)));
+    const interestRows = await selectMany<{ interest_key: string }>(
+      "student_interest_votes",
+      "interest_key",
+      { student_id: studentId },
+      { column: "weight", ascending: false },
     );
-    const pending = assigned.filter((m) => !completedSet.has(m.id));
-    const interestKeys = (
-      db
-        .prepare("SELECT interest_key FROM student_interest_votes WHERE student_id = ? ORDER BY weight DESC, created_at DESC")
-        .all(studentId) as Array<{ interest_key: string }>
-    ).map((r) => String(r.interest_key || "").toLowerCase());
+    const interestKeys = interestRows.map((r) => String(r.interest_key || "").toLowerCase());
     const scoreByInterest = (mission: any) => {
       const hay = `${mission?.title || ""} ${mission?.description || ""} ${mission?.sector_name || ""}`.toLowerCase();
       return interestKeys.reduce((acc, key) => (hay.includes(key.replace(/_/g, " ")) ? acc + 1 : acc), 0);
     };
-    const stats = db.prepare(`
-      SELECT
-        COALESCE(AVG(CAST(score AS FLOAT) / NULLIF(total_questions,0)) * 100, 0) as avg_score,
-        COUNT(*) as quizzes_completed
-      FROM student_quizzes
-      WHERE student_id = ?
-    `).get(studentId) as { avg_score: number; quizzes_completed: number };
+    const stats = await SQ.getStudentQuizStats(studentId);
 
-    const bySector = new Map<number, { sector_name: string; total: number; completed: number }>();
+    const bySector = new Map<string, { sector_name: string; total: number; completed: number }>();
     for (const m of assigned) {
-      const cur = bySector.get(m.sector_id) || { sector_name: m.sector_name, total: 0, completed: 0 };
+      const sid = String(m.sector_id);
+      const cur = bySector.get(sid) || { sector_name: String(m.sector_name || ""), total: 0, completed: 0 };
       cur.total += 1;
-      if (completedSet.has(m.id)) cur.completed += 1;
-      bySector.set(m.sector_id, cur);
+      if (completedSet.has(String(m.id))) cur.completed += 1;
+      bySector.set(sid, cur);
     }
     const sectorProgress = [...bySector.entries()].map(([sector_id, p]) => ({
       sector_id,
@@ -1724,12 +1664,22 @@ Create the quiz now.`;
     // Heuristic baseline recommendations from pending missions
     const easierFirst = pending
       .filter((m) => weakest ? m.sector_id === weakest.sector_id : true)
-      .sort((a, b) => scoreByInterest(b) - scoreByInterest(a) || (a.difficulty || "").localeCompare(b.difficulty || "") || a.id - b.id)
+      .sort(
+        (a, b) =>
+          scoreByInterest(b) - scoreByInterest(a) ||
+          String(a.difficulty || "").localeCompare(String(b.difficulty || "")) ||
+          String(a.id).localeCompare(String(b.id)),
+      )
       .slice(0, 2)
       .map((m) => ({ mission_id: m.id, title: m.title, difficulty: m.difficulty, sector: m.sector_name, reason: `Build fundamentals in ${m.sector_name} progressively.` }));
     const strongerStretch = pending
       .filter((m) => strongest ? m.sector_id === strongest.sector_id : true)
-      .sort((a, b) => scoreByInterest(b) - scoreByInterest(a) || (b.difficulty || "").localeCompare(a.difficulty || "") || a.id - b.id)
+      .sort(
+        (a, b) =>
+          scoreByInterest(b) - scoreByInterest(a) ||
+          String(b.difficulty || "").localeCompare(String(a.difficulty || "")) ||
+          String(a.id).localeCompare(String(b.id)),
+      )
       .slice(0, 2)
       .map((m) => ({ mission_id: m.id, title: m.title, difficulty: m.difficulty, sector: m.sector_name, reason: `Stretch in your stronger area: ${m.sector_name}.` }));
     let recommendations = [...easierFirst, ...strongerStretch].slice(0, 4);
@@ -1748,10 +1698,10 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
     });
     const ai = await callAiJson<{ recommendations?: Array<{ mission_id: number; reason?: string; difficulty_target?: string }> }>(aiSystem, aiUser);
     if (ai?.recommendations?.length) {
-      const byId = new Map<number, any>(pending.map((m) => [m.id, m]));
+      const byId = new Map<string, DbRow>(pending.map((m) => [String(m.id), m]));
       const merged = ai.recommendations
         .map((r) => {
-          const m = byId.get(Number(r.mission_id));
+          const m = byId.get(String(r.mission_id));
           if (!m) return null;
           return {
             mission_id: m.id,
@@ -1775,457 +1725,237 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
       },
       recommendations,
     });
-  });
-
-  app.post("/api/quizzes", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const { title, questions, grade_level } = req.body;
-    const insert = db.prepare("INSERT INTO quizzes (title, grade_level, questions) VALUES (?, ?, ?)");
-    const result = insert.run(title, String(grade_level || "").trim() || null, JSON.stringify(questions));
-    res.json({ success: true, id: result.lastInsertRowid });
-  });
+  }));
 
   // --- Notifications ---
-  app.get("/api/notifications", requireAuth, (req, res) => {
-    const sessionUser = (req.session as any)?.user as SessionUser;
-    const rows = db
-      .prepare(
-        `SELECT id, user_id, type, title, message, link, is_read, created_at
-         FROM notifications
-         WHERE user_id = ?
-         ORDER BY created_at DESC
-         LIMIT 100`,
-      )
-      .all(sessionUser.id);
-    res.json(rows);
-  });
+  app.get("/api/notifications", requireAuth, asyncRoute(async (req, res) => {
+    const sessionUser = getReqUser(req)!;
+    res.json(await SQ.listNotifications(sessionUser.id));
+  }));
 
-  app.patch("/api/notifications/:id/read", requireAuth, (req, res) => {
-    const sessionUser = (req.session as any)?.user as SessionUser;
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "Invalid id" });
-    const row = db.prepare("SELECT id FROM notifications WHERE id = ? AND user_id = ?").get(id, sessionUser.id);
-    if (!row) return res.status(404).json({ error: "Notification not found" });
-    db.prepare("UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?").run(id, sessionUser.id);
+  app.patch("/api/notifications/:id/read", requireAuth, async (req, res) => {
+    const sessionUser = getReqUser(req)!;
+    const id = req.params.id;
+    if (!isUuid(id)) return res.status(400).json({ error: "Invalid id" });
+    const ok = await SQ.markNotificationRead(id, sessionUser.id);
+    if (!ok) return res.status(404).json({ error: "Notification not found" });
     res.json({ success: true });
   });
 
-  app.patch("/api/notifications/read-all", requireAuth, (req, res) => {
-    const sessionUser = (req.session as any)?.user as SessionUser;
-    db.prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ?").run(sessionUser.id);
+  app.patch("/api/notifications/read-all", requireAuth, async (req, res) => {
+    const sessionUser = getReqUser(req)!;
+    await SQ.markAllNotificationsRead(sessionUser.id);
     res.json({ success: true });
   });
 
   // --- Challenge Engine API (H5P-style interactive challenges) ---
-  app.get("/api/challenges", requireAuth, (req, res) => {
-    const sessionUser = (req.session as any)?.user as SessionUser;
+  app.get("/api/challenges", requireAuth, async (req, res) => {
+    const sessionUser = getReqUser(req)!;
     if (sessionUser.role === "student") {
-      const challenges = db.prepare(`
-        SELECT DISTINCT c.* FROM challenges c
-        JOIN class_challenges cc ON cc.challenge_id = c.id
-        JOIN class_students cs ON cs.class_id = cc.class_id
-        WHERE cs.student_id = ?
-        ORDER BY c.created_at DESC
-      `).all(sessionUser.id);
-      return res.json(challenges);
+      return res.json(await SQ.listChallengesForStudent(sessionUser.id));
     }
-    const challenges = db.prepare("SELECT * FROM challenges ORDER BY created_at DESC").all();
-    res.json(challenges);
+    res.json(await SQ.listAllChallenges());
   });
 
-  app.get("/api/challenges/:id", requireAuth, (req, res) => {
-    const row = db.prepare("SELECT * FROM challenges WHERE id = ?").get(req.params.id);
+  app.get("/api/challenges/:id", requireAuth, async (req, res) => {
+    if (!isUuid(req.params.id)) return res.status(400).json({ error: "Invalid challenge id" });
+    const row = await selectOne("challenges", "*", { id: req.params.id });
     if (!row) return res.status(404).json({ error: "Challenge not found" });
     res.json(row);
   });
 
-  app.post("/api/challenges", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+  app.post("/api/challenges", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
     const { title, type, world, zone, grade_level, xp_reward, xp_bonus_first_try, xp_retry_penalty, content_json } = req.body;
     if (!title || !type || content_json === undefined) {
       return res.status(400).json({ error: "title, type, and content_json required" });
     }
-    const insert = db.prepare(
-      "INSERT INTO challenges (title, type, world, zone, grade_level, xp_reward, xp_bonus_first_try, xp_retry_penalty, content_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    );
-    const result = insert.run(
+    const created = await insertOne<{ id: string }>("challenges", {
       title,
       type,
-      world || null,
-      zone || null,
-      String(grade_level || "").trim() || null,
-      Number(xp_reward) || 100,
-      Number(xp_bonus_first_try) || 0,
-      Number(xp_retry_penalty) || 0,
-      typeof content_json === "string" ? content_json : JSON.stringify(content_json)
-    );
-    res.json({ success: true, id: result.lastInsertRowid });
+      world: world || null,
+      zone: zone || null,
+      grade_level: String(grade_level || "").trim() || null,
+      xp_reward: Number(xp_reward) || 100,
+      xp_bonus_first_try: Number(xp_bonus_first_try) || 0,
+      xp_retry_penalty: Number(xp_retry_penalty) || 0,
+      content_json: typeof content_json === "string" ? content_json : JSON.stringify(content_json),
+    });
+    res.json({ success: true, id: created.id });
   });
 
-  app.patch("/api/challenges/:id", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+  app.patch("/api/challenges/:id", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
     const id = req.params.id;
-    const existing = db.prepare("SELECT id FROM challenges WHERE id = ?").get(id);
+    if (!isUuid(id)) return res.status(400).json({ error: "Invalid challenge id" });
+    const existing = await selectOne("challenges", "id", { id });
     if (!existing) return res.status(404).json({ error: "Challenge not found" });
     const { title, type, world, zone, grade_level, xp_reward, xp_bonus_first_try, xp_retry_penalty, content_json } = req.body;
-    const updates: string[] = [];
-    const values: unknown[] = [];
-    if (title !== undefined) { updates.push("title = ?"); values.push(title); }
-    if (type !== undefined) { updates.push("type = ?"); values.push(type); }
-    if (world !== undefined) { updates.push("world = ?"); values.push(world); }
-    if (zone !== undefined) { updates.push("zone = ?"); values.push(zone); }
-    if (grade_level !== undefined) { updates.push("grade_level = ?"); values.push(String(grade_level || "").trim() || null); }
-    if (xp_reward !== undefined) { updates.push("xp_reward = ?"); values.push(Number(xp_reward)); }
-    if (xp_bonus_first_try !== undefined) { updates.push("xp_bonus_first_try = ?"); values.push(Number(xp_bonus_first_try)); }
-    if (xp_retry_penalty !== undefined) { updates.push("xp_retry_penalty = ?"); values.push(Number(xp_retry_penalty)); }
-    if (content_json !== undefined) { updates.push("content_json = ?"); values.push(typeof content_json === "string" ? content_json : JSON.stringify(content_json)); }
-    if (updates.length === 0) return res.json({ success: true });
-    values.push(id);
-    db.prepare(`UPDATE challenges SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+    const patch: DbRow = {};
+    if (title !== undefined) patch.title = title;
+    if (type !== undefined) patch.type = type;
+    if (world !== undefined) patch.world = world;
+    if (zone !== undefined) patch.zone = zone;
+    if (grade_level !== undefined) patch.grade_level = String(grade_level || "").trim() || null;
+    if (xp_reward !== undefined) patch.xp_reward = Number(xp_reward);
+    if (xp_bonus_first_try !== undefined) patch.xp_bonus_first_try = Number(xp_bonus_first_try);
+    if (xp_retry_penalty !== undefined) patch.xp_retry_penalty = Number(xp_retry_penalty);
+    if (content_json !== undefined) {
+      patch.content_json = typeof content_json === "string" ? content_json : JSON.stringify(content_json);
+    }
+    if (Object.keys(patch).length === 0) return res.json({ success: true });
+    await updateRow("challenges", { id }, patch);
     res.json({ success: true });
   });
 
-  app.delete("/api/challenges/:id", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+  app.delete("/api/challenges/:id", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
     const id = req.params.id;
-    db.prepare("DELETE FROM class_challenges WHERE challenge_id = ?").run(id);
-    db.prepare("DELETE FROM challenge_attempts WHERE challenge_id = ?").run(id);
-    db.prepare("DELETE FROM challenges WHERE id = ?").run(id);
+    if (!isUuid(id)) return res.status(400).json({ error: "Invalid challenge id" });
+    await deleteRows("class_challenges", { challenge_id: id });
+    await deleteRows("challenge_attempts", { challenge_id: id });
+    await deleteRows("challenges", { id });
     res.json({ success: true });
   });
 
-  app.post("/api/challenges/:id/attempt", requireAuth, requireRole(["student"]), (req, res) => {
-    const challengeId = Number(req.params.id);
-    const sessionUser = (req.session as any)?.user as SessionUser;
-    const challenge = db.prepare("SELECT * FROM challenges WHERE id = ?").get(challengeId) as { id: number; xp_reward: number; xp_bonus_first_try: number; xp_retry_penalty: number } | undefined;
+  app.post("/api/challenges/:id/attempt", requireAuth, requireRole(["student"]), async (req, res) => {
+    const challengeId = req.params.id;
+    if (!isUuid(challengeId)) return res.status(400).json({ error: "Invalid challenge id" });
+    const sessionUser = getReqUser(req)!;
+    const challenge = await selectOne<{
+      id: string;
+      xp_reward: number;
+      xp_bonus_first_try: number;
+      xp_retry_penalty: number;
+    }>("challenges", "id, xp_reward, xp_bonus_first_try, xp_retry_penalty", { id: challengeId });
     if (!challenge) return res.status(404).json({ error: "Challenge not found" });
     const { score, correct, response, time_ms } = req.body;
-    const scoreNum = typeof score === "number" ? score : (correct ? 1 : 0);
+    const scoreNum = typeof score === "number" ? score : correct ? 1 : 0;
     const correctNum = correct === true || scoreNum >= 1 ? 1 : 0;
-    const prevAttempts = db.prepare("SELECT COUNT(*) as c FROM challenge_attempts WHERE student_id = ? AND challenge_id = ?").get(sessionUser.id, challengeId) as { c: number };
-    const attemptNumber = (prevAttempts?.c ?? 0) + 1;
-    db.prepare(
-      "INSERT INTO challenge_attempts (student_id, challenge_id, attempt_number, score, correct, response_json, time_ms) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run(sessionUser.id, challengeId, attemptNumber, scoreNum, correctNum, typeof response === "string" ? response : JSON.stringify(response ?? {}), time_ms ?? null);
-    bumpLastActive(sessionUser.id);
+    const prevAttempts = await countRows("challenge_attempts", { student_id: sessionUser.id, challenge_id: challengeId });
+    const attemptNumber = prevAttempts + 1;
+    await insertOne("challenge_attempts", {
+      student_id: sessionUser.id,
+      challenge_id: challengeId,
+      attempt_number: attemptNumber,
+      score: scoreNum,
+      correct: correctNum,
+      response_json: typeof response === "string" ? response : JSON.stringify(response ?? {}),
+      time_ms: time_ms ?? null,
+    });
+    await bumpLastActive(sessionUser.id);
     let xpEarned = 0;
     if (correctNum) {
-      xpEarned = challenge.xp_reward + (attemptNumber === 1 ? (challenge.xp_bonus_first_try || 0) : 0) - (attemptNumber > 1 ? (challenge.xp_retry_penalty || 0) * (attemptNumber - 1) : 0);
+      xpEarned =
+        Number(challenge.xp_reward) +
+        (attemptNumber === 1 ? Number(challenge.xp_bonus_first_try) || 0 : 0) -
+        (attemptNumber > 1 ? (Number(challenge.xp_retry_penalty) || 0) * (attemptNumber - 1) : 0);
       if (xpEarned < 0) xpEarned = 0;
-      db.prepare("UPDATE students SET xp = xp + ? WHERE id = ?").run(xpEarned, sessionUser.id);
+      const studentRow = await selectOne<{ xp: number }>("students", "xp", { id: sessionUser.id });
+      await updateRow("students", { id: sessionUser.id }, { xp: (Number(studentRow?.xp) || 0) + xpEarned });
     }
-    const student = db.prepare("SELECT xp FROM students WHERE id = ?").get(sessionUser.id) as { xp: number };
-    res.json({ success: true, correct: !!correctNum, xp_earned: xpEarned, total_xp: student?.xp ?? 0, attempt_number: attemptNumber });
+    const student = await selectOne<{ xp: number }>("students", "xp", { id: sessionUser.id });
+    res.json({
+      success: true,
+      correct: !!correctNum,
+      xp_earned: xpEarned,
+      total_xp: student?.xp ?? 0,
+      attempt_number: attemptNumber,
+    });
   });
 
-  app.get("/api/challenges/:id/analytics", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+  app.get("/api/challenges/:id/assigned-classes", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
+    const sessionUser = getReqUser(req)!;
     const challengeId = req.params.id;
-    const attempts = db.prepare(`
-      SELECT ca.*, s.name as student_name FROM challenge_attempts ca
-      JOIN students s ON s.id = ca.student_id
-      WHERE ca.challenge_id = ?
-      ORDER BY ca.created_at DESC
-    `).all(challengeId) as any[];
-    const total = attempts.length;
-    const correctCount = attempts.filter((a: any) => a.correct).length;
-    const byAttempt = attempts.reduce((acc: Record<number, number>, a: any) => {
-      acc[a.attempt_number] = (acc[a.attempt_number] || 0) + 1;
-      return acc;
-    }, {});
-    res.json({ attempts, total, correct_count: correctCount, success_rate: total ? correctCount / total : 0, by_attempt_number: byAttempt });
-  });
-
-  app.get("/api/challenges/:id/assigned-classes", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const sessionUser = (req.session as any)?.user as SessionUser;
-    const challengeId = Number(req.params.id);
-    if (!Number.isInteger(challengeId) || challengeId < 1) return res.status(400).json({ error: "Invalid challenge id" });
-    const sql = sessionUser.role === "teacher"
-      ? `
-        SELECT c.id, c.name, cc.assigned_at
-        FROM class_challenges cc
-        JOIN classes c ON c.id = cc.class_id
-        WHERE cc.challenge_id = ? AND c.teacher_id = ?
-        ORDER BY cc.assigned_at DESC
-      `
-      : `
-        SELECT c.id, c.name, cc.assigned_at
-        FROM class_challenges cc
-        JOIN classes c ON c.id = cc.class_id
-        WHERE cc.challenge_id = ?
-        ORDER BY cc.assigned_at DESC
-      `;
-    const rows = sessionUser.role === "teacher"
-      ? db.prepare(sql).all(challengeId, sessionUser.id)
-      : db.prepare(sql).all(challengeId);
+    if (!isUuid(challengeId)) return res.status(400).json({ error: "Invalid challenge id" });
+    let q = db().from("class_challenges").select("assigned_at, classes(id, name, teacher_id)").eq("challenge_id", challengeId);
+    if (sessionUser.role === "teacher") {
+      q = q.eq("classes.teacher_id", sessionUser.id);
+    }
+    const { data } = await q;
+    const rows = (data || []).map((row: DbRow) => ({
+      id: (row.classes as { id: string }).id,
+      name: (row.classes as { name: string }).name,
+      assigned_at: row.assigned_at,
+    }));
     res.json(rows);
   });
 
-  app.post("/api/classes/:id/challenges", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const classId = Number(req.params.id);
-    if (!Number.isInteger(classId) || classId < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
-    if (!ensureClassAccess(req, res, classId).ok) return;
-    const clsTrack = db.prepare("SELECT curriculum_track FROM classes WHERE id = ?").get(req.params.id) as { curriculum_track?: string | null } | undefined;
+  app.post("/api/classes/:id/challenges", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
+    const classId = req.params.id;
+    if (!isUuid(classId)) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!(await ensureClassAccess(req, res, classId)).ok) return;
+    const clsTrack = await selectOne<{ curriculum_track?: string | null }>("classes", "curriculum_track", { id: classId });
     if (!clsTrack) return res.status(404).json({ success: false, error: "Class not found" });
     if (!clsTrack.curriculum_track || !String(clsTrack.curriculum_track).trim()) {
       return res.status(400).json({ success: false, error: "Set curriculum track first before deploying challenges." });
     }
     const { challenge_id } = req.body;
-    if (!challenge_id) return res.status(400).json({ error: "challenge_id required" });
-    const challengeId = Number(challenge_id);
-    const r = db
-      .prepare("INSERT OR IGNORE INTO class_challenges (class_id, challenge_id) VALUES (?, ?)")
-      .run(classId, challengeId);
-
-    // Notify students only when it's a new assignment
-    if (r.changes > 0) {
-      const cls = db.prepare("SELECT id, name FROM classes WHERE id = ?").get(classId) as { id: number; name: string } | undefined;
-      const ch = db.prepare("SELECT id, title, type FROM challenges WHERE id = ?").get(challengeId) as { id: number; title: string; type: string } | undefined;
-      const students = db.prepare("SELECT student_id FROM class_students WHERE class_id = ?").all(classId) as { student_id: number }[];
-
-      const insertNotif = db.prepare(
-        "INSERT INTO notifications (user_id, type, title, message, link, is_read) VALUES (?, ?, ?, ?, ?, 0)",
-      );
+    if (!isUuid(challenge_id)) return res.status(400).json({ error: "challenge_id required" });
+    const before = await countRows("class_challenges", { class_id: classId, challenge_id });
+    await insertIgnore("class_challenges", { class_id: classId, challenge_id }, "class_id,challenge_id");
+    const after = await countRows("class_challenges", { class_id: classId, challenge_id });
+    if (after > before) {
+      const cls = await selectOne<{ name: string }>("classes", "name", { id: classId });
+      const ch = await selectOne<{ title: string }>("challenges", "title", { id: challenge_id });
+      const students = await selectMany<{ student_id: string }>("class_students", "student_id", { class_id: classId });
       const title = "New assignment posted";
       const message = `${ch?.title || "A new challenge"} was assigned in ${cls?.name || "your class"}.`;
-      const link = `challenge:${challengeId}`;
-
-      const tx = db.transaction(() => {
-        for (const s of students) {
-          insertNotif.run(s.student_id, "challenge_assigned", title, message, link);
-        }
-      });
-      tx();
+      const link = `challenge:${challenge_id}`;
+      for (const s of students) {
+        await insertOne("notifications", {
+          user_id: s.student_id,
+          type: "challenge_assigned",
+          title,
+          message,
+          link,
+          is_read: false,
+        });
+      }
     }
     res.json({ success: true });
   });
 
-  app.delete("/api/classes/:id/challenges/:challengeId", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const classId = Number(req.params.id);
-    if (!Number.isInteger(classId) || classId < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
-    if (!ensureClassAccess(req, res, classId).ok) return;
-    db.prepare("DELETE FROM class_challenges WHERE class_id = ? AND challenge_id = ?").run(req.params.id, req.params.challengeId);
+  app.delete("/api/classes/:id/challenges/:challengeId", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
+    const classId = req.params.id;
+    if (!isUuid(classId)) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!(await ensureClassAccess(req, res, classId)).ok) return;
+    await deleteRows("class_challenges", { class_id: classId, challenge_id: req.params.challengeId });
     res.json({ success: true });
   });
 
-  app.get("/api/students/:id/assigned-challenges", requireAuth, requireStudentAccess, (req, res) => {
+  app.get("/api/students/:id/assigned-challenges", requireAuth, requireStudentAccess, asyncRoute(async (req, res) => {
     const studentId = req.params.id;
-    const challenges = db.prepare(`
-      SELECT DISTINCT
-        c.*,
-        (
-          SELECT ca.score
-          FROM challenge_attempts ca
-          WHERE ca.student_id = ? AND ca.challenge_id = c.id
-          ORDER BY ca.created_at DESC, ca.id DESC
-          LIMIT 1
-        ) as latest_score,
-        (
-          SELECT ca.correct
-          FROM challenge_attempts ca
-          WHERE ca.student_id = ? AND ca.challenge_id = c.id
-          ORDER BY ca.created_at DESC, ca.id DESC
-          LIMIT 1
-        ) as latest_correct,
-        (
-          SELECT ca.created_at
-          FROM challenge_attempts ca
-          WHERE ca.student_id = ? AND ca.challenge_id = c.id
-          ORDER BY ca.created_at DESC, ca.id DESC
-          LIMIT 1
-        ) as latest_attempted_at
-      FROM challenges c
-      JOIN class_challenges cc ON cc.challenge_id = c.id
-      JOIN class_students cs ON cs.class_id = cc.class_id
-      WHERE cs.student_id = ?
-      ORDER BY c.created_at DESC
-    `).all(studentId, studentId, studentId, studentId);
-    res.json(challenges);
+    const baseChallenges = await SQ.listChallengesForStudent(studentId);
+    const out = [];
+    for (const c of baseChallenges) {
+      const { data: attempts } = await db()
+        .from("challenge_attempts")
+        .select("score, correct, created_at")
+        .eq("student_id", studentId)
+        .eq("challenge_id", c.id)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      const latest = attempts?.[0] as DbRow | undefined;
+      out.push({
+        ...c,
+        latest_score: latest?.score ?? null,
+        latest_correct: latest?.correct ?? null,
+        latest_attempted_at: latest?.created_at ?? null,
+      });
+    }
+    res.json(out);
+  }));
+
+  app.get("/api/logs", requireAuth, requireRole(["admin"]), async (_req, res) => {
+    res.json(await SQ.listLogs());
   });
 
-  app.get("/api/logs", requireAuth, requireRole(["admin"]), (req, res) => {
-    const logs = db.prepare("SELECT * FROM logs ORDER BY timestamp DESC LIMIT 20").all();
-    res.json(logs);
+  app.get("/api/admin/metrics", requireAuth, requireRole(["admin"]), async (_req, res) => {
+    res.json(await SQ.getAdminMetrics());
   });
 
-  app.get("/api/admin/metrics", requireAuth, requireRole(["admin"]), (_req, res) => {
-    const byRole = db.prepare("SELECT role, COUNT(*) as n FROM students GROUP BY role").all() as { role: string; n: number }[];
-    const bySubscriptionStatus = db
-      .prepare(
-        "SELECT COALESCE(NULLIF(TRIM(subscription_status), ''), 'free') as subscription_status, COUNT(*) as n FROM students GROUP BY 1",
-      )
-      .all() as { subscription_status: string; n: number }[];
-    const byPlan = db
-      .prepare(
-        "SELECT COALESCE(NULLIF(TRIM(subscription_plan), ''), 'free') as subscription_plan, COUNT(*) as n FROM students GROUP BY 1",
-      )
-      .all() as { subscription_plan: string; n: number }[];
-    const byGender = db
-      .prepare(
-        `SELECT CASE WHEN gender IS NULL OR TRIM(gender) = '' THEN 'unspecified' ELSE gender END as gender, COUNT(*) as n
-         FROM students GROUP BY 1`,
-      )
-      .all() as { gender: string; n: number }[];
-    const byCountry = db
-      .prepare(
-        `SELECT CASE WHEN country_code IS NULL OR TRIM(country_code) = '' THEN 'unspecified' ELSE country_code END as country_code, COUNT(*) as n
-         FROM students GROUP BY 1 ORDER BY n DESC LIMIT 20`,
-      )
-      .all() as { country_code: string; n: number }[];
-    const byCity = db
-      .prepare(
-        `SELECT CASE WHEN city IS NULL OR TRIM(city) = '' THEN 'unspecified' ELSE city END as city, COUNT(*) as n
-         FROM students GROUP BY 1 ORDER BY n DESC LIMIT 15`,
-      )
-      .all() as { city: string; n: number }[];
-    const ageBuckets = db
-      .prepare(
-        `SELECT bucket, COUNT(*) as n FROM (
-           SELECT CASE
-             WHEN age IS NULL THEN 'unspecified'
-             WHEN age < 13 THEN 'under_13'
-             WHEN age <= 17 THEN '13_17'
-             ELSE '18_plus'
-           END as bucket
-           FROM students
-         ) GROUP BY bucket`,
-      )
-      .all() as { bucket: string; n: number }[];
-    const gradeDist = db
-      .prepare(
-        "SELECT CASE WHEN grade IS NULL OR TRIM(grade) = '' THEN 'unspecified' ELSE grade END as grade, COUNT(*) as n FROM students GROUP BY 1 ORDER BY n DESC LIMIT 12",
-      )
-      .all() as { grade: string; n: number }[];
-    const interestTrends = db
-      .prepare(
-        `SELECT interest_key, COUNT(*) as n
-         FROM student_interest_votes
-         GROUP BY interest_key
-         ORDER BY n DESC, interest_key ASC
-         LIMIT 20`,
-      )
-      .all() as { interest_key: string; n: number }[];
-
-    const signups30 = db
-      .prepare(
-        `SELECT date(created_at) as day, COUNT(*) as n FROM students
-         WHERE created_at IS NOT NULL AND date(created_at) >= date('now', '-30 days')
-         GROUP BY date(created_at) ORDER BY day`,
-      )
-      .all() as { day: string; n: number }[];
-
-    const studentRoleCount = (byRole.find((r) => r.role === "student")?.n ?? 0) as number;
-    const activatedRow = db
-      .prepare(
-        `SELECT COUNT(DISTINCT s.id) as n FROM students s
-         WHERE s.role = 'student' AND EXISTS (
-           SELECT 1 FROM student_mission_completions smc WHERE smc.student_id = s.id
-         )`,
-      )
-      .get() as { n: number };
-    const activationRatePct =
-      studentRoleCount > 0 ? Math.round((Number(activatedRow.n) / studentRoleCount) * 1000) / 10 : 0;
-
-    const dau = db.prepare(`SELECT COUNT(*) as n FROM students WHERE last_active_at >= datetime('now', '-1 day')`).get() as { n: number };
-    const wau = db.prepare(`SELECT COUNT(*) as n FROM students WHERE last_active_at >= datetime('now', '-7 day')`).get() as { n: number };
-    const mau = db.prepare(`SELECT COUNT(*) as n FROM students WHERE last_active_at >= datetime('now', '-30 day')`).get() as { n: number };
-
-    const activeLast7 = Number((db.prepare(`SELECT COUNT(*) as n FROM students WHERE last_active_at >= datetime('now', '-7 day')`).get() as { n: number }).n);
-    const returningWeekly = Number(
-      (
-        db
-          .prepare(
-            `SELECT COUNT(*) as n FROM students WHERE last_active_at >= datetime('now', '-7 day')
-             AND created_at IS NOT NULL AND datetime(created_at) <= datetime('now', '-7 day')`,
-          )
-          .get() as { n: number }
-      ).n,
-    );
-    const weeklyReturningSharePct = activeLast7 > 0 ? Math.round((returningWeekly / activeLast7) * 1000) / 10 : 0;
-
-    const classCount = Number((db.prepare("SELECT COUNT(*) as n FROM classes").get() as { n: number }).n);
-    const avgMissionsPerClass =
-      classCount > 0
-        ? Math.round(
-            (Number((db.prepare("SELECT COUNT(*) as n FROM class_missions").get() as { n: number }).n) / classCount) * 100,
-          ) / 100
-        : 0;
-    const avgQuizzesPerClass =
-      classCount > 0
-        ? Math.round(
-            (Number((db.prepare("SELECT COUNT(*) as n FROM class_quizzes").get() as { n: number }).n) / classCount) * 100,
-          ) / 100
-        : 0;
-    const avgChallengesPerClass =
-      classCount > 0
-        ? Math.round(
-            (Number((db.prepare("SELECT COUNT(*) as n FROM class_challenges").get() as { n: number }).n) / classCount) * 100,
-          ) / 100
-        : 0;
-
-    const aiByDay = db
-      .prepare(
-        `SELECT date(created_at) as day, endpoint, SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as ok, COUNT(*) as total
-         FROM ai_usage_logs WHERE date(created_at) >= date('now', '-14 days')
-         GROUP BY date(created_at), endpoint ORDER BY day, endpoint`,
-      )
-      .all() as { day: string; endpoint: string; ok: number; total: number }[];
-
-    const mrrRow = db
-      .prepare(`SELECT COALESCE(SUM(mrr_cents), 0) as mrr FROM students WHERE subscription_status = 'active'`)
-      .get() as { mrr: number };
-    const mrrCents = Number(mrrRow.mrr || 0);
-    const payingUsers = Number(
-      (db.prepare(`SELECT COUNT(*) as n FROM students WHERE subscription_status = 'active' AND mrr_cents > 0`).get() as { n: number }).n,
-    );
-    const trialUsers = Number(
-      (db.prepare(`SELECT COUNT(*) as n FROM students WHERE subscription_status = 'trial'`).get() as { n: number }).n,
-    );
-    const pastDueUsers = Number(
-      (db.prepare(`SELECT COUNT(*) as n FROM students WHERE subscription_status = 'past_due'`).get() as { n: number }).n,
-    );
-    const freeOrNone = Number(
-      (db.prepare(`SELECT COUNT(*) as n FROM students WHERE subscription_status IS NULL OR subscription_status IN ('free','none')`).get() as { n: number }).n,
-    );
-    const arpuCents = payingUsers > 0 ? Math.round(mrrCents / payingUsers) : 0;
-    const ltvSumCents = Number((db.prepare(`SELECT COALESCE(SUM(ltv_cents), 0) as s FROM students`).get() as { s: number }).s);
-
-    res.json({
-      byRole,
-      bySubscriptionStatus,
-      byPlan,
-      byGender,
-      byCountry,
-      byCity,
-      ageBuckets,
-      gradeDistribution: gradeDist,
-      interestTrends,
-      signupsLast30Days: signups30,
-      monetization: {
-        mrrCents,
-        arpuCents,
-        payingUsers,
-        trialUsers,
-        pastDueUsers,
-        freeOrUnpaidUsers: freeOrNone,
-        ltvSumCents,
-      },
-      product: {
-        studentCount: studentRoleCount,
-        activatedStudents: Number(activatedRow.n),
-        activationRatePct,
-        dau: Number(dau.n),
-        wau: Number(wau.n),
-        mau: Number(mau.n),
-        weeklyReturningSharePct,
-        classCount,
-        avgMissionsPerClass,
-        avgQuizzesPerClass,
-        avgChallengesPerClass,
-      },
-      aiUsageByDay: aiByDay,
-    });
-  });
-
-  app.patch("/api/admin/students/:id", requireAuth, requireRole(["admin"]), (req, res) => {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ success: false, message: "Invalid id" });
-    const row = db.prepare("SELECT id FROM students WHERE id = ?").get(id);
+  app.patch("/api/admin/students/:id", requireAuth, requireRole(["admin"]), async (req, res) => {
+    const id = req.params.id;
+    if (!isUuid(id)) return res.status(400).json({ success: false, message: "Invalid id" });
+    const row = await selectOne("students", "id", { id });
     if (!row) return res.status(404).json({ success: false, message: "User not found" });
 
     const allowed = [
@@ -2289,169 +2019,257 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ success: false, message: "No valid fields" });
     }
-    const setClause = Object.keys(updates).map((k) => `${k} = ?`).join(", ");
-    db.prepare(`UPDATE students SET ${setClause} WHERE id = ?`).run(...Object.values(updates), id);
-    const user = db.prepare("SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE id = ?").get(id);
+    await updateRow("students", { id }, updates);
+    const user = await getStudentPublic(id);
     res.json({ success: true, user: sanitizeUser(user) });
   });
 
-  app.post("/api/missions", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+  app.post("/api/missions", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
     const { sector_id, title, description, difficulty, grade_level, xp_reward, image_url, embed_code, prerequisite_mission_id, learning_outcomes, domains } = req.body;
-    const sessionUser = (req.session as any)?.user as SessionUser | undefined;
+    const sessionUser = getReqUser(req);
     // Allow both teachers and admins to save embed/game URL (normalized on client or as raw string; sanitized below)
     const rawEmbed = typeof embed_code === "string" && embed_code.trim() ? embed_code.trim() : null;
     const safeEmbed = rawEmbed ? sanitizeEmbedCode(rawEmbed) : null;
 
-    const insert = db.prepare(
-      "INSERT INTO missions (sector_id, title, description, difficulty, grade_level, xp_reward, status, image_url, embed_code, prerequisite_mission_id, learning_outcomes_json, domains_json) VALUES (?, ?, ?, ?, ?, ?, 'available', ?, ?, ?, ?, ?)",
-    );
     const safeOutcomes = Array.isArray(learning_outcomes) ? JSON.stringify(learning_outcomes.map((x) => String(x).trim()).filter(Boolean)) : null;
     const safeDomains = Array.isArray(domains) ? JSON.stringify(domains.map((x) => String(x).trim()).filter(Boolean)) : null;
-    const safePrereq = Number.isInteger(Number(prerequisite_mission_id)) && Number(prerequisite_mission_id) > 0 ? Number(prerequisite_mission_id) : null;
-    const result = insert.run(
-      sector_id,
+    const safePrereq = isUuid(prerequisite_mission_id) ? prerequisite_mission_id : optionalUuid(prerequisite_mission_id);
+    const created = await insertOne<{ id: string }>("missions", {
+      sector_id: optionalUuid(sector_id) ?? sector_id,
       title,
       description,
       difficulty,
-      String(grade_level || "").trim() || null,
+      grade_level: String(grade_level || "").trim() || null,
       xp_reward,
-      image_url || "https://picsum.photos/seed/mission/400/300",
-      safeEmbed,
-      safePrereq,
-      safeOutcomes,
-      safeDomains,
+      status: "available",
+      image_url: image_url || "https://picsum.photos/seed/mission/400/300",
+      embed_code: safeEmbed,
+      prerequisite_mission_id: safePrereq,
+      learning_outcomes_json: safeOutcomes,
+      domains_json: safeDomains,
+    });
+    await SQ.insertLog(`New mission deployed: ${title}`, "system", 0);
+    res.json({ success: true, id: created.id });
+  });
+
+  app.post("/projects/save", requireAuth, async (req, res) => {
+    const sessionUser = getReqUser(req);
+    if (!sessionUser) return res.status(401).json({ success: false, message: "Unauthorized" });
+    const projectId = optionalUuid(req.body?.id);
+    const missionId = optionalUuid(req.body?.mission_id);
+    const title = String(req.body?.title || "Arduino Project").trim();
+    const workspaceJson = String(req.body?.workspace_json || "").trim();
+    const generatedCode = String(req.body?.generated_code || "");
+    if (!workspaceJson) {
+      return res.status(400).json({ success: false, message: "workspace_json is required" });
+    }
+
+    if (projectId) {
+      const existing = await selectOne<{ id: string; student_id: string }>("coding_projects", "id, student_id", {
+        id: projectId,
+      });
+      if (!existing) return res.status(404).json({ success: false, message: "Project not found" });
+      if (existing.student_id !== sessionUser.id && sessionUser.role !== "teacher" && sessionUser.role !== "admin") {
+        return res.status(403).json({ success: false, message: "Forbidden" });
+      }
+      await updateRow("coding_projects", { id: projectId }, {
+        mission_id: missionId,
+        title: title || null,
+        workspace_json: workspaceJson,
+        generated_code: generatedCode,
+      });
+      return res.json({ success: true, id: projectId });
+    }
+
+    const inserted = await insertOne<{ id: string }>("coding_projects", {
+      student_id: sessionUser.id,
+      mission_id: missionId,
+      title: title || null,
+      workspace_json: workspaceJson,
+      generated_code: generatedCode,
+    });
+    return res.json({ success: true, id: inserted.id });
+  });
+
+  app.get("/api/tool-activity/progress", requireAuth, async (req, res) => {
+    const sessionUser = getReqUser(req);
+    if (!sessionUser) return res.status(401).json({ success: false, message: "Unauthorized" });
+    const missionId = req.query.mission_id;
+    if (!isUuid(missionId)) {
+      return res.status(400).json({ success: false, message: "mission_id is required" });
+    }
+    const { data: rows } = await db()
+      .from("coding_projects")
+      .select("id, workspace_json, updated_at")
+      .eq("student_id", sessionUser.id)
+      .eq("mission_id", missionId)
+      .order("updated_at", { ascending: false })
+      .limit(1);
+    const row = rows?.[0] as { id: string; workspace_json: string; updated_at: string } | undefined;
+    if (!row) return res.json({ success: true, save: null });
+    return res.json({
+      success: true,
+      save: { id: row.id, workspace_json: row.workspace_json, updated_at: row.updated_at },
+    });
+  });
+
+  app.post("/api/tool-activity/save", requireAuth, async (req, res) => {
+    const sessionUser = getReqUser(req);
+    if (!sessionUser) return res.status(401).json({ success: false, message: "Unauthorized" });
+    const missionId = optionalUuid(req.body?.mission_id);
+    const title = String(req.body?.title || "Tool activity").trim();
+    const workspaceJson = String(req.body?.workspace_json || "").trim();
+    const projectId = optionalUuid(req.body?.id);
+    if (!workspaceJson) {
+      return res.status(400).json({ success: false, message: "workspace_json is required" });
+    }
+
+    if (projectId) {
+      const existing = await selectOne<{ id: string; student_id: string }>("coding_projects", "id, student_id", {
+        id: projectId,
+      });
+      if (!existing) return res.status(404).json({ success: false, message: "Save not found" });
+      if (existing.student_id !== sessionUser.id && sessionUser.role !== "teacher" && sessionUser.role !== "admin") {
+        return res.status(403).json({ success: false, message: "Forbidden" });
+      }
+      await updateRow("coding_projects", { id: projectId }, {
+        mission_id: missionId,
+        title,
+        workspace_json: workspaceJson,
+      });
+      return res.json({ success: true, id: projectId });
+    }
+
+    const inserted = await insertOne<{ id: string }>("coding_projects", {
+      student_id: sessionUser.id,
+      mission_id: missionId,
+      title,
+      workspace_json: workspaceJson,
+      generated_code: "tool_activity",
+    });
+    return res.json({ success: true, id: inserted.id });
+  });
+
+  app.get("/projects/:id", requireAuth, async (req, res) => {
+    const sessionUser = getReqUser(req);
+    if (!sessionUser) return res.status(401).json({ success: false, message: "Unauthorized" });
+    const id = req.params.id;
+    if (!isUuid(id)) return res.status(400).json({ success: false, message: "Invalid project id" });
+    const project = await selectOne<DbRow>(
+      "coding_projects",
+      "id, student_id, mission_id, title, workspace_json, generated_code, created_at, updated_at",
+      { id },
     );
-    
-    // Log the action
-    const logInsert = db.prepare("INSERT INTO logs (message, type, xp_change) VALUES (?, ?, ?)");
-    logInsert.run(`New mission deployed: ${title}`, "system", 0);
-    
-    res.json({ success: true, id: result.lastInsertRowid });
+    if (!project) return res.status(404).json({ success: false, message: "Project not found" });
+    if (project.student_id !== sessionUser.id && sessionUser.role !== "teacher" && sessionUser.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+    return res.json({ success: true, project });
   });
 
   // Classroom Management
-  app.get("/api/classes", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const sessionUser = (req.session as any)?.user as SessionUser;
-    let classes;
-    if (sessionUser.role === "teacher") {
-      classes = db
-        .prepare(
-          `
-        SELECT c.*, s.name as teacher_name,
-        (SELECT COUNT(*) FROM class_students WHERE class_id = c.id) as student_count
-        FROM classes c
-        JOIN students s ON c.teacher_id = s.id
-        WHERE c.teacher_id = ?
-      `,
-        )
-        .all(sessionUser.id);
-    } else {
-      classes = db
-        .prepare(
-          `
-        SELECT c.*, s.name as teacher_name,
-        (SELECT COUNT(*) FROM class_students WHERE class_id = c.id) as student_count
-        FROM classes c
-        JOIN students s ON c.teacher_id = s.id
-      `,
-        )
-        .all();
-    }
+  app.get("/api/classes", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
+    const sessionUser = getReqUser(req)!;
+    const classes = await SQ.listClassesWithMeta(sessionUser.role === "teacher" ? sessionUser.id : undefined);
     res.json(classes);
   });
 
-  app.get("/api/classes/:id", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "Invalid class id" });
-    if (!ensureClassAccess(req, res, id).ok) return;
-    const cls = db.prepare("SELECT * FROM classes WHERE id = ?").get(id);
+  app.get("/api/classes/:id", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
+    const id = req.params.id;
+    if (!isUuid(id)) return res.status(400).json({ error: "Invalid class id" });
+    if (!(await ensureClassAccess(req, res, id)).ok) return;
+    const cls = await selectOne("classes", "*", { id });
     if (!cls) return res.status(404).json({ error: "Class not found" });
     res.json(cls);
   });
 
-  /** Ensure class has a join_code; generate and save if missing. Returns { join_code }. */
-  const handleEnsureJoinCode = (req: express.Request, res: express.Response) => {
+  const handleEnsureJoinCode = async (req: express.Request, res: express.Response) => {
     const id = req.params.id ?? req.body?.class_id;
-    const classId = id != null ? Number(id) : NaN;
-    if (!Number.isInteger(classId) || classId < 1) {
+    const classId = id != null ? String(id) : "";
+    if (!isUuid(classId)) {
       return res.status(400).json({ error: "Class id required" });
     }
-    if (!ensureClassAccess(req, res, classId).ok) return;
-    const row = db.prepare("SELECT id, join_code FROM classes WHERE id = ?").get(classId) as { id: number; join_code: string | null } | undefined;
+    if (!(await ensureClassAccess(req, res, classId)).ok) return;
+    const row = await selectOne<{ id: string; join_code: string | null }>("classes", "id, join_code", { id: classId });
     if (!row) return res.status(404).json({ error: "Class not found" });
     let code = row.join_code != null && String(row.join_code).trim() !== "" ? String(row.join_code).trim() : null;
     if (!code) {
-      code = ensureUniqueJoinCode();
-      db.prepare("UPDATE classes SET join_code = ? WHERE id = ?").run(code, row.id);
+      code = await ensureUniqueJoinCode();
+      await updateRow("classes", { id: row.id }, { join_code: code });
     }
     res.json({ join_code: code });
   };
-  app.post("/api/classes/ensure-join-code", requireAuth, requireRole(["teacher", "admin"]), (req, res) => handleEnsureJoinCode(req, res));
-  app.patch("/api/classes/ensure-join-code", requireAuth, requireRole(["teacher", "admin"]), (req, res) => handleEnsureJoinCode(req, res));
-  app.patch("/api/classes/:id/ensureJoinCode", requireAuth, requireRole(["teacher", "admin"]), handleEnsureJoinCode);
   app.patch("/api/classes/:id/ensure-join-code", requireAuth, requireRole(["teacher", "admin"]), handleEnsureJoinCode);
 
-  app.post("/api/classes", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+  app.post("/api/classes", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
     const { name, teacher_id, description, curriculum_track } = req.body;
-    const sessionUser = (req.session as any)?.user as SessionUser;
-    const effectiveTeacherId = sessionUser.role === "teacher" ? sessionUser.id : teacher_id;
+    const sessionUser = getReqUser(req)!;
+    const effectiveTeacherId = sessionUser.role === "teacher" ? sessionUser.id : String(teacher_id || "");
 
     const trimmedName = typeof name === "string" ? name.trim() : "";
     if (!trimmedName) {
       return res.status(400).json({ success: false, error: "Class name is required" });
     }
-    const tid = Number(effectiveTeacherId);
-    if (!Number.isInteger(tid) || tid < 1) {
+    if (!isUuid(effectiveTeacherId)) {
       return res.status(400).json({ success: false, error: "Invalid teacher" });
     }
 
-    const join_code = ensureUniqueJoinCode();
-    const insert = db.prepare("INSERT INTO classes (name, teacher_id, description, join_code, curriculum_track) VALUES (?, ?, ?, ?, ?)");
-    const result = insert.run(trimmedName, tid, description || "", join_code, String(curriculum_track || "").trim() || null);
-    res.json({ success: true, id: result.lastInsertRowid, join_code });
+    const join_code = await ensureUniqueJoinCode();
+    const created = await insertOne<{ id: string }>("classes", {
+      name: trimmedName,
+      teacher_id: effectiveTeacherId,
+      description: description || "",
+      join_code,
+      curriculum_track: String(curriculum_track || "").trim() || null,
+    });
+    const starterMissionId = await SQ.getStarterMissionId();
+    if (starterMissionId) {
+      await insertIgnore("class_missions", { class_id: created.id, mission_id: starterMissionId }, "class_id,mission_id");
+    }
+    res.json({ success: true, id: created.id, join_code });
   });
 
-  app.patch("/api/classes/:id/curriculum", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const classId = Number(req.params.id);
-    if (!Number.isInteger(classId) || classId < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
-    if (!ensureClassAccess(req, res, classId).ok) return;
-    const cls = db.prepare("SELECT id FROM classes WHERE id = ?").get(classId);
+  app.patch("/api/classes/:id/curriculum", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
+    const classId = req.params.id;
+    if (!isUuid(classId)) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!(await ensureClassAccess(req, res, classId)).ok) return;
+    const cls = await selectOne("classes", "id", { id: classId });
     if (!cls) return res.status(404).json({ success: false, error: "Class not found" });
     const curriculumTrack = String(req.body?.curriculum_track || "").trim();
     if (!curriculumTrack) return res.status(400).json({ success: false, error: "curriculum_track is required" });
-    db.prepare("UPDATE classes SET curriculum_track = ? WHERE id = ?").run(curriculumTrack, classId);
+    await updateRow("classes", { id: classId }, { curriculum_track: curriculumTrack });
     res.json({ success: true, curriculum_track: curriculumTrack });
   });
 
-  app.post("/api/classes/join", requireAuth, requireRole(["student"]), (req, res) => {
+  app.post("/api/classes/join", requireAuth, requireRole(["student"]), async (req, res) => {
     const { join_code } = req.body;
-    const sessionUser = (req.session as any)?.user as SessionUser;
+    const sessionUser = getReqUser(req)!;
     if (!join_code || typeof join_code !== "string") {
       return res.status(400).json({ error: "join_code required" });
     }
     const code = String(join_code).trim().toUpperCase();
-    const cls = db.prepare("SELECT id, name FROM classes WHERE join_code = ?").get(code) as { id: number; name: string } | undefined;
+    const cls = await selectOne<{ id: string; name: string }>("classes", "id, name", { join_code: code });
     if (!cls) {
       return res.status(404).json({ error: "Invalid or expired class code" });
     }
-    const existing = db.prepare("SELECT 1 FROM class_students WHERE class_id = ? AND student_id = ?").get(cls.id, sessionUser.id);
+    const existing = await selectOne("class_students", "class_id", { class_id: cls.id, student_id: sessionUser.id });
     if (existing) {
       return res.status(400).json({ error: "Already in this class" });
     }
-    db.prepare("INSERT INTO class_students (class_id, student_id) VALUES (?, ?)").run(cls.id, sessionUser.id);
-    bumpLastActive(sessionUser.id);
+    await insertOne("class_students", { class_id: cls.id, student_id: sessionUser.id });
+    await bumpLastActive(sessionUser.id);
     res.json({ success: true, class_id: cls.id, class_name: cls.name });
   });
 
   /** Add students to class by name list; create new accounts for names that don't exist. */
-  const handleAddStudentsByNames = (req: express.Request, res: express.Response) => {
+  const handleAddStudentsByNames = async (req: express.Request, res: express.Response) => {
     try {
       const id = req.params.id ?? req.body?.class_id;
-      const classId = id != null ? Number(id) : NaN;
-      if (!Number.isInteger(classId) || classId < 1) {
+      const classId = id != null ? String(id) : "";
+      if (!isUuid(classId)) {
         return res.status(400).json({ success: false, error: "Invalid class id" });
       }
-      if (!ensureClassAccess(req, res, classId).ok) return;
+      if (!(await ensureClassAccess(req, res, classId)).ok) return;
       const { names } = req.body;
       const rawNames = Array.isArray(names) ? names.map((n: unknown) => String(n).trim()).filter(Boolean) : [];
       const seen = new Set<string>();
@@ -2462,27 +2280,65 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
         return true;
       });
 
-      const getStudentByName = db.prepare("SELECT id FROM students WHERE LOWER(TRIM(name)) = LOWER(?) LIMIT 1");
-      const insertStudent = db.prepare(
-        "INSERT INTO students (name, password, level, xp, avatar_url, role) VALUES (?, ?, 1, 0, ?, 'student')"
-      );
-      const addToClass = db.prepare("INSERT OR IGNORE INTO class_students (class_id, student_id) VALUES (?, ?)");
-
       const defaultPassword = hashPassword("password123");
       const created: string[] = [];
       let added = 0;
 
+      const makeSyntheticEmail = (username: string) =>
+        `${username}.${Date.now()}.${Math.floor(Math.random() * 1_000_000)}@students.stemverse.local`;
+
       for (const name of uniqueNames) {
-        let row = getStudentByName.get(name) as { id: number } | undefined;
+        let row = await findStudentByName(name);
         if (!row) {
           const avatarSeed = encodeURIComponent(name.toLowerCase().replace(/\s+/g, "-"));
           const avatar_url = `https://picsum.photos/seed/${avatarSeed}/200`;
-          const result = insertStudent.run(name, defaultPassword, avatar_url);
-          row = { id: Number(result.lastInsertRowid) };
+          const username = await ensureUniqueUsername(name);
+          let generatedEmail: string | null = null;
+          let authUserId: string | null = null;
+
+          if (hasSupabaseAdmin && supabaseAdmin) {
+            for (let i = 0; i < 3 && !authUserId; i += 1) {
+              const syntheticEmail = makeSyntheticEmail(username);
+              const authCreated = await supabaseAdmin.auth.admin.createUser({
+                email: syntheticEmail,
+                password: "password123",
+                email_confirm: true,
+                user_metadata: {
+                  role: "student",
+                  username,
+                  display_name: name,
+                  generated_from_teacher_roster: true,
+                },
+              });
+              if (!authCreated.error && authCreated.data?.user?.id) {
+                authUserId = authCreated.data.user.id;
+                generatedEmail = syntheticEmail;
+              }
+            }
+          }
+
+          if (!authUserId) {
+            continue;
+          }
+
+          await insertOne("students", {
+            id: authUserId,
+            name,
+            username,
+            password: defaultPassword,
+            level: 1,
+            xp: 0,
+            avatar_url,
+            role: "student",
+            email: generatedEmail,
+          });
+          row = { id: authUserId };
           created.push(name);
         }
-        const r = addToClass.run(classId, row.id);
-        if (r.changes > 0) added += 1;
+        const before = await countRows("class_students", { class_id: classId, student_id: String(row.id) });
+        await insertIgnore("class_students", { class_id: classId, student_id: String(row.id) }, "class_id,student_id");
+        const after = await countRows("class_students", { class_id: classId, student_id: String(row.id) });
+        if (after > before) added += 1;
       }
 
       res.json({ success: true, created, added });
@@ -2492,493 +2348,450 @@ Prefer adaptive progression: easier for weaker domains, harder for stronger doma
       res.status(500).json({ success: false, error: err?.message || "Failed to add students" });
     }
   };
-  app.post("/api/classes/add-students-by-names", requireAuth, requireRole(["teacher", "admin"]), handleAddStudentsByNames);
-  app.post("/api/classes/:id/addStudentsByNames", requireAuth, requireRole(["teacher", "admin"]), handleAddStudentsByNames);
   app.post("/api/classes/:id/add-students-by-names", requireAuth, requireRole(["teacher", "admin"]), handleAddStudentsByNames);
 
-  app.post("/api/classes/:id/students/bulk", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+  app.post("/api/classes/:id/students/bulk", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
     const classId = req.params.id;
-    const classIdNum = Number(classId);
-    if (!Number.isInteger(classIdNum) || classIdNum < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
-    if (!ensureClassAccess(req, res, classIdNum).ok) return;
+    if (!isUuid(classId)) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!(await ensureClassAccess(req, res, classId)).ok) return;
     const { student_ids } = req.body;
-    const ids = Array.isArray(student_ids) ? student_ids.map((x: unknown) => Number(x)).filter((n: number) => Number.isInteger(n) && n > 0) : [];
-    const insert = db.prepare("INSERT OR IGNORE INTO class_students (class_id, student_id) VALUES (?, ?)");
+    const ids = Array.isArray(student_ids)
+      ? student_ids.map((x: unknown) => String(x)).filter((s) => isUuid(s))
+      : [];
     let added = 0;
     for (const sid of ids) {
-      const r = insert.run(classId, sid);
-      if (r.changes > 0) added += 1;
+      const before = await countRows("class_students", { class_id: classId, student_id: sid });
+      await insertIgnore("class_students", { class_id: classId, student_id: sid }, "class_id,student_id");
+      const after = await countRows("class_students", { class_id: classId, student_id: sid });
+      if (after > before) added += 1;
     }
     res.json({ success: true, added, total: ids.length });
   });
 
-  app.post("/api/classes/:id/students", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const classId = Number(req.params.id);
-    if (!Number.isInteger(classId) || classId < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
-    if (!ensureClassAccess(req, res, classId).ok) return;
+  app.post("/api/classes/:id/students", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
+    const classId = req.params.id;
+    if (!isUuid(classId)) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!(await ensureClassAccess(req, res, classId)).ok) return;
     const { student_id } = req.body;
-    const insert = db.prepare("INSERT OR IGNORE INTO class_students (class_id, student_id) VALUES (?, ?)");
-    insert.run(req.params.id, student_id);
+    if (!isUuid(student_id)) return res.status(400).json({ success: false, error: "Invalid student id" });
+    await insertIgnore("class_students", { class_id: classId, student_id }, "class_id,student_id");
     res.json({ success: true });
   });
 
-  app.post("/api/classes/:id/missions", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const classId = Number(req.params.id);
-    if (!Number.isInteger(classId) || classId < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
-    if (!ensureClassAccess(req, res, classId).ok) return;
-    const cls = db.prepare("SELECT curriculum_track FROM classes WHERE id = ?").get(req.params.id) as { curriculum_track?: string | null } | undefined;
+  app.post("/api/classes/:id/missions", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
+    const classId = req.params.id;
+    if (!isUuid(classId)) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!(await ensureClassAccess(req, res, classId)).ok) return;
+    const cls = await selectOne<{ curriculum_track?: string | null }>("classes", "curriculum_track", { id: classId });
     if (!cls) return res.status(404).json({ success: false, error: "Class not found" });
     if (!cls.curriculum_track || !String(cls.curriculum_track).trim()) {
       return res.status(400).json({ success: false, error: "Set curriculum track first before deploying missions." });
     }
     const { mission_id } = req.body;
-    const insert = db.prepare("INSERT OR IGNORE INTO class_missions (class_id, mission_id) VALUES (?, ?)");
-    insert.run(req.params.id, mission_id);
+    if (!isUuid(mission_id)) return res.status(400).json({ success: false, error: "Invalid mission id" });
+    await insertIgnore("class_missions", { class_id: classId, mission_id }, "class_id,mission_id");
     res.json({ success: true });
   });
 
-  app.post("/api/classes/:id/quizzes", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const classId = Number(req.params.id);
-    if (!Number.isInteger(classId) || classId < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
-    if (!ensureClassAccess(req, res, classId).ok) return;
-    const cls = db.prepare("SELECT curriculum_track FROM classes WHERE id = ?").get(req.params.id) as { curriculum_track?: string | null } | undefined;
+  app.post("/api/classes/:id/quizzes", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
+    const classId = req.params.id;
+    if (!isUuid(classId)) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!(await ensureClassAccess(req, res, classId)).ok) return;
+    const cls = await selectOne<{ curriculum_track?: string | null }>("classes", "curriculum_track", { id: classId });
     if (!cls) return res.status(404).json({ success: false, error: "Class not found" });
     if (!cls.curriculum_track || !String(cls.curriculum_track).trim()) {
       return res.status(400).json({ success: false, error: "Set curriculum track first before deploying quizzes." });
     }
     const { quiz_id } = req.body;
-    const insert = db.prepare("INSERT OR IGNORE INTO class_quizzes (class_id, quiz_id) VALUES (?, ?)");
-    insert.run(req.params.id, quiz_id);
+    if (!isUuid(quiz_id)) return res.status(400).json({ success: false, error: "Invalid quiz id" });
+    await insertIgnore("class_quizzes", { class_id: classId, quiz_id }, "class_id,quiz_id");
     res.json({ success: true });
   });
 
-  app.get("/api/classes/:id/content", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+  app.get("/api/classes/:id/content", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
     const classId = req.params.id;
-    const classIdNum = Number(classId);
-    if (!Number.isInteger(classIdNum) || classIdNum < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
-    if (!ensureClassAccess(req, res, classIdNum).ok) return;
-    const missions = db
-      .prepare(
-        `
-      SELECT m.*
-      FROM missions m
-      JOIN class_missions cm ON cm.mission_id = m.id
-      WHERE cm.class_id = ?
-    `,
-      )
-      .all(classId);
-    const quizzes = db
-      .prepare(
-        `
-      SELECT q.*
-      FROM quizzes q
-      JOIN class_quizzes cq ON cq.quiz_id = q.id
-      WHERE cq.class_id = ?
-    `,
-      )
-      .all(classId);
-    const challenges = db
-      .prepare(
-        `
-      SELECT c.* FROM challenges c
-      JOIN class_challenges cc ON cc.challenge_id = c.id
-      WHERE cc.class_id = ?
-    `,
-      )
-      .all(classId);
-    res.json({ missions, quizzes, challenges });
+    if (!isUuid(classId)) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!(await ensureClassAccess(req, res, classId)).ok) return;
+    const { data: cm } = await db().from("class_missions").select("mission_id").eq("class_id", classId);
+    const missionIds = (cm || []).map((r) => (r as { mission_id: string }).mission_id);
+    const missions = missionIds.length
+      ? await db().from("missions").select("*").in("id", missionIds)
+      : { data: [] };
+    const { data: cq } = await db().from("class_quizzes").select("quiz_id").eq("class_id", classId);
+    const quizIds = (cq || []).map((r) => (r as { quiz_id: string }).quiz_id);
+    const quizzes = quizIds.length ? await db().from("quizzes").select("*").in("id", quizIds) : { data: [] };
+    const { data: cc } = await db().from("class_challenges").select("challenge_id").eq("class_id", classId);
+    const challengeIds = (cc || []).map((r) => (r as { challenge_id: string }).challenge_id);
+    const challenges = challengeIds.length
+      ? await db().from("challenges").select("*").in("id", challengeIds)
+      : { data: [] };
+    res.json({ missions: missions.data || [], quizzes: quizzes.data || [], challenges: challenges.data || [] });
   });
 
-  app.delete("/api/classes/:id/missions/:missionId", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const classId = Number(req.params.id);
-    if (!Number.isInteger(classId) || classId < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
-    if (!ensureClassAccess(req, res, classId).ok) return;
-    const { id, missionId } = req.params;
-    const del = db.prepare("DELETE FROM class_missions WHERE class_id = ? AND mission_id = ?");
-    del.run(id, missionId);
+  app.delete("/api/classes/:id/missions/:missionId", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
+    const classId = req.params.id;
+    if (!isUuid(classId)) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!(await ensureClassAccess(req, res, classId)).ok) return;
+    await deleteRows("class_missions", { class_id: classId, mission_id: req.params.missionId });
     res.json({ success: true });
   });
 
-  app.delete("/api/classes/:id/quizzes/:quizId", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const classId = Number(req.params.id);
-    if (!Number.isInteger(classId) || classId < 1) return res.status(400).json({ success: false, error: "Invalid class id" });
-    if (!ensureClassAccess(req, res, classId).ok) return;
-    const { id, quizId } = req.params;
-    const del = db.prepare("DELETE FROM class_quizzes WHERE class_id = ? AND quiz_id = ?");
-    del.run(id, quizId);
+  app.delete("/api/classes/:id/quizzes/:quizId", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
+    const classId = req.params.id;
+    if (!isUuid(classId)) return res.status(400).json({ success: false, error: "Invalid class id" });
+    if (!(await ensureClassAccess(req, res, classId)).ok) return;
+    await deleteRows("class_quizzes", { class_id: classId, quiz_id: req.params.quizId });
     res.json({ success: true });
   });
 
   // Student Progress (students can only read own data)
-  app.get("/api/students/:id/progress", requireAuth, requireStudentAccess, (req, res) => {
+  app.get("/api/students/:id/progress", requireAuth, requireStudentAccess, asyncRoute(async (req, res) => {
     const studentId = req.params.id;
-    const badges = db.prepare("SELECT * FROM student_badges WHERE student_id = ?").all(studentId);
-    const quizzes = db.prepare(`
-      SELECT sq.*, q.title 
-      FROM student_quizzes sq 
-      JOIN quizzes q ON sq.quiz_id = q.id 
-      WHERE sq.student_id = ?
-    `).all(studentId);
-    const missionRow = db
-      .prepare("SELECT COUNT(*) as n FROM student_mission_completions WHERE student_id = ?")
-      .get(studentId) as { n: number };
+    const badges = await selectMany("student_badges", "*", { student_id: studentId });
+    const sqRows = await selectMany<DbRow>("student_quizzes", "*", { student_id: studentId });
+    const quizzes = [];
+    for (const sq of sqRows) {
+      const q = await selectOne<{ title: string }>("quizzes", "title", { id: String(sq.quiz_id) });
+      quizzes.push({ ...sq, title: q?.title });
+    }
+    const missions_completed = await countRows("student_mission_completions", { student_id: studentId });
+    res.json({ badges, quizzes, missions_completed });
+  }));
 
-    res.json({ badges, quizzes, missions_completed: Number(missionRow?.n ?? 0) });
-  });
-
-  app.get("/api/students/:id/interests", requireAuth, requireStudentAccess, (req, res) => {
-    const studentId = Number(req.params.id);
-    if (!Number.isInteger(studentId) || studentId < 1) return res.status(400).json({ success: false, message: "Invalid student id" });
-    const selected = db
-      .prepare("SELECT interest_key FROM student_interest_votes WHERE student_id = ? ORDER BY weight DESC, created_at DESC")
-      .all(studentId) as Array<{ interest_key: string }>;
+  app.get("/api/students/:id/interests", requireAuth, requireStudentAccess, asyncRoute(async (req, res) => {
+    const selected = await selectMany<{ interest_key: string }>(
+      "student_interest_votes",
+      "interest_key",
+      { student_id: req.params.id },
+      { column: "weight", ascending: false },
+    );
     res.json({ success: true, selected: selected.map((r) => r.interest_key) });
-  });
+  }));
 
-  app.post("/api/students/:id/interests", requireAuth, requireStudentAccess, (req, res) => {
-    const studentId = Number(req.params.id);
-    if (!Number.isInteger(studentId) || studentId < 1) return res.status(400).json({ success: false, message: "Invalid student id" });
+  app.post("/api/students/:id/interests", requireAuth, requireStudentAccess, asyncRoute(async (req, res) => {
+    const studentId = req.params.id;
     const incoming = Array.isArray(req.body?.selected) ? req.body.selected : [];
     const selected = [...new Set(incoming.map((x: unknown) => String(x || "").trim().toLowerCase()).filter(Boolean))].slice(0, 6);
     if (selected.length < 2) {
       return res.status(400).json({ success: false, message: "Select at least 2 interests." });
     }
-    const del = db.prepare("DELETE FROM student_interest_votes WHERE student_id = ?");
-    const ins = db.prepare("INSERT INTO student_interest_votes (student_id, interest_key, weight) VALUES (?, ?, ?)");
-    const tx = db.transaction(() => {
-      del.run(studentId);
-      selected.forEach((key: string, idx: number) => ins.run(studentId, key, Math.max(1, selected.length - idx)));
-    });
-    tx();
+    await deleteRows("student_interest_votes", { student_id: studentId });
+    await insertMany(
+      "student_interest_votes",
+      selected.map((key: string, idx: number) => ({
+        student_id: studentId,
+        interest_key: key,
+        weight: Math.max(1, selected.length - idx),
+      })),
+    );
     res.json({ success: true, selected });
-  });
+  }));
 
-  app.get("/api/students/:id/assigned-quizzes", requireAuth, requireStudentAccess, (req, res) => {
+  app.get("/api/students/:id/assigned-quizzes", requireAuth, requireStudentAccess, asyncRoute(async (req, res) => {
     const studentId = req.params.id;
-    const quizzes = db.prepare(`
-      SELECT DISTINCT
-        q.*,
-        (
-          SELECT sq.score
-          FROM student_quizzes sq
-          WHERE sq.student_id = ? AND sq.quiz_id = q.id
-          ORDER BY sq.completed_at DESC, sq.id DESC
-          LIMIT 1
-        ) as latest_score,
-        (
-          SELECT sq.total_questions
-          FROM student_quizzes sq
-          WHERE sq.student_id = ? AND sq.quiz_id = q.id
-          ORDER BY sq.completed_at DESC, sq.id DESC
-          LIMIT 1
-        ) as latest_total_questions,
-        (
-          SELECT sq.completed_at
-          FROM student_quizzes sq
-          WHERE sq.student_id = ? AND sq.quiz_id = q.id
-          ORDER BY sq.completed_at DESC, sq.id DESC
-          LIMIT 1
-        ) as latest_completed_at,
-        (
-          SELECT sq.pending_reviews
-          FROM student_quizzes sq
-          WHERE sq.student_id = ? AND sq.quiz_id = q.id
-          ORDER BY sq.completed_at DESC, sq.id DESC
-          LIMIT 1
-        ) as latest_pending_reviews
-      FROM quizzes q
-      JOIN class_quizzes cq ON cq.quiz_id = q.id
-      JOIN class_students cs ON cs.class_id = cq.class_id
-      WHERE cs.student_id = ?
-      ORDER BY q.created_at DESC
-    `).all(studentId, studentId, studentId, studentId, studentId);
-    res.json(quizzes);
-  });
-
-  app.get("/api/students/:id/assigned-missions", requireAuth, requireStudentAccess, (req, res) => {
-    const studentId = req.params.id;
-    let missions = db.prepare(`
-      SELECT DISTINCT
-        m.*,
-        (
-          SELECT smc.completed_at
-          FROM student_mission_completions smc
-          WHERE smc.student_id = ? AND smc.mission_id = m.id
-          ORDER BY smc.completed_at DESC
-          LIMIT 1
-        ) AS latest_completed_at
-      FROM missions m
-      JOIN class_missions cm ON cm.mission_id = m.id
-      JOIN class_students cs ON cs.class_id = cm.class_id
-      WHERE cs.student_id = ?
-        AND (
-          m.prerequisite_mission_id IS NULL
-          OR EXISTS (
-            SELECT 1
-            FROM student_mission_completions smc2
-            WHERE smc2.student_id = ?
-              AND smc2.mission_id = m.prerequisite_mission_id
-          )
-          OR EXISTS (
-            SELECT 1
-            FROM student_mission_completions smc3
-            WHERE smc3.student_id = ?
-              AND smc3.mission_id = m.id
-          )
-        )
-      ORDER BY m.id DESC
-    `).all(studentId, studentId, studentId, studentId);
-    if (!Array.isArray(missions) || missions.length === 0) {
-      const studentRow = db.prepare("SELECT grade FROM students WHERE id = ?").get(studentId) as { grade?: string | null } | undefined;
-      const normalizedGrade = String(studentRow?.grade || "").trim().toLowerCase();
-      missions = db.prepare(`
-        SELECT
-          m.*,
-          (
-            SELECT smc.completed_at
-            FROM student_mission_completions smc
-            WHERE smc.student_id = ? AND smc.mission_id = m.id
-            ORDER BY smc.completed_at DESC
-            LIMIT 1
-          ) AS latest_completed_at
-        FROM missions m
-        WHERE m.status = 'available'
-          AND (
-            ? = ''
-            OR m.grade_level IS NULL
-            OR TRIM(m.grade_level) = ''
-            OR LOWER(TRIM(m.grade_level)) = ?
-          )
-          AND (
-            m.prerequisite_mission_id IS NULL
-            OR EXISTS (
-              SELECT 1
-              FROM student_mission_completions smc2
-              WHERE smc2.student_id = ?
-                AND smc2.mission_id = m.prerequisite_mission_id
-            )
-          )
-        ORDER BY m.id DESC
-        LIMIT 24
-      `).all(studentId, normalizedGrade, normalizedGrade, studentId);
+    const { data: classRows } = await db().from("class_students").select("class_id").eq("student_id", studentId);
+    const classIds = (classRows || []).map((r) => (r as { class_id: string }).class_id);
+    const quizIdSet = new Set<string>();
+    if (classIds.length) {
+      const { data: cq } = await db().from("class_quizzes").select("quiz_id").in("class_id", classIds);
+      for (const row of cq || []) quizIdSet.add((row as { quiz_id: string }).quiz_id);
     }
-    res.json(missions);
-  });
+    const out: DbRow[] = [];
+    for (const qid of quizIdSet) {
+      const q = await selectOne<DbRow>("quizzes", "*", { id: qid });
+      if (!q) continue;
+      const { data: sqRows } = await db()
+        .from("student_quizzes")
+        .select("*")
+        .eq("student_id", studentId)
+        .eq("quiz_id", qid)
+        .order("completed_at", { ascending: false })
+        .limit(1);
+      const latest = sqRows?.[0] as DbRow | undefined;
+      out.push({
+        ...q,
+        latest_score: latest?.score ?? null,
+        latest_total_questions: latest?.total_questions ?? null,
+        latest_completed_at: latest?.completed_at ?? null,
+        latest_pending_reviews: latest?.pending_reviews ?? null,
+      });
+    }
+    out.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    return res.json(out);
+  }));
 
-  app.post("/api/students/:id/missions/:missionId/complete", requireAuth, requireStudentAccess, (req, res) => {
-    const studentId = Number(req.params.id);
-    const missionId = Number(req.params.missionId);
-    const sessionUser = (req.session as any)?.user as SessionUser;
+  app.get("/api/students/:id/assigned-missions", requireAuth, requireStudentAccess, asyncRoute(async (req, res) => {
+    const studentId = req.params.id;
+    const completions = await selectMany<{ mission_id: string; completed_at: string }>(
+      "student_mission_completions",
+      "mission_id, completed_at",
+      { student_id: studentId },
+    );
+    const completedMap = new Map(completions.map((c) => [c.mission_id, c.completed_at]));
+    const { data: classRows } = await db().from("class_students").select("class_id").eq("student_id", studentId);
+    const classIds = (classRows || []).map((r) => (r as { class_id: string }).class_id);
+    let missionIds: string[] = [];
+    if (classIds.length) {
+      const { data: cm } = await db().from("class_missions").select("mission_id").in("class_id", classIds);
+      missionIds = [...new Set((cm || []).map((r) => (r as { mission_id: string }).mission_id))];
+    }
+    let missions: DbRow[] = [];
+    if (missionIds.length) {
+      const all = await selectMany<DbRow>("missions", "*");
+      missions = all.filter((m) => missionIds.includes(String(m.id)));
+    }
+    if (!missions.length) {
+      const studentRow = await selectOne<{ grade?: string | null }>("students", "grade", { id: studentId });
+      const normalizedGrade = String(studentRow?.grade || "").trim().toLowerCase();
+      const all = await selectMany<DbRow>("missions", "*", { status: "available" });
+      missions = all
+        .filter((m) => {
+          if (!normalizedGrade) return true;
+          const gl = String(m.grade_level || "").trim().toLowerCase();
+          return !gl || gl === normalizedGrade;
+        })
+        .slice(0, 24);
+    }
+    const filtered = missions.filter((m) => {
+      const prereq = m.prerequisite_mission_id as string | null;
+      if (!prereq) return true;
+      if (completedMap.has(prereq)) return true;
+      if (completedMap.has(String(m.id))) return true;
+      return false;
+    });
+    const withCompleted = filtered.map((m) => ({
+      ...m,
+      latest_completed_at: completedMap.get(String(m.id)) ?? null,
+    }));
+    return res.json(withCompleted);
+  }));
+
+  app.post("/api/students/:id/missions/:missionId/complete", requireAuth, requireStudentAccess, async (req, res) => {
+    const studentId = req.params.id;
+    const missionId = req.params.missionId;
+    const sessionUser = getReqUser(req)!;
     if (sessionUser.id !== studentId) return res.status(403).json({ error: "Forbidden" });
-    db.prepare(
-      "INSERT OR IGNORE INTO student_mission_completions (student_id, mission_id) VALUES (?, ?)"
-    ).run(studentId, missionId);
-    bumpLastActive(studentId);
+    await insertIgnore(
+      "student_mission_completions",
+      { student_id: studentId, mission_id: missionId },
+      "student_id,mission_id",
+    );
+    await bumpLastActive(studentId);
     res.json({ success: true });
   });
 
-  app.get("/api/students/:id/classes", requireAuth, requireStudentAccess, (req, res) => {
+  app.get("/api/students/:id/classes", requireAuth, requireStudentAccess, async (req, res) => {
     const studentId = req.params.id;
-    const classes = db
-      .prepare(
-        `
-      SELECT c.*, t.name as teacher_name,
-        (SELECT COUNT(*) FROM class_students WHERE class_id = c.id) as student_count
-      FROM classes c
-      JOIN class_students cs ON cs.class_id = c.id
-      JOIN students t ON t.id = c.teacher_id
-      WHERE cs.student_id = ?
-    `,
-      )
-      .all(studentId);
-    res.json(classes);
+    const { data: memberships } = await db().from("class_students").select("class_id").eq("student_id", studentId);
+    const classIds = (memberships || []).map((m) => (m as { class_id: string }).class_id);
+    const out = [];
+    for (const cid of classIds) {
+      const c = await selectOne<DbRow>("classes", "*", { id: cid });
+      if (!c) continue;
+      const teacher = c.teacher_id
+        ? await selectOne<{ name: string }>("students", "name", { id: String(c.teacher_id) })
+        : null;
+      const student_count = await countRows("class_students", { class_id: cid });
+      out.push({ ...c, teacher_name: teacher?.name, student_count });
+    }
+    res.json(out);
   });
 
-  app.get("/api/students/:id/classmates", requireAuth, requireStudentAccess, (req, res) => {
+  app.get("/api/students/:id/classmates", requireAuth, requireStudentAccess, async (req, res) => {
     const studentId = req.params.id;
-    const classmates = db
-      .prepare(
-        `
-      SELECT DISTINCT s.id, s.name, s.level, s.xp, s.avatar_url, s.role
-      FROM students s
-      JOIN class_students cs ON cs.student_id = s.id
-      WHERE cs.class_id IN (
-        SELECT class_id FROM class_students WHERE student_id = ?
-      )
-      AND s.id != ?
-      AND s.role = 'student'
-      ORDER BY s.xp DESC
-    `,
-      )
-      .all(studentId, studentId);
+    const { data: myClasses } = await db().from("class_students").select("class_id").eq("student_id", studentId);
+    const classIds = (myClasses || []).map((r) => (r as { class_id: string }).class_id);
+    if (!classIds.length) return res.json([]);
+    const { data: peers } = await db().from("class_students").select("student_id").in("class_id", classIds);
+    const peerIds = [...new Set((peers || []).map((p) => (p as { student_id: string }).student_id))].filter(
+      (id) => id !== studentId,
+    );
+    const classmates = [];
+    for (const pid of peerIds) {
+      const s = await selectOne<DbRow>("students", "id, name, level, xp, avatar_url, role", { id: pid });
+      if (s && s.role === "student") classmates.push(s);
+    }
+    classmates.sort((a, b) => Number(b.xp) - Number(a.xp));
     res.json(classmates);
   });
 
-  app.post("/api/student-quizzes", requireAuth, (req, res) => {
-    const sessionUser = (req.session as any)?.user as SessionUser;
+  app.post("/api/student-quizzes", requireAuth, async (req, res) => {
+    const sessionUser = getReqUser(req)!;
     const { student_id, quiz_id, score, total_questions, auto_score, review_items } = req.body;
-    if (sessionUser.role === "student" && Number(student_id) !== sessionUser.id) {
+    if (sessionUser.role === "student" && String(student_id) !== sessionUser.id) {
       return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+    if (!isUuid(student_id) || !isUuid(quiz_id)) {
+      return res.status(400).json({ success: false, message: "Invalid student_id or quiz_id" });
     }
     const normalizedAutoScore = Number.isFinite(Number(auto_score)) ? Number(auto_score) : Number(score) || 0;
     const normalizedTotal = Number.isFinite(Number(total_questions)) ? Number(total_questions) : 0;
     const pendingItems = Array.isArray(review_items) ? review_items : [];
     const pendingCount = pendingItems.length;
-    const insert = db.prepare(
-      "INSERT INTO student_quizzes (student_id, quiz_id, score, auto_score, reviewed_score, pending_reviews, total_questions) VALUES (?, ?, ?, ?, 0, ?, ?)"
-    );
-    const insertResult = insert.run(student_id, quiz_id, normalizedAutoScore, normalizedAutoScore, pendingCount, normalizedTotal);
-    const studentQuizId = Number(insertResult.lastInsertRowid);
+    const { id: studentQuizId } = await insertOne("student_quizzes", {
+      student_id,
+      quiz_id,
+      score: normalizedAutoScore,
+      auto_score: normalizedAutoScore,
+      reviewed_score: 0,
+      pending_reviews: pendingCount,
+      total_questions: normalizedTotal,
+    });
 
-    if (pendingItems.length > 0) {
-      const insertReview = db.prepare(
-        `INSERT INTO quiz_review_items
-         (student_quiz_id, student_id, quiz_id, question_index, question_type, prompt, response_text, max_score, awarded_score, review_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'pending')`
-      );
-      const tx = db.transaction((items: any[]) => {
-        items.forEach((item) => {
-          insertReview.run(
-            studentQuizId,
-            Number(student_id),
-            Number(quiz_id),
-            Number(item?.question_index || 0),
-            String(item?.question_type || "short_answer"),
-            String(item?.prompt || ""),
-            String(item?.response_text || ""),
-            Math.max(1, Number(item?.max_score || 1))
-          );
-        });
+    for (const item of pendingItems) {
+      await insertOne("quiz_review_items", {
+        student_quiz_id: studentQuizId,
+        student_id,
+        quiz_id,
+        question_index: Number(item?.question_index || 0),
+        question_type: String(item?.question_type || "short_answer"),
+        prompt: String(item?.prompt || ""),
+        response_text: String(item?.response_text || ""),
+        max_score: Math.max(1, Number(item?.max_score || 1)),
+        awarded_score: 0,
+        review_status: "pending",
       });
-      tx(pendingItems);
     }
-    bumpLastActive(Number(student_id));
+    await bumpLastActive(String(student_id));
     res.json({ success: true, pending_reviews: pendingCount });
   });
 
-  app.get("/api/teacher/quiz-reviews/pending", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const sessionUser = (req.session as any)?.user as SessionUser;
+  app.get("/api/teacher/quiz-reviews/pending", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
+    const sessionUser = getReqUser(req)!;
     const classIdRaw = req.query.class_id;
-    const classId = classIdRaw != null ? Number(classIdRaw) : null;
+    const classId = classIdRaw != null && String(classIdRaw).trim() ? String(classIdRaw) : null;
+    if (classId && !isUuid(classId)) return res.status(400).json({ error: "Invalid class_id" });
 
-    let query = `
-      SELECT
-        qri.id,
-        qri.student_quiz_id,
-        qri.student_id,
-        s.name as student_name,
-        qri.quiz_id,
-        q.title as quiz_title,
-        qri.question_index,
-        qri.prompt,
-        qri.response_text,
-        qri.max_score,
-        qri.created_at
-      FROM quiz_review_items qri
-      JOIN students s ON s.id = qri.student_id
-      JOIN quizzes q ON q.id = qri.quiz_id
-      WHERE qri.review_status = 'pending'
-        AND EXISTS (
-          SELECT 1
-          FROM class_students cs
-          JOIN class_quizzes cq ON cq.class_id = cs.class_id AND cq.quiz_id = qri.quiz_id
-          JOIN classes c ON c.id = cs.class_id
-          WHERE cs.student_id = qri.student_id
-            AND ${sessionUser.role === "admin" ? "1=1" : "c.teacher_id = ?"}
-            ${classId ? "AND c.id = ?" : ""}
-        )
-      ORDER BY qri.created_at ASC
-    `;
-
-    const params: Array<number> = [];
-    if (sessionUser.role !== "admin") params.push(sessionUser.id);
-    if (classId) params.push(classId);
-    const rows = db.prepare(query).all(...params);
+    const pending = await selectMany<DbRow>("quiz_review_items", "*", { review_status: "pending" }, {
+      column: "created_at",
+      ascending: true,
+    });
+    const rows: DbRow[] = [];
+    for (const qri of pending) {
+      const csRows = await selectMany<{ class_id: string }>("class_students", "class_id", { student_id: qri.student_id });
+      let allowed = false;
+      for (const cs of csRows) {
+        const cq = await selectOne("class_quizzes", "class_id", { class_id: cs.class_id, quiz_id: qri.quiz_id });
+        if (!cq) continue;
+        const cls = await selectOne<{ teacher_id: string }>("classes", "teacher_id", { id: cs.class_id });
+        if (!cls) continue;
+        if (classId && cs.class_id !== classId) continue;
+        if (sessionUser.role === "admin" || cls.teacher_id === sessionUser.id) {
+          allowed = true;
+          break;
+        }
+      }
+      if (!allowed) continue;
+      const student = await selectOne<{ name: string }>("students", "name", { id: qri.student_id });
+      const quiz = await selectOne<{ title: string }>("quizzes", "title", { id: qri.quiz_id });
+      rows.push({
+        id: qri.id,
+        student_quiz_id: qri.student_quiz_id,
+        student_id: qri.student_id,
+        student_name: student?.name ?? "",
+        quiz_id: qri.quiz_id,
+        quiz_title: quiz?.title ?? "",
+        question_index: qri.question_index,
+        prompt: qri.prompt,
+        response_text: qri.response_text,
+        max_score: qri.max_score,
+        created_at: qri.created_at,
+      });
+    }
     res.json(rows);
   });
 
-  app.post("/api/teacher/quiz-reviews/:id/grade", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const sessionUser = (req.session as any)?.user as SessionUser;
-    const reviewId = Number(req.params.id);
+  app.post("/api/teacher/quiz-reviews/:id/grade", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
+    const sessionUser = getReqUser(req)!;
+    const reviewId = req.params.id;
     const awardedRaw = Number(req.body?.awarded_score);
-    if (!Number.isInteger(reviewId) || reviewId < 1) {
+    if (!isUuid(reviewId)) {
       return res.status(400).json({ success: false, message: "Invalid review id" });
     }
 
-    const review = db
-      .prepare(
-        `SELECT qri.*, c.teacher_id
-         FROM quiz_review_items qri
-         JOIN class_students cs ON cs.student_id = qri.student_id
-         JOIN class_quizzes cq ON cq.class_id = cs.class_id AND cq.quiz_id = qri.quiz_id
-         JOIN classes c ON c.id = cs.class_id
-         WHERE qri.id = ?
-         LIMIT 1`
-      )
-      .get(reviewId) as
-      | {
-          id: number;
-          student_quiz_id: number;
-          max_score: number;
-          review_status: string;
-          teacher_id: number;
-        }
-      | undefined;
+    const qri = await selectOne<DbRow>("quiz_review_items", "*", { id: reviewId });
+    if (!qri) return res.status(404).json({ success: false, message: "Review item not found" });
 
-    if (!review) return res.status(404).json({ success: false, message: "Review item not found" });
-    if (sessionUser.role !== "admin" && review.teacher_id !== sessionUser.id) {
+    const csRows = await selectMany<{ class_id: string }>("class_students", "class_id", { student_id: qri.student_id });
+    let teacherId: string | null = null;
+    let hasAccess = false;
+    for (const cs of csRows) {
+      const cq = await selectOne("class_quizzes", "class_id", { class_id: cs.class_id, quiz_id: qri.quiz_id });
+      if (!cq) continue;
+      const cls = await selectOne<{ teacher_id: string }>("classes", "teacher_id", { id: cs.class_id });
+      if (!cls) continue;
+      teacherId = cls.teacher_id;
+      hasAccess = true;
+      break;
+    }
+    if (!hasAccess) return res.status(404).json({ success: false, message: "Review item not found" });
+    if (sessionUser.role !== "admin" && teacherId !== sessionUser.id) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
-    if (review.review_status !== "pending") {
+    if (qri.review_status !== "pending") {
       return res.status(400).json({ success: false, message: "This item is already reviewed" });
     }
 
-    const awarded = Math.max(0, Math.min(Number(review.max_score || 1), Number.isFinite(awardedRaw) ? awardedRaw : 0));
-    db.prepare(
-      `UPDATE quiz_review_items
-       SET awarded_score = ?, review_status = 'reviewed', reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP
-       WHERE id = ?`
-    ).run(awarded, sessionUser.id, reviewId);
+    const awarded = Math.max(0, Math.min(Number(qri.max_score || 1), Number.isFinite(awardedRaw) ? awardedRaw : 0));
+    await updateRow("quiz_review_items", { id: reviewId }, {
+      awarded_score: awarded,
+      review_status: "reviewed",
+      reviewed_by: sessionUser.id,
+      reviewed_at: new Date().toISOString(),
+    });
 
-    const sums = db
-      .prepare(
-        `SELECT
-           COALESCE(SUM(awarded_score), 0) as reviewed_sum,
-           SUM(CASE WHEN review_status = 'pending' THEN 1 ELSE 0 END) as pending_count
-         FROM quiz_review_items
-         WHERE student_quiz_id = ?`
-      )
-      .get(review.student_quiz_id) as { reviewed_sum: number; pending_count: number };
+    const allReviews = await selectMany<DbRow>("quiz_review_items", "awarded_score, review_status", {
+      student_quiz_id: qri.student_quiz_id,
+    });
+    const reviewedSum = allReviews.reduce((sum, r) => sum + Number(r.awarded_score || 0), 0);
+    const pendingCount = allReviews.filter((r) => r.review_status === "pending").length;
 
-    const base = db
-      .prepare("SELECT auto_score, total_questions FROM student_quizzes WHERE id = ?")
-      .get(review.student_quiz_id) as { auto_score: number; total_questions: number } | undefined;
+    const base = await selectOne<{ auto_score: number; total_questions: number }>("student_quizzes", "auto_score, total_questions", {
+      id: qri.student_quiz_id,
+    });
     if (base) {
-      const reviewedScore = Number(sums?.reviewed_sum || 0);
       const total = Number(base.total_questions || 0);
-      const combined = Math.max(0, Math.min(total, Number(base.auto_score || 0) + reviewedScore));
-      db.prepare(
-        `UPDATE student_quizzes
-         SET reviewed_score = ?, pending_reviews = ?, score = ?
-         WHERE id = ?`
-      ).run(reviewedScore, Number(sums?.pending_count || 0), combined, review.student_quiz_id);
+      const combined = Math.max(0, Math.min(total, Number(base.auto_score || 0) + reviewedSum));
+      await updateRow("student_quizzes", { id: qri.student_quiz_id }, {
+        reviewed_score: reviewedSum,
+        pending_reviews: pendingCount,
+        score: combined,
+      });
     }
 
     res.json({ success: true });
   });
 
-  app.get("/api/report-card/:classId", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+  app.get("/api/report-card/:classId", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
     const classId = req.params.classId;
-    const base = db.prepare(`
-      SELECT s.id, s.name, s.level, s.xp,
-      (SELECT COUNT(*) FROM student_quizzes WHERE student_id = s.id) as quizzes_completed,
-      (SELECT AVG(CAST(score AS FLOAT)/total_questions) * 100 FROM student_quizzes WHERE student_id = s.id) as avg_quiz_score
-      FROM students s
-      JOIN class_students cs ON s.id = cs.student_id
-      WHERE cs.class_id = ?
-    `).all(classId) as any[];
+    if (!isUuid(classId)) return res.status(400).json({ error: "Invalid class id" });
+    if (!(await ensureClassAccess(req, res, classId)).ok) return;
 
-    const mkRow = (row: any) => {
+    const roster = await selectMany<{ student_id: string }>("class_students", "student_id", { class_id: classId });
+    const base: DbRow[] = [];
+    for (const { student_id } of roster) {
+      const s = await getStudentPublic(student_id);
+      if (!s) continue;
+      const quizzes = await selectMany<{ score: number; total_questions: number }>("student_quizzes", "score, total_questions", {
+        student_id,
+      });
+      const quizzes_completed = quizzes.length;
+      const scored = quizzes.filter((q) => Number(q.total_questions) > 0);
+      const avg_quiz_score =
+        scored.length > 0
+          ? (scored.reduce((sum, q) => sum + Number(q.score) / Number(q.total_questions), 0) / scored.length) * 100
+          : 0;
+      base.push({
+        id: s.id,
+        name: s.name,
+        level: s.level,
+        xp: s.xp,
+        quizzes_completed,
+        avg_quiz_score,
+      });
+    }
+
+    const mkRow = (row: DbRow) => {
       const avg = Number(row.avg_quiz_score || 0);
       const quizzes = Number(row.quizzes_completed || 0);
       const level = Number(row.level || 1);
@@ -3014,36 +2827,25 @@ Key focus for next term: continue to strengthen conceptual reasoning while apply
     res.json(base.map(mkRow));
   });
 
-  app.post("/api/logs", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
+  app.post("/api/logs", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
     const { message, type, xp_change } = req.body;
-    const insert = db.prepare("INSERT INTO logs (message, type, xp_change) VALUES (?, ?, ?)");
-    insert.run(message, type, xp_change);
+    await SQ.insertLog(message, type, xp_change);
     res.json({ success: true });
   });
 
-  app.post("/api/student-badges", requireAuth, requireRole(["teacher", "admin"]), (req, res) => {
-    const { student_id, badge_name, badge_icon } = req.body;
-    const insert = db.prepare("INSERT INTO student_badges (student_id, badge_name, badge_icon) VALUES (?, ?, ?)");
-    const result = insert.run(student_id, badge_name, badge_icon || '🏅');
-    res.json({ success: true, id: result.lastInsertRowid });
-  });
-
-  app.get("/api/me", requireAuth, (req, res) => {
-    const sessionUser = (req.session as any)?.user as { id: number } | undefined;
-    const user = db
-      .prepare(
-        "SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE id = ?",
-      )
-      .get(sessionUser.id);
+  app.get("/api/me", requireAuth, async (req, res) => {
+    const sessionUser = getReqUser(req);
+    if (!sessionUser) return res.status(401).json({ authenticated: false });
+    const user = await getStudentPublic(sessionUser.id);
     if (!user) {
       return res.status(401).json({ authenticated: false });
     }
-    bumpLastActive(sessionUser.id);
+    await bumpLastActive(sessionUser.id);
     res.json({ authenticated: true, user });
   });
 
-  app.patch("/api/me", requireAuth, (req, res) => {
-    const sessionUser = (req.session as any)?.user as SessionUser;
+  app.patch("/api/me", requireAuth, async (req, res) => {
+    const sessionUser = getReqUser(req)!;
     const allowed = [
       "name",
       "avatar_url",
@@ -3086,19 +2888,13 @@ Key focus for next term: continue to strengthen conceptual reasoning while apply
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ success: false, message: "No valid fields to update" });
     }
-    const setClause = Object.keys(updates).map((k) => `${k} = ?`).join(", ");
-    const values = Object.values(updates);
-    db.prepare(`UPDATE students SET ${setClause} WHERE id = ?`).run(...values, sessionUser.id);
-    const user = db
-      .prepare(
-        "SELECT " + STUDENT_SELECT_PUBLIC + " FROM students WHERE id = ?",
-      )
-      .get(sessionUser.id);
+    await updateRow("students", { id: sessionUser.id }, updates);
+    const user = await getStudentPublic(sessionUser.id);
     res.json({ success: true, user: sanitizeUser(user) });
   });
 
-  app.post("/api/me/change-password", requireAuth, (req, res) => {
-    const sessionUser = (req.session as any)?.user as SessionUser;
+  app.post("/api/me/change-password", requireAuth, async (req, res) => {
+    const sessionUser = getReqUser(req)!;
     const { current_password, new_password } = req.body;
     if (!current_password || !new_password) {
       return res.status(400).json({ success: false, message: "Current password and new password required" });
@@ -3106,38 +2902,121 @@ Key focus for next term: continue to strengthen conceptual reasoning while apply
     if (new_password.length < 6) {
       return res.status(400).json({ success: false, message: "New password must be at least 6 characters" });
     }
-    const row = db.prepare("SELECT password FROM students WHERE id = ?").get(sessionUser.id) as { password: string } | undefined;
-    if (!row || !bcrypt.compareSync(current_password, row.password)) {
+    const row = await selectOne<{ email?: string | null }>("students", "email", { id: sessionUser.id });
+    const email = String(row?.email || "").trim();
+    const supabaseUserId = sessionUser.id;
+    if (!email || !isUuid(supabaseUserId) || !hasSupabaseAdmin || !supabaseAdmin) {
+      return res.status(400).json({ success: false, message: "Password change requires a Supabase-linked account with email." });
+    }
+    const supabasePublic = getSupabasePublicClient();
+    if (!supabasePublic) {
+      return res.status(500).json({ success: false, message: "Supabase environment is not configured." });
+    }
+    const verify = await supabasePublic.auth.signInWithPassword({ email, password: current_password });
+    if (verify.error) {
       return res.status(401).json({ success: false, message: "Current password is incorrect" });
     }
-    const hashed = hashPassword(new_password);
-    db.prepare("UPDATE students SET password = ? WHERE id = ?").run(hashed, sessionUser.id);
+    const updated = await supabaseAdmin.auth.admin.updateUserById(supabaseUserId, { password: new_password });
+    if (updated.error) {
+      return res.status(400).json({ success: false, message: updated.error.message || "Could not update password" });
+    }
+    await updateRow("students", { id: sessionUser.id }, { password: hashPassword(new_password) });
     res.json({ success: true });
   });
 
-  app.post("/api/logout", (req, res) => {
-    req.session = null as any;
+  app.post("/api/logout", async (req, res) => {
+    const token = req.headers.authorization?.split("Bearer ")[1];
+    if (token && supabaseAdmin) {
+      try {
+        const adminAuth = supabaseAdmin.auth.admin as {
+          signOut: (idOrJwt: string, scope?: "global" | "local" | "others") => Promise<{ error: unknown }>;
+        };
+        await adminAuth.signOut(token, "global");
+      } catch {
+        const { data } = await supabaseAdmin.auth.getUser(token);
+        if (data?.user) {
+          await supabaseAdmin.auth.admin.signOut(data.user.id, "global");
+        }
+      }
+    }
     res.json({ success: true });
+  });
+
+  const publicDir = path.join(__dirname, "public");
+  app.get("/electricity.html", (_req, res) => {
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.sendFile(path.join(publicDir, "electricity.html"), (err) => {
+      if (err) res.status(404).send("electricity.html not found");
+    });
+  });
+
+  app.get("/stemverse-tool-player.html", (_req, res) => {
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.sendFile(path.join(publicDir, "stemverse-tool-player.html"), (err) => {
+      if (err) res.status(404).send("stemverse-tool-player.html not found");
+    });
+  });
+
+  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error("[stemverse] Unhandled API error:", err instanceof Error ? err.message : err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "Internal server error" });
+    }
   });
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+      },
       appType: "spa",
+      plugins: [
+        {
+          name: "stemverse-strip-vite-hmr-client",
+          transformIndexHtml(html) {
+            return html.replace(/<script type="module" src="\/@vite\/client"><\/script>\s*/g, "");
+          },
+        },
+      ],
     });
     app.use(vite.middlewares);
   } else {
+    app.use(express.static(path.join(__dirname, "public")));
     app.use(express.static(path.join(__dirname, "dist")));
     app.get("*", (req, res) => {
+      if (req.path.endsWith(".html")) {
+        const publicFile = path.join(__dirname, "public", path.basename(req.path));
+        return res.sendFile(publicFile, (err) => {
+          if (err) res.sendFile(path.join(__dirname, "dist", "index.html"));
+        });
+      }
       res.sendFile(path.join(__dirname, "dist", "index.html"));
     });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
-  }).on('error', (err) => {
-    console.error('Server failed to start:', err);
+    console.log(`[stemverse] Server running at http://localhost:${PORT}`);
+    if (hasSupabaseAdmin) {
+      void checkSupabaseHost().then((check) => {
+        if (!check.ok) {
+          console.warn(
+            `[stemverse] Supabase is unreachable (${check.hostname}) — login and API will fail until .env is fixed.`,
+          );
+        }
+      });
+    }
+  }).on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(
+        `[stemverse] Port ${PORT} is already in use. Another app may be running on http://localhost:${PORT}\n` +
+          `  Try: PORT=${PORT + 1} npm run dev`,
+      );
+    } else {
+      console.error("[stemverse] Server failed to start:", err.message);
+    }
+    process.exit(1);
   });
 }
 

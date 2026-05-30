@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Ohm's Law Explorer | Circuit Academy</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Space+Mono:wght@400;700&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-primary-fixed": "#00201a",
+                      "led-cyan": "#00E5FF",
+                      "deep-space": "#2E3192",
+                      "inverse-surface": "#2d3133",
+                      "surface-white": "#FFFFFF",
+                      "outline": "#6c7a76",
+                      "surface-dim": "#d7dadc",
+                      "secondary-fixed": "#ffdeac",
+                      "on-background": "#181c1e",
+                      "secondary": "#7e5700",
+                      "primary-container": "#00bfa5",
+                      "error-container": "#ffdad6",
+                      "on-surface-variant": "#3c4a46",
+                      "on-secondary-fixed-variant": "#604100",
+                      "secondary-container": "#feb300",
+                      "outline-variant": "#bbcac4",
+                      "surface-container-low": "#f1f4f6",
+                      "power-amber": "#FFB300",
+                      "error": "#ba1a1a",
+                      "on-tertiary": "#ffffff",
+                      "surface-tint": "#006b5c",
+                      "on-secondary-fixed": "#281900",
+                      "primary-fixed-dim": "#44ddc1",
+                      "on-primary-container": "#00473c",
+                      "tertiary-container": "#00bbd0",
+                      "surface": "#f7fafc",
+                      "on-error-container": "#93000a",
+                      "tertiary-fixed-dim": "#00daf3",
+                      "surface-container-high": "#e5e9eb",
+                      "on-secondary": "#ffffff",
+                      "surface-container-highest": "#e0e3e5",
+                      "code-purple": "#855CD6",
+                      "tertiary-fixed": "#9cf0ff",
+                      "inverse-on-surface": "#eef1f3",
+                      "on-primary-fixed-variant": "#005145",
+                      "logic-blue": "#4D97FF",
+                      "on-primary": "#ffffff",
+                      "on-surface": "#181c1e",
+                      "tertiary": "#006875",
+                      "primary-fixed": "#68fadd",
+                      "primary": "#006b5c",
+                      "on-tertiary-fixed-variant": "#004f58",
+                      "on-secondary-container": "#6a4800",
+                      "on-tertiary-fixed": "#001f24",
+                      "surface-container": "#ebeef0",
+                      "on-error": "#ffffff",
+                      "on-tertiary-container": "#00464e",
+                      "background": "#f7fafc",
+                      "inverse-primary": "#44ddc1",
+                      "surface-tint": "#006b5c",
+                      "nova-teal": "#00BFA5",
+                      "surface-bright": "#f7fafc",
+                      "surface-variant": "#e0e3e5"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "margin-desktop": "40px",
+                      "base": "8px",
+                      "margin-mobile": "16px",
+                      "gutter": "24px",
+                      "panel-padding": "20px"
+              },
+              "fontFamily": {
+                      "label-caps": ["Space Mono"],
+                      "code-sm": ["Space Mono"],
+                      "headline-lg": ["Space Grotesk"],
+                      "body-md": ["Space Grotesk"],
+                      "title-md": ["Space Grotesk"],
+                      "display-lg": ["Space Grotesk"],
+                      "body-lg": ["Space Grotesk"],
+                      "headline-lg-mobile": ["Space Grotesk"]
+              },
+              "fontSize": {
+                      "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.1em", "fontWeight": "700"}],
+                      "code-sm": ["13px", {"lineHeight": "20px", "fontWeight": "400"}],
+                      "headline-lg": ["32px", {"lineHeight": "40px", "fontWeight": "600"}],
+                      "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                      "title-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                      "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                      "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "600"}]
+              }
+            },
+          },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        
+        /* Custom range slider styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 8px;
+            cursor: pointer;
+            background: #E1E8ED;
+            border-radius: 4px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            height: 20px;
+            width: 20px;
+            border-radius: 50%;
+            background: #00BFA5;
+            cursor: pointer;
+            -webkit-appearance: none;
+            margin-top: -6px;
+            border: 2px solid white;
+            box-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+            transition: transform 0.1s ease;
+        }
+        input[type=range]:active::-webkit-slider-thumb {
+            transform: scale(1.2);
+            background: #00E5FF;
+        }
+
+        /* Specific thumb colors for different cards */
+        .slider-amber::-webkit-slider-thumb { background: #FFB300 !important; }
+        .slider-teal::-webkit-slider-thumb { background: #00BFA5 !important; }
+        .slider-orchid::-webkit-slider-thumb { background: #855CD6 !important; }
+
+        /* Particles: movement via JS (requestAnimationFrame); no CSS offset animation */
+        .electron {
+            width: 8px;
+            height: 8px;
+            background-color: #00E5FF;
+            border-radius: 50%;
+            position: absolute;
+            box-shadow: 0 0 8px #00E5FF;
+            left: 0;
+            top: 0;
+            pointer-events: none;
+        }
+
+        .led-glow {
+            transition: box-shadow 0.2s ease-out, opacity 0.2s ease-out, background-color 0.2s ease-out, filter 0.2s ease-out;
+            filter: blur(20px);
+        }
+
+        .status-beacon {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 0.6; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.2); }
+            100% { opacity: 0.6; transform: scale(1); }
+        }
+
+        @keyframes formula-letter-pulse {
+            0% { transform: scale(1); }
+            40% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+        .formula-pulse {
+            display: inline-block;
+            animation: formula-letter-pulse 0.45s ease-out;
+        }
+
+        @keyframes resistor-heat-shimmer {
+            0%, 100% { filter: brightness(1) drop-shadow(0 0 0 transparent); }
+            50% { filter: brightness(1.12) drop-shadow(0 0 4px rgba(255, 100, 50, 0.45)); }
+        }
+        .resistor-heat-shimmer {
+            animation: resistor-heat-shimmer 1.4s ease-in-out infinite;
+        }
+
+        #battery-fill {
+            transition: y 0.3s ease, height 0.3s ease;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex flex-col font-body-md overflow-hidden">
+<!-- Header Section -->
+<header class="w-full h-20 flex items-center justify-between px-margin-desktop bg-surface-container-low border-b border-outline-variant">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 bg-primary rounded-lg flex items-center justify-center text-white">
+<span class="material-symbols-outlined">bolt</span>
+</div>
+<div>
+<h1 class="font-headline-lg text-headline-lg leading-none">Ohm's Law Explorer</h1>
+<p class="font-label-caps text-label-caps text-outline">MISSION CONTROL V 2.4</p>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-2">
+<div class="w-3 h-3 rounded-full bg-led-cyan status-beacon shadow-[0_0_8px_#00E5FF]" id="status-beacon"></div>
+<span class="font-label-caps text-label-caps">SYSTEM READY</span>
+</div>
+<div class="h-8 w-[1px] bg-outline-variant"></div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-outline">help</span>
+<span class="material-symbols-outlined text-outline">settings</span>
+</div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 flex overflow-hidden">
+<!-- Left Column: Control Panel -->
+<aside class="w-[400px] bg-surface-white border-r border-outline-variant p-panel-padding flex flex-col gap-6 overflow-y-auto">
+<!-- Voltage Card -->
+<div class="bg-surface border border-outline-variant rounded-xl overflow-hidden transition-all hover:border-power-amber">
+<div class="h-[3px] w-full bg-power-amber"></div>
+<div class="p-6">
+<div class="flex items-center justify-between mb-2">
+<h2 class="font-title-md text-title-md text-power-amber">Voltage (V)</h2>
+<span class="font-code-sm text-code-sm bg-surface-container-high px-2 py-1 rounded" id="v-display">5.0V</span>
+</div>
+<p class="text-on-surface-variant font-body-md mb-6">Electrical pressure pushing charge through the circuit.</p>
+<div class="space-y-4">
+<input class="slider-amber" id="v-slider" max="10" min="1" step="0.1" type="range" value="5"/>
+<div class="flex justify-between font-label-caps text-[10px] text-outline">
+<span>LOW PRESSURE</span>
+<span>HIGH PRESSURE</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Resistance Card -->
+<div class="bg-surface border border-outline-variant rounded-xl overflow-hidden transition-all hover:border-code-purple">
+<div class="h-[3px] w-full bg-code-purple"></div>
+<div class="p-6">
+<div class="flex items-center justify-between mb-2">
+<h2 class="font-title-md text-title-md text-code-purple">Resistance (R)</h2>
+<span class="font-code-sm text-code-sm bg-surface-container-high px-2 py-1 rounded" id="r-display">5.0Ω</span>
+</div>
+<p class="text-on-surface-variant font-body-md mb-6">Opposition to the flow of charge, restricting current.</p>
+<div class="space-y-4">
+<input class="slider-orchid" id="r-slider" max="10" min="1" step="0.1" type="range" value="5"/>
+<div class="flex justify-between font-label-caps text-[10px] text-outline">
+<span>CONDUCTIVE</span>
+<span>INSULATIVE</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Current Card (Resultant) -->
+<div class="bg-surface border border-outline-variant rounded-xl overflow-hidden transition-all border-nova-teal bg-primary-container/5">
+<div class="h-[3px] w-full bg-nova-teal"></div>
+<div class="p-6">
+<div class="flex items-center justify-between mb-2">
+<h2 class="font-title-md text-title-md text-nova-teal">Current (I)</h2>
+<span class="font-code-sm text-code-sm bg-primary-container text-on-primary-container px-2 py-1 rounded" id="i-display">1.00A</span>
+</div>
+<p class="text-on-surface-variant font-body-md mb-6">The rate of flow of charge measured in Amperes.</p>
+<div class="space-y-4">
+<input class="slider-teal pointer-events-none opacity-95" id="i-slider" max="10" min="1" step="0.01" type="range" value="5" tabindex="-1" aria-hidden="true"/>
+<div class="w-full h-2 bg-outline-variant/30 rounded-full relative overflow-hidden">
+<div class="absolute h-full bg-nova-teal transition-all duration-300" id="i-bar" style="width: 50%;"></div>
+</div>
+<div class="flex justify-between font-label-caps text-[10px] text-outline">
+<span>SLOW FLOW</span>
+<span>FAST FLOW</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Formula Section -->
+<div class="mt-auto p-4 bg-surface-container-lowest rounded-lg border border-dashed border-outline-variant flex items-center justify-center">
+<div class="font-label-caps text-label-caps text-outline text-center">
+                    OHM'S LAW FORMULA<br/>
+<span class="text-headline-lg-mobile mt-2 block">
+<span class="text-power-amber" id="formula-v">V</span> = 
+                        <span class="text-nova-teal" id="formula-i">I</span> × 
+                        <span class="text-code-purple" id="formula-r">R</span>
+</span>
+</div>
+</div>
+</aside>
+<!-- Right Column: Simulation Canvas -->
+<section class="flex-1 bg-surface-container-lowest relative p-margin-desktop flex flex-col items-center justify-center">
+<!-- Technical Grid Background Decor -->
+<div class="absolute inset-0 opacity-[0.03] pointer-events-none" style="background-image: radial-gradient(#181c1e 1px, transparent 1px); background-size: 40px 40px;"></div>
+<!-- Simulation Title -->
+<div class="absolute top-10 left-1/2 -translate-x-1/2 text-center pointer-events-none">
+<h3 class="font-label-caps text-label-caps text-outline tracking-[0.2em]">LIVE CIRCUIT TELEMETRY</h3>
+<div class="w-32 h-1 bg-gradient-to-r from-transparent via-outline-variant to-transparent mt-2"></div>
+</div>
+<!-- Circuit Diagram Visual -->
+<div class="relative w-[600px] h-[400px]">
+<!-- The Wire Loop (SVG for precision) -->
+<svg class="absolute inset-0" fill="none" height="400" viewbox="0 0 600 400" width="600">
+<!-- Rectangular Path -->
+<rect height="300" rx="4" stroke="#bbcac4" stroke-width="4" width="500" x="50" y="50"></rect>
+<!-- Power Source (Top) -->
+<rect fill="#f7fafc" height="20" stroke="#181c1e" stroke-width="2" width="100" x="250" y="40"></rect>
+<rect fill="#FFB300" height="16" id="battery-fill" stroke="none" width="96" x="252" y="44"></rect>
+<text fill="#FFB300" font-family="Space Mono" font-size="12" font-weight="bold" x="260" y="55">+</text>
+<text fill="#3c4a46" font-family="Space Mono" font-size="12" font-weight="bold" x="325" y="55">-</text>
+<text fill="#3c4a46" font-family="Space Grotesk" font-size="12" text-anchor="middle" x="282" y="30">BATTERY</text>
+<!-- Resistor Symbol (Right) -->
+<rect fill="#f7fafc" height="80" width="30" x="535" y="160"></rect>
+<path d="M550 160 L560 170 L540 185 L560 200 L540 215 L560 230 L550 240" id="resistor-symbol" stroke="#855CD6" stroke-linejoin="round" stroke-width="3"></path>
+<text fill="#855CD6" font-family="Space Grotesk" font-size="12" text-anchor="middle" transform="rotate(90 585 205)" x="585" y="205">RESISTOR</text>
+<!-- LED Symbol (Bottom) -->
+<rect fill="#f7fafc" height="30" width="100" x="250" y="335"></rect>
+<!-- Triangle + Bar -->
+<path d="M285 340 L315 350 L285 360 Z" fill="#00BFA5"></path>
+<path d="M315 340 L315 360" stroke="#00BFA5" stroke-width="3"></path>
+<text fill="#00BFA5" font-family="Space Grotesk" font-size="12" text-anchor="middle" x="300" y="385">LED LOAD</text>
+</svg>
+<!-- LED Glow Effect (DOM element for dynamic styling) -->
+<div class="absolute bottom-[35px] left-[295px] w-4 h-4 rounded-full bg-led-cyan led-glow opacity-0 shadow-[0_0_40px_20px_#00E5FF]" id="led-light"></div>
+<!-- Electrons (Animated Particles) -->
+<div class="absolute inset-0 pointer-events-none" id="electron-container">
+<!-- Path: 50,50 to 550,50 to 550,350 to 50,350 to 50,50 -->
+<!-- In CSS, we'll use rect() for offset-path as it works well for rectangles -->
+</div>
+</div>
+<!-- Values Readout -->
+<div class="mt-12 flex gap-12">
+<div class="flex flex-col items-center">
+<span class="font-label-caps text-[10px] text-outline">NET POWER</span>
+<span class="font-display-lg text-display-lg text-on-background" id="p-readout">0.5W</span>
+</div>
+<div class="w-[1px] h-12 bg-outline-variant"></div>
+<div class="flex flex-col items-center">
+<span class="font-label-caps text-[10px] text-outline">FLOW SPEED</span>
+<span class="font-display-lg text-display-lg text-on-background" id="s-readout">1.2 cm/s</span>
+</div>
+</div>
+</section>
+</main>
+<script>
+(function () {
+        const LOOP_LEN = 500 + 300 + 500 + 300;
+        const vSlider = document.getElementById('v-slider');
+        const rSlider = document.getElementById('r-slider');
+        const iSlider = document.getElementById('i-slider');
+        const vDisplay = document.getElementById('v-display');
+        const rDisplay = document.getElementById('r-display');
+        const iDisplay = document.getElementById('i-display');
+        const iBar = document.getElementById('i-bar');
+        const ledLight = document.getElementById('led-light');
+        const electronContainer = document.getElementById('electron-container');
+        const pReadout = document.getElementById('p-readout');
+        const sReadout = document.getElementById('s-readout');
+        const beacon = document.getElementById('status-beacon');
+        const batteryFill = document.getElementById('battery-fill');
+        const resistorSymbol = document.getElementById('resistor-symbol');
+        const formulaV = document.getElementById('formula-v');
+        const formulaI = document.getElementById('formula-i');
+        const formulaR = document.getElementById('formula-r');
+
+        let pathProgress = 0;
+        const particles = [];
+
+        function pointOnLoop(dist) {
+            let d = ((dist % LOOP_LEN) + LOOP_LEN) % LOOP_LEN;
+            if (d < 500) return { x: 50 + d, y: 50 };
+            d -= 500;
+            if (d < 300) return { x: 550, y: 50 + d };
+            d -= 300;
+            if (d < 500) return { x: 550 - d, y: 350 };
+            d -= 500;
+            return { x: 50, y: 350 - d };
+        }
+
+        function lerpRgb(a, b, t) {
+            const r = Math.round(a[0] + (b[0] - a[0]) * t);
+            const g = Math.round(a[1] + (b[1] - a[1]) * t);
+            const bl = Math.round(a[2] + (b[2] - a[2]) * t);
+            return 'rgb(' + r + ',' + g + ',' + bl + ')';
+        }
+
+        function pulseFormula(which) {
+            const el = which === 'v' ? formulaV : which === 'i' ? formulaI : formulaR;
+            if (!el) return;
+            el.classList.remove('formula-pulse');
+            void el.offsetWidth;
+            el.classList.add('formula-pulse');
+            const done = function () {
+                el.classList.remove('formula-pulse');
+                el.removeEventListener('animationend', done);
+            };
+            el.addEventListener('animationend', done);
+        }
+
+        function particleCountForCurrent(I) {
+            const clamped = Math.min(10, Math.max(0.1, I));
+            return Math.round(3 + ((clamped - 0.1) / (10 - 0.1)) * 7);
+        }
+
+        function syncParticleDom(n) {
+            if (particles.length === n) return;
+            while (particles.length < n) {
+                const el = document.createElement('div');
+                el.className = 'electron';
+                electronContainer.appendChild(el);
+                particles.push({ el: el });
+            }
+            while (particles.length > n) {
+                const p = particles.pop();
+                p.el.remove();
+            }
+        }
+
+        function updateLed(I) {
+            ledLight.style.filter = 'blur(20px)';
+            if (I < 2) {
+                ledLight.style.opacity = '0';
+                ledLight.style.backgroundColor = '#6c7a76';
+                ledLight.style.boxShadow = 'none';
+                return;
+            }
+            if (I <= 5) {
+                const t = (I - 2) / 3;
+                const spread = 8 + t * 12;
+                const alpha = 0.35 + t * 0.35;
+                ledLight.style.opacity = '1';
+                ledLight.style.backgroundColor = '#FFB300';
+                ledLight.style.boxShadow = '0 0 ' + spread + 'px ' + (spread * 0.45) + 'px rgba(255, 179, 0, ' + alpha + ')';
+                return;
+            }
+            const t = (I - 6) / 4;
+            const spread = 22 + t * 28;
+            const alpha = 0.75 + t * 0.22;
+            ledLight.style.opacity = '1';
+            ledLight.style.backgroundColor = '#FFB300';
+            ledLight.style.boxShadow = '0 0 ' + spread + 'px ' + (spread * 0.5) + 'px rgba(255, 140, 0, ' + alpha + ')';
+        }
+
+        function updateResistor(R) {
+            const t = (Math.max(1, Math.min(10, R)) - 1) / 9;
+            const cool = [77, 151, 255];
+            const hot = [220, 80, 40];
+            resistorSymbol.setAttribute('stroke', lerpRgb(cool, hot, t));
+            resistorSymbol.classList.toggle('resistor-heat-shimmer', R > 7);
+        }
+
+        function updateBattery(V) {
+            const v = Math.max(1, Math.min(10, V));
+            const innerTop = 42;
+            const innerBottom = 58;
+            const innerH = innerBottom - innerTop;
+            const frac = (v - 1) / 9;
+            const h = Math.max(1, frac * innerH);
+            const y = innerBottom - h;
+            batteryFill.setAttribute('y', String(y));
+            batteryFill.setAttribute('height', String(h));
+            batteryFill.setAttribute('fill', '#FFB300');
+        }
+
+        let lastI = null;
+
+        function updateSimulation(source) {
+            const V = parseFloat(vSlider.value);
+            const R = parseFloat(rSlider.value);
+            const I = V / R;
+
+            vDisplay.textContent = V.toFixed(1) + 'V';
+            rDisplay.textContent = R.toFixed(1) + 'Ω';
+            iDisplay.textContent = I.toFixed(2) + 'A';
+
+            const iForSlider = Math.max(1, Math.min(10, I));
+            iSlider.value = String(iForSlider);
+
+            const iPercent = Math.min((I / 10) * 100, 100);
+            iBar.style.width = iPercent + '%';
+
+            const P = V * I;
+            pReadout.textContent = P.toFixed(2) + 'W';
+            const pxPerFrame = I * 0.4;
+            sReadout.textContent = (pxPerFrame * 60).toFixed(1) + ' cm/s';
+
+            updateLed(I);
+            updateResistor(R);
+            updateBattery(V);
+
+            const n = particleCountForCurrent(I);
+            syncParticleDom(n);
+
+            if (P > 0.8) {
+                beacon.style.backgroundColor = '#FFB300';
+                beacon.style.boxShadow = '0 0 8px #FFB300';
+            } else {
+                beacon.style.backgroundColor = '#00E5FF';
+                beacon.style.boxShadow = '0 0 8px #00E5FF';
+            }
+
+            if (source === 'v') pulseFormula('v');
+            if (source === 'r') pulseFormula('r');
+            if (source !== null && lastI !== null && I !== lastI) pulseFormula('i');
+            lastI = I;
+        }
+
+        function frame() {
+            const I = lastI;
+            if (I != null) {
+                const speed = I * 0.4;
+                pathProgress = (pathProgress + speed) % LOOP_LEN;
+                const n = particles.length;
+                for (let k = 0; k < n; k++) {
+                    const dist = pathProgress + k * (LOOP_LEN / n);
+                    const pt = pointOnLoop(dist);
+                    particles[k].el.style.left = (pt.x - 4) + 'px';
+                    particles[k].el.style.top = (pt.y - 4) + 'px';
+                }
+            }
+            requestAnimationFrame(frame);
+        }
+
+        vSlider.addEventListener('input', function () { updateSimulation('v'); });
+        rSlider.addEventListener('input', function () { updateSimulation('r'); });
+
+        updateSimulation(null);
+        pathProgress = 0;
+        frame();
+
+        document.querySelectorAll('aside > div').forEach(card => {
+            card.addEventListener('mouseenter', () => {
+                card.style.transform = 'translateY(-2px)';
+                card.style.boxShadow = '0 4px 12px rgba(0,0,0,0.05)';
+            });
+            card.addEventListener('mouseleave', () => {
+                card.style.transform = 'translateY(0)';
+                card.style.boxShadow = 'none';
+            });
+        });
+})();
+    </script>
+</body></html>

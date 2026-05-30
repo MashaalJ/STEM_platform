@@ -9,13 +9,16 @@ import { getChallengeType, evaluateResponse } from './registry';
 import { supabase } from '../../lib/supabaseClient';
 
 const authFetch = async (url: string, options?: RequestInit) => {
-  const { data } = await supabase.auth.getSession();
   const stored = localStorage.getItem('stemverse_access_token');
-  const token = data.session?.access_token || stored;
+  let token = stored;
+  if (supabase) {
+    const { data } = await supabase.auth.getSession();
+    token = data.session?.access_token || stored;
+  }
   const headers = new Headers(options?.headers || {});
   if (token) headers.set('Authorization', `Bearer ${token}`);
   let res = await fetch(url, { ...options, headers, credentials: options?.credentials ?? 'include' });
-  if (res.status === 401 && stored && !data.session?.access_token) {
+  if (res.status === 401 && stored) {
     localStorage.removeItem('stemverse_access_token');
     const retryHeaders = new Headers(options?.headers || {});
     res = await fetch(url, { ...options, headers: retryHeaders, credentials: options?.credentials ?? 'include' });

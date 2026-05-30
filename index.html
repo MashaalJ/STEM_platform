@@ -9,12 +9,26 @@
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icons/icon-192x192.svg" />
     <title>STEMverse</title>
+    <script>
+      (function () {
+        if (!('serviceWorker' in navigator)) return;
+        if (!/localhost|127\.0\.0\.1|\[::1\]/.test(location.hostname)) return;
+        navigator.serviceWorker.getRegistrations().then(function (regs) {
+          regs.forEach(function (r) { r.unregister(); });
+        });
+        if (window.caches && caches.keys) {
+          caches.keys().then(function (keys) {
+            keys.forEach(function (k) { caches.delete(k); });
+          });
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
-      if ('serviceWorker' in navigator) {
+      if ('serviceWorker' in navigator && !/localhost|127\.0\.0\.1|\[::1\]/.test(location.hostname)) {
         window.addEventListener('load', function () {
           navigator.serviceWorker.register('/sw.js').catch(function (error) {
             console.error('Service worker registration failed:', error);
