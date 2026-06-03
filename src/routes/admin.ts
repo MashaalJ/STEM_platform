@@ -42,13 +42,18 @@ export default function createAdminRouter(deps: AdminRouterDeps): express.Router
     }
   }));
 
-  router.get("/logs", requireAuth, requireRole(["admin"]), async (_req, res) => {
-    res.json(await SQ.listLogs());
-  });
+  router.get("/logs", requireAuth, requireRole(["admin"]), asyncRoute(async (_req, res) => {
+    try {
+      res.json(await SQ.listLogs());
+    } catch (err) {
+      console.warn("[stemverse] /api/logs:", err instanceof Error ? err.message : err);
+      res.json([]);
+    }
+  }));
 
-  router.get("/admin/metrics", requireAuth, requireRole(["admin"]), async (_req, res) => {
+  router.get("/admin/metrics", requireAuth, requireRole(["admin"]), asyncRoute(async (_req, res) => {
     res.json(await SQ.getAdminMetrics());
-  });
+  }));
 
   router.patch("/admin/students/:id", requireAuth, requireRole(["admin"]), async (req, res) => {
     const id = req.params.id;

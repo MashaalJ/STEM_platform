@@ -280,9 +280,36 @@ export async function insertLog(message: string, type: string, xp_change: number
 }
 
 export async function listLogs(limit = 20) {
-  const { data, error } = await db().from("logs").select("*").order("timestamp", { ascending: false }).limit(limit);
-  if (error) throw new Error(error.message);
-  return data || [];
+  const orderAttempts = ["created_at", "timestamp"] as const;
+  let data: Record<string, unknown>[] | null = null;
+  let lastError: string | null = null;
+
+  for (const column of orderAttempts) {
+    const { data: rows, error } = await db()
+      .from("logs")
+      .select("*")
+      .order(column, { ascending: false })
+      .limit(limit);
+    if (!error) {
+      data = (rows || []) as Record<string, unknown>[];
+      break;
+    }
+    lastError = error.message;
+    if (!/does not exist|schema cache/i.test(error.message)) break;
+  }
+
+  if (!data) {
+    const { data: rows, error } = await db().from("logs").select("*").limit(limit);
+    if (error) throw new Error(error.message);
+    data = (rows || []) as Record<string, unknown>[];
+  } else if (!data.length && lastError) {
+    /* table empty is fine */
+  }
+
+  return (data || []).map((row) => {
+    const ts = row.timestamp ?? row.created_at ?? new Date().toISOString();
+    return { ...row, timestamp: String(ts) };
+  });
 }
 
 export async function countAiUsageToday(endpoint?: string, userId?: string) {
