@@ -5,40 +5,12 @@
 import React, { useState, useEffect } from 'react';
 import type { ChallengeType, ChallengeContent } from './types';
 import { getChallengeType, evaluateResponse } from './registry';
-import { supabase } from '../../lib/supabaseClient';
+import { safeFetch, authFetch } from '../app/api';
 
 export interface QuizQuestion {
   type: ChallengeType;
   content: ChallengeContent;
 }
-
-const authFetch = async (url: string, options?: RequestInit) => {
-  const stored = localStorage.getItem('stemverse_access_token');
-  let token = stored;
-  if (supabase) {
-    const { data } = await supabase.auth.getSession();
-    token = data.session?.access_token || stored;
-  }
-  const headers = new Headers(options?.headers || {});
-  if (token) headers.set('Authorization', `Bearer ${token}`);
-  let res = await fetch(url, { ...options, headers, credentials: options?.credentials ?? 'include' });
-  if (res.status === 401 && stored) {
-    localStorage.removeItem('stemverse_access_token');
-    const retryHeaders = new Headers(options?.headers || {});
-    res = await fetch(url, { ...options, headers: retryHeaders, credentials: options?.credentials ?? 'include' });
-  }
-  return res;
-};
-
-const safeFetch = async (url: string, options?: RequestInit) => {
-  try {
-    const res = await authFetch(url, options);
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
-};
 
 interface QuizPlayerProps {
   quizId: number;

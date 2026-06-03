@@ -28,6 +28,7 @@ export interface ToolActivityConfig {
 }
 
 export const TOOL_ACTIVITY_EMBED_PREFIX = 'stemverse://tool-activity';
+export const SCREENS_ACTIVITY_EMBED_PREFIX = 'stemverse://screens-activity';
 
 export const SUBJECT_OPTIONS = [
   'Electricity',
@@ -188,6 +189,83 @@ export function encodeToolActivityEmbed(config: ToolActivityConfig): string {
   return `${TOOL_ACTIVITY_EMBED_PREFIX}?config=${encodeURIComponent(encodeConfigBase64(config))}`;
 }
 
+/** Extended mission player payload (intro + circuit_builder / blocks / challenge screens). */
+export interface MissionScreensEmbedConfig {
+  title?: string;
+  subject?: string;
+  grade?: string;
+  tool?: ToolType;
+  xp_reward?: number;
+  screens: Record<string, unknown>[];
+}
+
+export function encodeConfigBase64Raw(payload: Record<string, unknown> | MissionScreensEmbedConfig): string {
+  const json = JSON.stringify(payload);
+  return btoa(unescape(encodeURIComponent(json)));
+}
+
+export function decodeScreensEmbedBase64(b64: string): MissionScreensEmbedConfig | null {
+  try {
+    const raw = decodeURIComponent(escape(atob(decodeURIComponent(b64))));
+    return JSON.parse(raw) as MissionScreensEmbedConfig;
+  } catch {
+    return null;
+  }
+}
+
+export function encodeMissionScreensEmbed(config: MissionScreensEmbedConfig): string {
+  return `${SCREENS_ACTIVITY_EMBED_PREFIX}?embed=${encodeURIComponent(encodeConfigBase64Raw(config))}`;
+}
+
+export function parseScreensActivityEmbed(embed: string | null | undefined): MissionScreensEmbedConfig | null {
+  const s = String(embed || '').trim();
+  if (!s.toLowerCase().startsWith(SCREENS_ACTIVITY_EMBED_PREFIX)) return null;
+  const q = s.includes('?') ? s.slice(s.indexOf('?') + 1) : '';
+  const params = new URLSearchParams(q);
+  const cfg = params.get('embed') || params.get('config');
+  if (!cfg) return null;
+  return decodeScreensEmbedBase64(cfg);
+}
+
+export function isScreensActivityEmbed(embed: string | null | undefined): boolean {
+  const s = String(embed || '').trim().toLowerCase();
+  if (s.startsWith(SCREENS_ACTIVITY_EMBED_PREFIX)) return true;
+  return isLegacyScreensToolEmbed(embed);
+}
+
+/** Missions seeded before screens-activity token used tool-activity?config= with screens[]. */
+export function isLegacyScreensToolEmbed(embed: string | null | undefined): boolean {
+  const s = String(embed || '').trim();
+  if (!s.toLowerCase().startsWith(TOOL_ACTIVITY_EMBED_PREFIX)) return false;
+  const q = s.includes('?') ? s.slice(s.indexOf('?') + 1) : '';
+  const cfg = new URLSearchParams(q).get('config');
+  if (!cfg) return false;
+  try {
+    const parsed = decodeScreensEmbedBase64(cfg) as { screens?: unknown[] } | null;
+    return Boolean(parsed && Array.isArray(parsed.screens) && parsed.screens.length > 0);
+  } catch {
+    return false;
+  }
+}
+
+export function screensActivityPlayerUrl(
+  embed: string,
+  opts?: { missionId?: number | string; xp?: number },
+): string {
+  let b64 = '';
+  const s = String(embed || '').trim();
+  if (s.toLowerCase().startsWith(SCREENS_ACTIVITY_EMBED_PREFIX)) {
+    b64 = new URLSearchParams(s.slice(s.indexOf('?') + 1)).get('embed') || '';
+  } else if (isLegacyScreensToolEmbed(s)) {
+    b64 = new URLSearchParams(s.slice(s.indexOf('?') + 1)).get('config') || '';
+  }
+  const q = new URLSearchParams();
+  q.set('embed', b64);
+  if (opts?.missionId) q.set('mission_id', String(opts.missionId));
+  if (opts?.xp != null) q.set('xp', String(opts.xp));
+  return `/stemverse-screens-player.html?${q.toString()}`;
+}
+
 export function parseToolActivityEmbed(embed: string | null | undefined): ToolActivityConfig | null {
   const s = String(embed || '').trim();
   if (!s.toLowerCase().startsWith(TOOL_ACTIVITY_EMBED_PREFIX)) return null;
@@ -204,7 +282,7 @@ export function isToolActivityEmbed(embed: string | null | undefined): boolean {
 
 export function toolActivityPlayerUrl(
   config: ToolActivityConfig,
-  opts?: { missionId?: number; preview?: boolean },
+  opts?: { missionId?: number | string; preview?: boolean },
 ): string {
   if (typeof window === 'undefined') {
     const q = new URLSearchParams();
@@ -224,7 +302,7 @@ export function toolActivityPlayerUrl(
 
 export function previewToolActivityUrl(
   config: ToolActivityConfig,
-  opts?: { missionId?: number; preview?: boolean },
+  opts?: { missionId?: number | string; preview?: boolean },
 ): string {
   return toolActivityPlayerUrl(config, { preview: true, ...opts });
 }
@@ -275,11 +353,11 @@ export function buildMissionFromScreens(
   form: {
     title: string;
     description: string;
-    sector_id: number;
+    sector_id: string | number;
     difficulty: string;
     grade_level: string;
     xp_reward: number;
-    prerequisite_mission_id: number | null;
+    prerequisite_mission_id: string | number | null;
     learning_outcomes: string[];
     domains: string[];
   },

@@ -17,3 +17,21 @@ export const supabaseAdmin = hasSupabaseAdmin
     })
   : null;
 
+function jwtRole(key: string): string | null {
+  try {
+    const parts = key.split(".");
+    if (parts.length < 2) return null;
+    const payload = JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf8")) as { role?: string };
+    return payload.role ?? null;
+  } catch {
+    return null;
+  }
+}
+
+if (hasSupabaseAdmin && serviceRoleKey && jwtRole(serviceRoleKey) !== "service_role") {
+  console.warn(
+    "[stemverse] SUPABASE_SERVICE_ROLE_KEY does not look like a service_role JWT. " +
+      "Database writes may fail RLS (e.g. students insert). Use the service_role key from Supabase → Settings → API.",
+  );
+}
+

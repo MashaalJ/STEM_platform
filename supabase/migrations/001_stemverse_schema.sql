@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS public.students (
   xp                    INTEGER NOT NULL DEFAULT 0,
   avatar_url            TEXT,
   role                  TEXT NOT NULL DEFAULT 'student'
-                        CHECK (role IN ('student', 'teacher', 'admin')),
+                        CHECK (role IN ('student', 'teacher', 'admin', 'parent')),
   age                   INTEGER,
   grade                 TEXT,
   school                TEXT,

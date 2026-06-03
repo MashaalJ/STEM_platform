@@ -12,11 +12,15 @@ export function PreviewPanel({
   content,
   title,
   className = '',
+  onPreviewComplete,
+  lockedFeedback,
 }: {
   challengeType: ChallengeType;
   content: ChallengeContent;
   title?: string;
   className?: string;
+  onPreviewComplete?: (response: unknown) => void;
+  lockedFeedback?: string | null;
 }) {
   const plugin = getChallengeType(challengeType);
   const Player = plugin?.Player;
@@ -40,7 +44,16 @@ export function PreviewPanel({
         {title && <span className="text-slate-500 text-xs truncate ml-2">— {title}</span>}
       </div>
       <div className="p-4 min-h-[200px]">
-        <Player content={content} onComplete={() => {}} disabled={false} />
+        <Player
+          content={content}
+          onComplete={(response) => onPreviewComplete?.(response)}
+          disabled={false}
+        />
+        {lockedFeedback && (
+          <p className="mt-4 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+            {lockedFeedback}
+          </p>
+        )}
       </div>
     </div>
   );

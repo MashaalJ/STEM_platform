@@ -1,6 +1,6 @@
 /**
  * Challenge Studio - STEMverse Builder layout from mockups.
- * Header, left sequence sidebar, center (Editor / Preview / Dataset), right feedback panel.
+ * Header, left sequence sidebar, center (Editor / Preview), right feedback panel.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -9,7 +9,6 @@ import {
   Rocket,
   Edit3,
   Eye,
-  Database,
   Settings,
   PlusCircle,
   GripVertical,
@@ -32,16 +31,7 @@ import type { ChallengeType, ChallengeContent, ChallengeRecord } from './types';
 import { getAllChallengeTypes, getChallengeType, getDefaultContent } from './registry';
 import { getContentTypeCatalog } from './catalog';
 import { PreviewPanel } from './components/PreviewPanel';
-
-const safeFetch = async (url: string, options?: RequestInit) => {
-  try {
-    const res = await fetch(url, { ...options, credentials: options?.credentials ?? 'include' });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
-};
+import { safeFetch, fetchWithAuth, authFetch } from '../app/api';
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   ListChecks,
@@ -60,7 +50,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
 
 export function ChallengeBuilder() {
   const [challenges, setChallenges] = useState<ChallengeRecord[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [challengeType, setChallengeType] = useState<ChallengeType>('multiple_choice');
   const [content, setContent] = useState<ChallengeContent>(() => getDefaultContent('multiple_choice')!);
@@ -73,20 +63,21 @@ export function ChallengeBuilder() {
   const [newChallengeTypeChosen, setNewChallengeTypeChosen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [classes, setClasses] = useState<{ id: number; name: string }[]>([]);
-  const [assignedTo, setAssignedTo] = useState<{ id: number; name: string; assigned_at: string }[]>([]);
-  const [assignClassId, setAssignClassId] = useState<number | ''>('');
+  const [classes, setClasses] = useState<{ id: string; name: string }[]>([]);
+  const [assignedTo, setAssignedTo] = useState<{ id: string; name: string; assigned_at: string }[]>([]);
+  const [assignClassId, setAssignClassId] = useState('');
   const [assigning, setAssigning] = useState(false);
   const [assignMsg, setAssignMsg] = useState<string | null>(null);
-  const [centerTab, setCenterTab] = useState<'editor' | 'preview' | 'dataset'>('editor');
+  const [centerTab, setCenterTab] = useState<'editor' | 'preview'>('editor');
   const [timeLimitSec, setTimeLimitSec] = useState<number>(45);
   const [saveMessage, setSaveMessage] = useState<'saved' | 'error' | null>(null);
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
-  const [publishClassId, setPublishClassId] = useState<number | ''>('');
+  const [publishClassId, setPublishClassId] = useState('');
   const [publishing, setPublishing] = useState(false);
   const [publishMessage, setPublishMessage] = useState<string | null>(null);
   const [sceneAssetNotice, setSceneAssetNotice] = useState<string | null>(null);
+  const [previewLockedFeedback, setPreviewLockedFeedback] = useState<string | null>(null);
 
   const catalog = getContentTypeCatalog();
   const plugin = getChallengeType(challengeType);
@@ -100,9 +91,15 @@ export function ChallengeBuilder() {
 
   useEffect(() => {
     loadChallenges();
-    safeFetch('/api/classes').then((data) => {
-      if (Array.isArray(data)) setClasses(data.map((c: { id: number; name: string }) => ({ id: c.id, name: c.name })));
-    });
+    authFetch('/api/classes')
+      .then((r) => r.json())
+      .then((data) => {
+        const list = Array.isArray(data) ? data : data?.classes ?? [];
+        if (Array.isArray(list)) {
+          setClasses(list.map((c: { id: string; name: string }) => ({ id: String(c.id), name: c.name })));
+        }
+      })
+      .catch((e) => console.error('ChallengeBuilder: could not load classes', e));
   }, []);
 
   useEffect(() => {
@@ -157,7 +154,7 @@ export function ChallengeBuilder() {
     setContent(getDefaultContent(t) || {});
   };
 
-  const handleSave = async (): Promise<number | null> => {
+  const handleSave = async (): Promise<string | null> => {
     if (!title.trim()) {
       setError('Title is required');
       return null;
@@ -178,21 +175,25 @@ export function ChallengeBuilder() {
       };
       const url = selectedId ? `/api/challenges/${selectedId}` : '/api/challenges';
       const method = selectedId ? 'PATCH' : 'POST';
-      const res = await fetch(url, {
+      const res = await fetchWithAuth(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error || data.message || 'Failed to save');
+        setError(data.error || data.message || (res.status === 401 ? 'Please sign in again.' : 'Failed to save'));
         setSaveMessage('error');
         return null;
       }
       loadChallenges();
-      const id = selectedId ?? (typeof data.id === 'number' ? data.id : Number(data.id));
-      if (id) setSelectedId(id);
+      const id = selectedId ?? (data.id != null ? String(data.id) : null);
+      if (!id) {
+        setError('Save succeeded but no challenge id was returned.');
+        setSaveMessage('error');
+        return null;
+      }
+      setSelectedId(id);
       setError(null);
       setSaveMessage('saved');
       setTimeout(() => setSaveMessage(null), 2500);
@@ -203,8 +204,8 @@ export function ChallengeBuilder() {
   };
 
   const handlePublishToClass = async () => {
-    const cid = Number(publishClassId);
-    if (!Number.isInteger(cid) || cid < 1) {
+    const cid = publishClassId.trim();
+    if (!cid) {
       setPublishMessage('Select a class.');
       return;
     }
@@ -219,10 +220,9 @@ export function ChallengeBuilder() {
           return;
         }
       }
-      const res = await fetch(`/api/classes/${cid}/challenges`, {
+      const res = await fetchWithAuth(`/api/classes/${cid}/challenges`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ challenge_id: id }),
       });
       const data = await res.json().catch(() => ({}));
@@ -246,18 +246,17 @@ export function ChallengeBuilder() {
       setAssignMsg('Save the challenge first.');
       return;
     }
-    const cid = Number(assignClassId);
-    if (!Number.isInteger(cid) || cid < 1) {
+    const cid = assignClassId.trim();
+    if (!cid) {
       setAssignMsg('Pick a class to assign to.');
       return;
     }
     setAssignMsg(null);
     setAssigning(true);
     try {
-      const res = await fetch(`/api/classes/${cid}/challenges`, {
+      const res = await fetchWithAuth(`/api/classes/${cid}/challenges`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ challenge_id: selectedId }),
       });
       const data = await res.json().catch(() => ({}));
@@ -273,12 +272,12 @@ export function ChallengeBuilder() {
     }
   };
 
-  const handleUnassign = async (classId: number) => {
+  const handleUnassign = async (classId: string) => {
     if (!selectedId) return;
     setAssignMsg(null);
     setAssigning(true);
     try {
-      await fetch(`/api/classes/${classId}/challenges/${selectedId}`, { method: 'DELETE', credentials: 'include' });
+      await fetchWithAuth(`/api/classes/${classId}/challenges/${selectedId}`, { method: 'DELETE' });
       const refreshed = await safeFetch(`/api/challenges/${selectedId}/assigned-classes`);
       setAssignedTo(Array.isArray(refreshed) ? refreshed : []);
       setAssignMsg('Unassigned.');
@@ -309,9 +308,9 @@ export function ChallengeBuilder() {
     setXpRetryPenalty(c.xp_retry_penalty ?? 0);
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: string) => {
     if (!confirm('Delete this challenge?')) return;
-    const res = await fetch(`/api/challenges/${id}`, { method: 'DELETE', credentials: 'include' });
+    const res = await fetchWithAuth(`/api/challenges/${id}`, { method: 'DELETE' });
     if (res.ok) {
       loadChallenges();
       if (selectedId === id) setSelectedId(null);
@@ -331,8 +330,8 @@ export function ChallengeBuilder() {
   };
 
   const handlePublish = async () => {
-    const cid = Number(publishClassId);
-    if (!Number.isInteger(cid) || cid < 1) {
+    const cid = publishClassId.trim();
+    if (!cid) {
       setPublishMessage('Select a class first.');
       return;
     }
@@ -358,26 +357,29 @@ export function ChallengeBuilder() {
           xp_retry_penalty: xpRetryPenalty,
           content_json: JSON.stringify(content),
         };
-        const res = await fetch('/api/challenges', {
+        const res = await fetchWithAuth('/api/challenges', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
           body: JSON.stringify(body),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          setPublishMessage(data.error || data.message || 'Save failed.');
+          setPublishMessage(data.error || data.message || (res.status === 401 ? 'Please sign in again.' : 'Save failed.'));
           setPublishing(false);
           return;
         }
-        challengeId = data.id;
+        challengeId = data.id != null ? String(data.id) : null;
+        if (!challengeId) {
+          setPublishMessage('Save succeeded but no challenge id was returned.');
+          setPublishing(false);
+          return;
+        }
         setSelectedId(challengeId);
         loadChallenges();
       }
-      const assignRes = await fetch(`/api/classes/${cid}/challenges`, {
+      const assignRes = await fetchWithAuth(`/api/classes/${cid}/challenges`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ challenge_id: challengeId }),
       });
       if (!assignRes.ok) {
@@ -388,7 +390,7 @@ export function ChallengeBuilder() {
       }
       const refreshed = await safeFetch(`/api/challenges/${challengeId}/assigned-classes`);
       setAssignedTo(Array.isArray(refreshed) ? refreshed : []);
-      const cls = classes.find((c) => c.id === cid);
+      const cls = classes.find((c) => String(c.id) === cid);
       setPublishMessage(cls ? `Published to ${cls.name}.` : 'Published.');
       setTimeout(() => {
         setShowPublishModal(false);
@@ -508,7 +510,7 @@ export function ChallengeBuilder() {
           </div>
         </aside>
 
-        {/* Center: Editor / Preview / Dataset */}
+        {/* Center: Editor / Preview */}
         <section className="flex-1 bg-slate-100 p-6 overflow-y-auto custom-scrollbar flex flex-col">
           {!showEditorArea ? (
             <div className="max-w-2xl mx-auto py-16 text-center">
@@ -524,7 +526,7 @@ export function ChallengeBuilder() {
             </div>
           ) : (
             <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full min-w-0">
-              {/* Tabs: Editor | Preview | Dataset */}
+              {/* Tabs: Editor | Preview */}
               <div className="bg-white rounded-2xl p-2 flex gap-1 self-center border border-slate-200 shadow-sm">
                 <button
                   type="button"
@@ -538,23 +540,16 @@ export function ChallengeBuilder() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCenterTab('preview')}
+                  onClick={() => {
+                    setPreviewLockedFeedback(null);
+                    setCenterTab('preview');
+                  }}
                   className={`px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
                     centerTab === 'preview' ? 'bg-[#256af4] text-white' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
                   <Eye className="w-4 h-4" />
                   Preview
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCenterTab('dataset')}
-                  className={`px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
-                    centerTab === 'dataset' ? 'bg-[#256af4] text-white' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <Database className="w-4 h-4" />
-                  Dataset
                 </button>
               </div>
 
@@ -662,18 +657,16 @@ export function ChallengeBuilder() {
 
               {centerTab === 'preview' && (
                 <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm">
-                  {Player ? (
-                    <Player content={content} onComplete={() => {}} disabled={false} />
-                  ) : (
-                    <PreviewPanel content={content} challengeType={challengeType} title={title} />
-                  )}
-                </div>
-              )}
-
-              {centerTab === 'dataset' && (
-                <div className="bg-white rounded-3xl p-8 text-center text-slate-600 border border-slate-200 shadow-sm">
-                  <Database className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>Dataset configuration coming soon.</p>
+                  <PreviewPanel
+                    content={content}
+                    challengeType={challengeType}
+                    title={title}
+                    lockedFeedback={previewLockedFeedback}
+                    onPreviewComplete={(response) => {
+                      console.log('[ChallengeBuilder] preview lock answer', response);
+                      setPreviewLockedFeedback('Answer locked in preview — students will submit this response.');
+                    }}
+                  />
                 </div>
               )}
             </div>
@@ -753,7 +746,7 @@ export function ChallengeBuilder() {
                 <h5 className="text-sm font-bold text-slate-900">Assign to Class</h5>
                 <select
                   value={assignClassId}
-                  onChange={(e) => setAssignClassId(e.target.value ? Number(e.target.value) : '')}
+                  onChange={(e) => setAssignClassId(e.target.value)}
                   className="w-full bg-slate-900 border border-[#2d3548] rounded-xl px-3 py-2 text-slate-100 text-sm"
                 >
                   <option value="">— Select class —</option>
@@ -808,7 +801,7 @@ export function ChallengeBuilder() {
             <p className="text-sm text-slate-400 mb-4">Choose which class will receive this challenge. Students in that class will see it in their Command Console.</p>
             <select
               value={publishClassId}
-              onChange={(e) => setPublishClassId(e.target.value ? Number(e.target.value) : '')}
+              onChange={(e) => setPublishClassId(e.target.value)}
               className="w-full bg-slate-950 border border-[#2d3548] rounded-xl px-4 py-3 text-slate-100 text-sm mb-4 focus:ring-2 focus:ring-[#256af4]/50 focus:border-[#256af4] outline-none"
             >
               <option value="">— Select class —</option>
@@ -924,7 +917,7 @@ export function ChallengeBuilder() {
             <p className="text-sm text-slate-400 mb-4">Choose which class should receive this challenge. Students in that class will see it in their Command Console.</p>
             <select
               value={publishClassId}
-              onChange={(e) => setPublishClassId(e.target.value ? Number(e.target.value) : '')}
+              onChange={(e) => setPublishClassId(e.target.value)}
               className="w-full bg-slate-800 border border-[#2d3548] rounded-xl px-4 py-3 text-slate-100 text-sm focus:ring-2 focus:ring-[#256af4]/50 focus:border-[#256af4] outline-none"
             >
               <option value="">— Select class —</option>

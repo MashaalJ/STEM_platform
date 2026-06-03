@@ -29,7 +29,26 @@ export async function getStudentRoleById(id: string): Promise<string | null> {
 }
 
 export async function listSectorsOrdered(): Promise<DbRow[]> {
-  return selectMany("sectors", "*", undefined, { column: "sort_order", ascending: true });
+  const { selectAllSectors } = await import("./db");
+  return selectAllSectors("*");
+}
+
+async function getStudentClassIds(studentId: string): Promise<string[]> {
+  const rows = await selectMany<{ class_id: string }>("class_students", "class_id", { student_id: studentId });
+  return rows.map((r) => String(r.class_id));
+}
+
+export async function getStudentSectorMasteryMap(studentId: string): Promise<Map<string, number>> {
+  try {
+    const rows = await selectMany<{ sector_id: string; mastery_percent: number }>(
+      "student_sector_mastery",
+      "sector_id, mastery_percent",
+      { student_id: studentId },
+    );
+    return new Map(rows.map((r) => [String(r.sector_id), Number(r.mastery_percent) || 0]));
+  } catch {
+    return new Map();
+  }
 }
 
 export async function studentCompletedStarterMission(studentId: string): Promise<boolean> {
@@ -57,17 +76,33 @@ export async function studentCompletedStarterMission(studentId: string): Promise
 }
 
 export async function getMissionsForSectorStudent(sectorId: string, studentId: string) {
-  const missions = await selectMany<DbRow>("missions", "*", { sector_id: sectorId }, { column: "created_at", ascending: true });
-  const sector = await selectOne<{ is_starter?: boolean }>("sectors", "is_starter", { id: sectorId });
-  const isStarterSector = Boolean(sector?.is_starter);
+  const { selectAllMissions } = await import("./db");
+  const missions = (await selectAllMissions("*")).filter(
+    (m) => String(m.sector_id) === String(sectorId) && isMissionVisibleInCorridor(m.status),
+  );
+  missions.sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+  const activeMissions = missions;
 
-  const classMissionIds = new Set<string>();
-  if (!isStarterSector) {
-    const { data: cm } = await db()
-      .from("class_missions")
-      .select("mission_id, class_students!inner(student_id)")
-      .eq("class_students.student_id", studentId);
-    for (const row of cm || []) classMissionIds.add(String((row as { mission_id: string }).mission_id));
+  let filtered: DbRow[];
+  try {
+    const { resolveMissionsWithCurriculum } = await import("./curriculum");
+    filtered = await resolveMissionsWithCurriculum(sectorId, studentId, activeMissions);
+  } catch {
+    const sector = await selectOne<{ is_starter?: boolean }>("sectors", "is_starter", { id: sectorId });
+    const isStarterSector = Boolean(sector?.is_starter);
+    const classMissionIds = new Set<string>();
+    if (!isStarterSector) {
+      const classIds = await getStudentClassIds(studentId);
+      if (classIds.length) {
+        const { data: cm, error: cmErr } = await db()
+          .from("class_missions")
+          .select("mission_id")
+          .in("class_id", classIds);
+        if (cmErr) throw new Error(cmErr.message);
+        for (const row of cm || []) classMissionIds.add(String((row as { mission_id: string }).mission_id));
+      }
+    }
+    filtered = activeMissions.filter((m) => isStarterSector || classMissionIds.has(String(m.id)));
   }
 
   const completions = await selectMany<{ mission_id: string }>("student_mission_completions", "mission_id", {
@@ -75,9 +110,8 @@ export async function getMissionsForSectorStudent(sectorId: string, studentId: s
   });
   const completedSet = new Set(completions.map((c) => c.mission_id));
 
-  const filtered = missions.filter((m) => isStarterSector || classMissionIds.has(String(m.id)));
   const withStatus = filtered.map((m) => {
-    const prereq = m.prerequisite_mission_id as string | null;
+    const prereq = (m.prerequisite_mission_id ?? m.unlock_after_mission_id) as string | null;
     let status = String(m.status || "available");
     if (prereq && !completedSet.has(prereq)) status = "locked";
     return { ...m, status };
@@ -87,9 +121,15 @@ export async function getMissionsForSectorStudent(sectorId: string, studentId: s
   return { missions: withStatus, completedMissionIds };
 }
 
-export async function listStudentsPublic(admin: boolean) {
-  if (admin) {
+export async function listStudentsPublic(scope: "admin" | "school" | "teacher", schoolId?: string | null) {
+  if (scope === "admin") {
     return selectMany("students", STUDENT_SELECT_PUBLIC, undefined, { column: "created_at", ascending: true });
+  }
+  if (scope === "school" && schoolId) {
+    return selectMany("students", STUDENT_SELECT_PUBLIC, { school_id: schoolId }, { column: "created_at", ascending: true });
+  }
+  if (scope === "teacher" && schoolId) {
+    return selectMany("students", STUDENT_SELECT_PUBLIC, { school_id: schoolId, role: "student" }, { column: "created_at", ascending: true });
   }
   return selectMany("students", "id, name, level, xp, avatar_url, role");
 }
@@ -98,8 +138,53 @@ export async function listQuizzes() {
   return selectMany("quizzes", "*", undefined, { column: "created_at", ascending: false });
 }
 
-export async function listMissions() {
-  return selectMany("missions", "*");
+function isPublishedMissionStatus(status: unknown): boolean {
+  const s = String(status || "available").toLowerCase();
+  return s === "available" || s === "active" || s === "locked";
+}
+
+export function isMissionVisibleInCorridor(status: unknown): boolean {
+  const s = String(status || "available").toLowerCase();
+  if (s === "archived" || s === "draft") return false;
+  return isPublishedMissionStatus(s);
+}
+
+export async function listMissions(options?: {
+  includeDraft?: boolean;
+  viewerId?: string;
+  viewerRole?: string;
+}) {
+  const { selectAllMissions } = await import("./db");
+  const rows = await selectAllMissions("*");
+  const viewerId = options?.viewerId ? String(options.viewerId) : "";
+  const isStaff = options?.viewerRole === "teacher" || options?.viewerRole === "admin";
+
+  return rows
+    .filter((m) => {
+      const s = String(m.status || "available").toLowerCase();
+      if (s === "archived") return false;
+      const creator = m.created_by != null ? String(m.created_by) : "";
+      const isOwner = Boolean(viewerId && creator && creator === viewerId);
+
+      if (s === "draft") {
+        return isStaff && options?.includeDraft && isOwner;
+      }
+
+      if (isPublishedMissionStatus(s)) {
+        return true;
+      }
+
+      return isMissionVisibleInCorridor(m.status);
+    })
+    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+}
+
+export async function listMissionsForSector(sectorId: string) {
+  const { selectAllMissions } = await import("./db");
+  const rows = await selectAllMissions("*");
+  return rows
+    .filter((m) => String(m.sector_id) === String(sectorId) && isMissionVisibleInCorridor(m.status))
+    .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
 }
 
 export async function getMissionBrief(id: string) {
@@ -157,22 +242,26 @@ export async function markAllNotificationsRead(userId: string) {
 }
 
 export async function listChallengesForStudent(studentId: string) {
-  const { data, error } = await db()
+  const classIds = await getStudentClassIds(studentId);
+  if (!classIds.length) return [];
+
+  const { data: links, error: linkErr } = await db()
     .from("class_challenges")
-    .select("challenges(*), class_students!inner(student_id)")
-    .eq("class_students.student_id", studentId);
-  if (error) throw new Error(error.message);
-  const seen = new Set<string>();
-  const out: DbRow[] = [];
-  for (const row of data || []) {
-    const raw = (row as { challenges: unknown }).challenges;
-    const ch = (Array.isArray(raw) ? raw[0] : raw) as DbRow | null | undefined;
-    if (ch && ch.id != null && !seen.has(String(ch.id))) {
-      seen.add(String(ch.id));
-      out.push(ch);
-    }
-  }
-  return out.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    .select("challenge_id")
+    .in("class_id", classIds);
+  if (linkErr) throw new Error(linkErr.message);
+
+  const challengeIds = [
+    ...new Set((links || []).map((r) => String((r as { challenge_id: string }).challenge_id))),
+  ];
+  if (!challengeIds.length) return [];
+
+  const { data: challenges, error: chErr } = await db().from("challenges").select("*").in("id", challengeIds);
+  if (chErr) throw new Error(chErr.message);
+
+  return (challenges as DbRow[]).sort((a, b) =>
+    String(b.created_at || "").localeCompare(String(a.created_at || "")),
+  );
 }
 
 export async function listAllChallenges() {
@@ -180,7 +269,14 @@ export async function listAllChallenges() {
 }
 
 export async function insertLog(message: string, type: string, xp_change: number) {
-  await insertOne("logs", { message, type, xp_change });
+  try {
+    await insertOne("logs", { message, type, xp_change });
+  } catch (err) {
+    console.warn(
+      "[stemverse] insertLog skipped:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 }
 
 export async function listLogs(limit = 20) {
@@ -380,14 +476,18 @@ export async function getAdminMetrics() {
   };
 }
 
-export async function listClassesWithMeta(teacherId?: string) {
+export async function listClassesWithMeta(teacherId?: string, schoolId?: string | null) {
   let q = db()
     .from("classes")
     .select("*, teacher:students!classes_teacher_id_fkey(name), class_students(count)");
   if (teacherId) q = q.eq("teacher_id", teacherId);
+  if (schoolId) q = q.eq("school_id", schoolId);
   const { data, error } = await q;
   if (error) {
-    const classes = await selectMany<DbRow>("classes", "*", teacherId ? { teacher_id: teacherId } : undefined);
+    const classMatch: Record<string, unknown> = {};
+    if (teacherId) classMatch.teacher_id = teacherId;
+    if (schoolId) classMatch.school_id = schoolId;
+    const classes = await selectMany<DbRow>("classes", "*", Object.keys(classMatch).length ? classMatch : undefined);
     const out = [];
     for (const c of classes) {
       const teacher = c.teacher_id
@@ -425,6 +525,7 @@ export async function upsertStudentProfile(
     age?: number | null;
     grade?: string | null;
     school?: string | null;
+    school_id?: string | null;
     city?: string | null;
     email?: string | null;
     parent_email?: string | null;
@@ -455,12 +556,28 @@ export async function upsertStudentProfile(
     region: profile.region ?? null,
     timezone: profile.timezone ?? null,
   };
+  const { provisionRosterStudent } = await import("./db");
   if (!existing) {
-    await insertOne("students", {
-      ...row,
+    await provisionRosterStudent({
+      id: userId,
+      name: profile.name,
+      username: profile.username,
+      email: profile.email,
+      avatar_url: profile.avatar_url,
       password: passwordHash || "password123",
-      level: 1,
-      xp: 0,
+      role: profile.role,
+    });
+    await updateRow("students", { id: userId }, {
+      age: row.age,
+      grade: row.grade,
+      school: row.school,
+      city: row.city,
+      parent_email: row.parent_email,
+      contact_number: row.contact_number,
+      gender: row.gender,
+      country_code: row.country_code,
+      region: row.region,
+      timezone: row.timezone,
       subscription_status: "free",
       subscription_plan: "free",
       billing_provider: "none",

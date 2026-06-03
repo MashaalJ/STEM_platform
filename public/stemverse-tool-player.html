@@ -1090,9 +1090,19 @@
     };
 
     const urlParams = new URLSearchParams(location.search);
-    const MISSION_ID = Number(urlParams.get("mission_id")) || 0;
+    const MISSION_ID = String(urlParams.get("mission_id") || "").trim();
+    const HAS_MISSION = MISSION_ID.length > 0;
     const IS_PREVIEW = urlParams.get("preview") === "1";
-    let savedProjectId = 0;
+    let savedProjectId = "";
+
+    function apiFetch(url, init) {
+      const headers = Object.assign({ "Content-Type": "application/json" }, (init && init.headers) || {});
+      try {
+        const token = localStorage.getItem("stemverse_access_token");
+        if (token) headers.Authorization = "Bearer " + token;
+      } catch (e) { /* ignore */ }
+      return fetch(url, Object.assign({}, init || {}, { credentials: "include", headers: headers }));
+    }
 
     const NUDGE_MESSAGES = [
       "Stuck? Try clicking something on the canvas.",
@@ -1184,12 +1194,10 @@
         if (btnSave) btnSave.disabled = true;
         return;
       }
-      if (MISSION_ID > 0) {
+      if (HAS_MISSION) {
         try {
-          const res = await fetch("/api/tool-activity/save", {
+          const res = await apiFetch("/api/tool-activity/save", {
             method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               id: savedProjectId || undefined,
               mission_id: MISSION_ID,
@@ -1212,9 +1220,9 @@
     async function loadProgress() {
       var json = null;
       try { json = localStorage.getItem(progressStorageKey()); } catch (e) { /* ignore */ }
-      if (!json && MISSION_ID > 0 && !IS_PREVIEW) {
+      if (!json && HAS_MISSION && !IS_PREVIEW) {
         try {
-          const res = await fetch("/api/tool-activity/progress?mission_id=" + MISSION_ID, { credentials: "include" });
+          const res = await apiFetch("/api/tool-activity/progress?mission_id=" + encodeURIComponent(MISSION_ID));
           if (res.ok) {
             const data = await res.json();
             if (data.save) {

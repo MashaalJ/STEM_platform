@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Cpu, Download, Play, Save, Trash2, Upload } 
 import BlocklyEditor, { type BlocklyEditorHandle } from './BlocklyEditor';
 import { SIDEBAR_CATEGORIES } from './BlockDefinitions';
 import { buildArduinoCodeFromWorkspace, runMockArduinoSimulation } from './ArduinoGenerator';
+import { authFetch } from '../../app/api';
 import * as Blockly from 'blockly';
 
 const WORKSPACE_CACHE_KEY = 'stemverse_arduino_workspace_json';
@@ -22,7 +23,7 @@ export default function ArduinoCodingMission({
   missionTitle,
   onComplete,
 }: {
-  missionId?: number;
+  missionId?: string;
   missionTitle?: string;
   onComplete?: () => void;
 }) {
@@ -120,21 +121,20 @@ export default function ArduinoCodingMission({
     const workspace_json = editorRef.current?.saveWorkspaceJson() || '{}';
     const generated = editorRef.current?.generateCode() || generatedCode;
     const body = {
-      id: projectId ? Number(projectId) : undefined,
+      id: projectId.trim() || undefined,
       mission_id: missionId,
       title: missionTitle || 'Arduino Mission Project',
       workspace_json,
       generated_code: generated,
     };
-    const res = await fetch('/projects/save', {
+    const res = await authFetch('/projects/save', {
       method: 'POST',
-      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      pushLog(`Save failed: ${data.message || 'unknown error'}`);
+      pushLog(`Save failed: ${data.error || data.message || (res.status === 401 ? 'Please sign in again.' : 'unknown error')}`);
       return;
     }
     if (data.id) setProjectId(String(data.id));
@@ -146,7 +146,7 @@ export default function ArduinoCodingMission({
       pushLog('Enter project id first');
       return;
     }
-    const res = await fetch(`/projects/${projectId}`, { credentials: 'include' });
+    const res = await authFetch(`/projects/${projectId}`);
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data?.project) {
       pushLog(`Load failed: ${data.message || 'not found'}`);

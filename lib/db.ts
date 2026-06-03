@@ -140,19 +140,80 @@ export async function usernameExists(username: string): Promise<boolean> {
   return Boolean(data);
 }
 
+/** Upsert a student row after Auth user creation (bypasses students RLS via RPC). */
+export async function provisionRosterStudent(row: {
+  id: string;
+  name: string;
+  username?: string | null;
+  email?: string | null;
+  avatar_url?: string | null;
+  password?: string | null;
+  role?: string | null;
+}): Promise<void> {
+  const { error } = await db().rpc("provision_roster_student", {
+    p_id: row.id,
+    p_name: row.name,
+    p_username: row.username ?? null,
+    p_email: row.email ?? null,
+    p_avatar_url: row.avatar_url ?? null,
+    p_password: row.password ?? "password123",
+  });
+  if (error) {
+    const hint = /provision_roster_student|schema cache|function/i.test(error.message)
+      ? " Run supabase/migrations/015_provision_roster_student.sql in Supabase SQL Editor."
+      : "";
+    throw new Error(`provisionRosterStudent: ${error.message}${hint}`);
+  }
+}
+
+export async function enrollStudentInClass(classId: string, studentId: string): Promise<void> {
+  const { error } = await db().rpc("enroll_student_in_class", {
+    p_class_id: classId,
+    p_student_id: studentId,
+  });
+  if (error) {
+    await insertIgnore("class_students", { class_id: classId, student_id: studentId }, "class_id,student_id");
+    return;
+  }
+}
+
+/** Load all missions bypassing RLS (uses SECURITY DEFINER RPC when available). */
+export async function selectAllMissions(columns = "*"): Promise<DbRow[]> {
+  const { data, error } = await db().rpc("list_missions_admin");
+  if (!error && Array.isArray(data)) return data as DbRow[];
+  return selectMany("missions", columns, undefined, { column: "created_at", ascending: true });
+}
+
+/** Load all sectors bypassing RLS (uses SECURITY DEFINER RPC when available). */
+export async function selectAllSectors(columns = "*"): Promise<DbRow[]> {
+  const { data, error } = await db().rpc("list_sectors_admin");
+  if (!error && Array.isArray(data)) return data as DbRow[];
+  return selectMany("sectors", columns, undefined, { column: "sort_order", ascending: true });
+}
+
 export async function joinCodeExists(code: string): Promise<boolean> {
-  const { data, error } = await db()
+  const trimmed = String(code || "").trim().toUpperCase();
+  if (!trimmed) return false;
+
+  const { data, error } = await db().rpc("join_code_exists", { p_code: trimmed });
+  if (!error) return Boolean(data);
+
+  if (!/join_code_exists|function.*does not exist/i.test(error.message)) {
+    throw new Error(`joinCodeExists: ${error.message}`);
+  }
+
+  const { data: row, error: fallbackErr } = await db()
     .from("classes")
     .select("id")
-    .eq("join_code", code)
+    .eq("join_code", trimmed)
     .limit(1)
     .maybeSingle();
-  if (error) throw new Error(`joinCodeExists: ${error.message}`);
-  return Boolean(data);
+  if (fallbackErr) throw new Error(`joinCodeExists: ${fallbackErr.message}`);
+  return Boolean(row);
 }
 
 export const STUDENT_SELECT_PUBLIC =
-  "id, name, username, level, xp, avatar_url, role, age, grade, school, city, email, parent_email, contact_number, created_at, gender, country_code, region, timezone, subscription_status, subscription_plan, billing_provider, mrr_cents, ltv_cents, last_active_at";
+  "id, name, username, level, xp, avatar_url, role, age, grade, school, school_id, city, email, parent_email, contact_number, created_at, gender, country_code, region, timezone, subscription_status, subscription_plan, billing_provider, mrr_cents, ltv_cents, last_active_at, tutorial_completed, onboarding_completed";
 
 export async function getStudentPublic(id: string): Promise<DbRow | null> {
   return selectOne("students", STUDENT_SELECT_PUBLIC, { id });

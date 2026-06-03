@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>STEMverse Mission</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --nova-teal: #00bfa5;
+      --nova-teal-dim: #44ddc1;
+      --stembot-amber: #f59e0b;
+      --deep-space: #0a0f1a;
+      --panel: #121a2e;
+      --panel-border: rgba(0, 191, 165, 0.25);
+      --text: #e8f4f2;
+      --muted: #94a3b8;
+      --success: #10b981;
+      --error: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: "Space Grotesk", system-ui, sans-serif;
+      background: var(--deep-space);
+      color: var(--text);
+    }
+    #app {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(0, 191, 165, 0.12), transparent),
+        var(--deep-space);
+    }
+    .progress-bar {
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      padding: 12px 16px 0;
+      flex-shrink: 0;
+    }
+    .progress-bar span {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.15);
+      transition: background 0.25s, transform 0.25s;
+    }
+    .progress-bar span.on { background: var(--nova-teal); transform: scale(1.15); }
+    .progress-bar span.done { background: rgba(0, 191, 165, 0.45); }
+    #screen-root {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 16px 88px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .screen-inner {
+      max-width: 640px;
+      margin: 0 auto;
+      animation: fadeIn 0.35s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: none; }
+    }
+    .card {
+      background: rgba(18, 26, 46, 0.95);
+      border: 1px solid var(--panel-border);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .screen-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--nova-teal);
+      margin-bottom: 12px;
+    }
+    .avatar-row {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      margin-bottom: 16px;
+    }
+    .orb {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.75rem;
+    }
+    .orb-stembot {
+      background: radial-gradient(circle at 30% 30%, #fcd34d, var(--stembot-amber));
+      box-shadow: 0 0 24px rgba(245, 158, 11, 0.4);
+    }
+    .orb-nova {
+      background: radial-gradient(circle at 30% 30%, var(--nova-teal-dim), var(--nova-teal));
+      box-shadow: 0 0 24px rgba(0, 191, 165, 0.45);
+    }
+    .bubble {
+      flex: 1;
+      background: rgba(10, 20, 35, 0.9);
+      border: 1px solid var(--panel-border);
+      border-radius: 14px;
+      border-top-left-radius: 4px;
+      padding: 14px 16px;
+      line-height: 1.5;
+      font-size: 0.95rem;
+    }
+    .bubble-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      opacity: 0.7;
+    }
+    .bubble-stembot .bubble-label { color: var(--stembot-amber); }
+    .bubble-nova .bubble-label { color: var(--nova-teal); }
+    .instructions {
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.5;
+      margin-bottom: 16px;
+    }
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .chip {
+      font-family: inherit;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid rgba(0, 191, 165, 0.35);
+      background: rgba(0, 191, 165, 0.08);
+      color: var(--text);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+    }
+    .chip:hover:not(:disabled) { background: rgba(0, 191, 165, 0.18); }
+    .chip:disabled { opacity: 0.35; cursor: not-allowed; }
+    .chip.used { opacity: 0.4; text-decoration: line-through; }
+    .chip.selected { border-color: var(--nova-teal); background: rgba(0, 191, 165, 0.25); }
+    .sequence-zone {
+      min-height: 56px;
+      padding: 12px;
+      border: 2px dashed rgba(0, 191, 165, 0.3);
+      border-radius: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .sequence-zone.empty::before {
+      content: "Tap blocks below to build your sequence…";
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    .circuit-track {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 16px;
+    }
+    .circuit-node {
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.04);
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      min-width: 72px;
+      text-align: center;
+    }
+    .circuit-node.filled {
+      border-color: var(--nova-teal);
+      background: rgba(0, 191, 165, 0.15);
+      color: var(--nova-teal);
+    }
+    .circuit-arrow { color: var(--muted); font-size: 1.1rem; }
+    .btn {
+      font-family: inherit;
+      font-weight: 700;
+      font-size: 0.95rem;
+      padding: 14px 24px;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: transform 0.12s, opacity 0.15s;
+    }
+    .btn:active:not(:disabled) { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--nova-teal), #008f7a);
+      color: #001f24;
+      box-shadow: 0 4px 20px rgba(0, 191, 165, 0.3);
+    }
+    .btn-secondary {
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+    .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+    .mcq-option {
+      display: block;
+      width: 100%;
+      text-align: left;
+      margin-bottom: 8px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .mcq-option:hover { border-color: var(--nova-teal); }
+    .mcq-option.correct { border-color: var(--success); background: rgba(16, 185, 129, 0.15); }
+    .mcq-option.wrong { border-color: var(--error); background: rgba(239, 68, 68, 0.12); }
+    .sort-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      margin-bottom: 8px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.04);
+      cursor: grab;
+      user-select: none;
+    }
+    .sort-item:active { cursor: grabbing; }
+    .sort-handle { color: var(--muted); font-size: 1.1rem; }
+    .match-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 520px) { .match-grid { grid-template-columns: 1fr; } }
+    .match-col h4 {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .match-btn {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 10px 12px;
+      margin-bottom: 6px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .match-btn.selected { border-color: var(--nova-teal); background: rgba(0, 191, 165, 0.15); }
+    .match-btn.matched { opacity: 0.45; pointer-events: none; }
+    textarea {
+      width: 100%;
+      min-height: 120px;
+      padding: 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(0,0,0,0.25);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.95rem;
+      resize: vertical;
+      margin-bottom: 12px;
+    }
+    .hotspot-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .hotspot {
+      aspect-ratio: 1.4;
+      border-radius: 12px;
+      border: 2px dashed rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.03);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 1.1rem;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .hotspot.on {
+      border-color: var(--nova-teal);
+      border-style: solid;
+      background: rgba(0, 191, 165, 0.2);
+    }
+    .drag-item {
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.04);
+      margin-bottom: 10px;
+    }
+    .drag-item p { font-size: 0.85rem; margin-bottom: 8px; }
+    .cat-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+    .cat-btn {
+      font-family: inherit;
+      font-size: 0.75rem;
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .cat-btn.picked {
+      border-color: var(--nova-teal);
+      color: var(--nova-teal);
+      background: rgba(0, 191, 165, 0.12);
+    }
+    .feedback {
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      margin-top: 12px;
+    }
+    .feedback.ok { background: rgba(16, 185, 129, 0.15); border: 1px solid var(--success); color: #6ee7b7; }
+    .feedback.err { background: rgba(239, 68, 68, 0.12); border: 1px solid var(--error); color: #fca5a5; }
+    .footer {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+      background: rgba(10, 15, 26, 0.96);
+      border-top: 1px solid var(--panel-border);
+      display: flex;
+      justify-content: center;
+      z-index: 50;
+    }
+    #complete-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(10, 15, 26, 0.92);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 300;
+      text-align: center;
+      padding: 24px;
+      pointer-events: auto;
+    }
+    #complete-overlay.show { display: flex; }
+    #btn-finish {
+      position: relative;
+      z-index: 301;
+      pointer-events: auto;
+      cursor: pointer;
+    }
+    #complete-overlay h2 { font-size: 1.75rem; color: var(--nova-teal); margin: 16px 0 8px; }
+    #complete-overlay p { color: var(--muted); margin-bottom: 20px; }
+    .error-screen {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--error);
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="progress-bar" id="progress"></div>
+    <div id="screen-root"></div>
+    <div class="footer" id="footer" style="display:none">
+      <button type="button" class="btn btn-primary" id="btn-continue">Continue →</button>
+    </div>
+  </div>
+  <div id="complete-overlay">
+    <div style="font-size:4rem">✓</div>
+    <h2>Mission Complete</h2>
+    <p id="complete-msg">Relay restored. XP awarded.</p>
+    <button type="button" class="btn btn-primary" id="btn-finish">Finish</button>
+  </div>
+
+  <script>
+  (function () {
+    "use strict";
+
+    var CONFIG = { screens: [], title: "Mission", xp_reward: 0 };
+    var screenIndex = 0;
+    var screenPassed = false;
+
+    function parseConfig() {
+      var params = new URLSearchParams(location.search);
+      var b64 = params.get("embed") || params.get("config");
+      if (!b64) return false;
+      try {
+        var raw = decodeURIComponent(escape(atob(decodeURIComponent(b64))));
+        var parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          CONFIG = Object.assign({}, CONFIG, parsed);
+          if (!Array.isArray(CONFIG.screens)) CONFIG.screens = [];
+        }
+      } catch (e) {
+        console.warn("[screens-player] bad embed", e);
+        return false;
+      }
+      var xpParam = params.get("xp");
+      if (xpParam && !CONFIG.xp_reward) CONFIG.xp_reward = Number(xpParam) || 0;
+      return CONFIG.screens.length > 0;
+    }
+
+    function el(tag, cls, html) {
+      var n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (html != null) n.innerHTML = html;
+      return n;
+    }
+
+    function renderProgress() {
+      var bar = document.getElementById("progress");
+      bar.innerHTML = "";
+      for (var i = 0; i < CONFIG.screens.length; i++) {
+        var dot = document.createElement("span");
+        if (i < screenIndex) dot.className = "done";
+        else if (i === screenIndex) dot.className = "on";
+        bar.appendChild(dot);
+      }
+    }
+
+    function showFooter(show, label) {
+      var f = document.getElementById("footer");
+      f.style.display = show ? "flex" : "none";
+      if (label) document.getElementById("btn-continue").textContent = label;
+    }
+
+    function advance() {
+      if (screenIndex < CONFIG.screens.length - 1) {
+        screenIndex++;
+        screenPassed = false;
+        renderScreen();
+      } else {
+        finishMission();
+      }
+    }
+
+    function notifyParentComplete() {
+      var msg = { type: "MISSION_COMPLETE", xp: CONFIG.xp_reward || 0 };
+      try {
+        window.parent.postMessage(msg, window.location.origin);
+      } catch (e) { /* ignore */ }
+      if (window.parent !== window) {
+        try {
+          window.parent.postMessage(msg, "*");
+        } catch (e2) { /* ignore */ }
+      }
+    }
+
+    function finishMission() {
+      document.getElementById("complete-overlay").classList.add("show");
+      document.getElementById("complete-msg").textContent =
+        (CONFIG.title || "Mission") + " complete." +
+        (CONFIG.xp_reward ? " +" + CONFIG.xp_reward + " XP" : "");
+      notifyParentComplete();
+    }
+
+    document.getElementById("btn-continue").addEventListener("click", function () {
+      if (screenPassed || CONFIG.screens[screenIndex].type === "intro") advance();
+    });
+    document.getElementById("btn-finish").addEventListener("click", function () {
+      console.log("[screens-player] Finish clicked");
+      notifyParentComplete();
+    });
+
+    function introBubble(label, cls, text) {
+      if (!text) return null;
+      var row = el("div", "avatar-row");
+      row.appendChild(el("div", "orb " + (cls === "nova" ? "orb-nova" : "orb-stembot"), cls === "nova" ? "✨" : "🤖"));
+      var b = el("div", "bubble bubble-" + cls);
+      b.appendChild(el("div", "bubble-label", label));
+      b.appendChild(document.createTextNode(text));
+      row.appendChild(b);
+      return row;
+    }
+
+    function renderIntro(sc, root) {
+      if (sc.title) root.appendChild(el("h2", "screen-title", esc(sc.title)));
+      root.appendChild(introBubble("STEMbot", "stembot", sc.stembot_message));
+      if (sc.stembot_response) root.appendChild(introBubble("STEMbot", "stembot", sc.stembot_response));
+      if (sc.stembot_message_2) root.appendChild(introBubble("STEMbot", "stembot", sc.stembot_message_2));
+      root.appendChild(introBubble("NOVA", "nova", sc.nova_response));
+      screenPassed = true;
+      showFooter(true, "Continue →");
+    }
+
+    function renderCircuit(sc, root) {
+      if (sc.title) root.appendChild(el("h2", "screen-title", esc(sc.title)));
+      root.appendChild(el("p", "instructions", esc(sc.instructions || "Connect components in order.")));
+      var components = sc.components || ["power", "sensor", "processor", "actuator"];
+      var track = el("div", "circuit-track");
+      var filled = 0;
+      components.forEach(function (_, i) {
+        if (i > 0) track.appendChild(el("span", "circuit-arrow", "→"));
+        track.appendChild(el("div", "circuit-node", "Slot " + (i + 1)));
+      });
+      root.appendChild(track);
+      var chips = el("div", "chip-row");
+      var fb = el("div", "feedback", "");
+      fb.style.display = "none";
+      root.appendChild(chips);
+      root.appendChild(fb);
+
+      function refreshTrack() {
+        var nodes = track.querySelectorAll(".circuit-node");
+        for (var i = 0; i < nodes.length; i++) {
+          nodes[i].textContent = i < filled ? formatComp(components[i]) : "Slot " + (i + 1);
+          nodes[i].classList.toggle("filled", i < filled);
+        }
+      }
+
+      components.forEach(function (comp) {
+        var btn = el("button", "chip", formatComp(comp));
+        btn.type = "button";
+        btn.addEventListener("click", function () {
+          if (screenPassed) return;
+          if (components[filled] !== comp) {
+            fb.className = "feedback err";
+            fb.textContent = "Incorrect order. Expected: " + formatComp(components[filled]) + ".";
+            fb.style.display = "block";
+            return;
+          }
+          filled++;
+          btn.classList.add("used");
+          btn.disabled = true;
+          refreshTrack();
+          fb.style.display = "none";
+          if (filled >= components.length) {
+            screenPassed = true;
+            fb.className = "feedback ok";
+            fb.textContent = "Circuit complete. Signal path verified.";
+            fb.style.display = "block";
+            showFooter(true, "Continue →");
+          }
+        });
+        chips.appendChild(btn);
+      });
+      showFooter(false);
+    }
+
+    function renderBlocks(sc, root) {
+      if (sc.title) root.appendChild(el("h2", "screen-title", esc(sc.title)));
+      root.appendChild(el("p", "instructions", esc(sc.instructions || "Build the correct block sequence.")));
+      var correct = sc.correct_sequence || [];
+      var available = sc.available_blocks || correct.slice();
+      var zone = el("div", "sequence-zone empty");
+      root.appendChild(zone);
+      var chips = el("div", "chip-row");
+      var built = [];
+      var fb = el("div", "feedback", "");
+      fb.style.display = "none";
+      root.appendChild(chips);
+      var actions = el("div", "btn-row");
+      var btnSubmit = el("button", "btn btn-primary", "Run sequence");
+      btnSubmit.type = "button";
+      var btnClear = el("button", "btn btn-secondary", "Clear");
+      btnClear.type = "button";
+      actions.appendChild(btnSubmit);
+      actions.appendChild(btnClear);
+      root.appendChild(actions);
+      root.appendChild(fb);
+
+      function redrawZone() {
+        zone.innerHTML = "";
+        zone.classList.toggle("empty", built.length === 0);
+        built.forEach(function (b, i) {
+          var c = el("span", "chip selected", formatComp(b));
+          zone.appendChild(c);
+        });
+      }
+
+      available.forEach(function (block) {
+        var btn = el("button", "chip", formatComp(block));
+        btn.type = "button";
+        btn.addEventListener("click", function () {
+          if (screenPassed) return;
+          built.push(block);
+          redrawZone();
+        });
+        chips.appendChild(btn);
+      });
+
+      btnClear.addEventListener("click", function () {
+        if (screenPassed) return;
+        built = [];
+        redrawZone();
+        fb.style.display = "none";
+      });
+
+      btnSubmit.addEventListener("click", function () {
+        if (screenPassed) return;
+        var ok = built.length === correct.length && built.every(function (v, i) { return v === correct[i]; });
+        if (ok) {
+          screenPassed = true;
+          fb.className = "feedback ok";
+          fb.textContent = "Sequence validated. Arm program accepted.";
+          fb.style.display = "block";
+          showFooter(true, "Continue →");
+        } else {
+          fb.className = "feedback err";
+          fb.textContent = "Sequence mismatch. Check the order and try again.";
+          fb.style.display = "block";
+        }
+      });
+      showFooter(false);
+    }
+
+    function renderDragDrop(sc, root) {
+      if (sc.title) root.appendChild(el("h2", "screen-title", esc(sc.title)));
+      root.appendChild(el("p", "instructions", esc(sc.instructions || "Sort items into categories.")));
+      var categories = sc.categories || ["A", "B"];
+      var count = typeof sc.items === "number" ? sc.items : 8;
+      var threshold = sc.accuracy_threshold != null ? sc.accuracy_threshold : 0.8;
+      var assignments = {};
+      var answers = {};
+      var labels = ["🐱 specimen", "🐶 specimen", "📷 frame", "🔬 scan", "🖼️ tile", "📸 capture"];
+      for (var i = 0; i < count; i++) {
+        var ans = categories[i % categories.length];
+        answers[i] = ans;
+      }
+      var list = el("div");
+      for (var j = 0; j < count; j++) {
+        (function (idx) {
+          var item = el("div", "drag-item");
+          item.appendChild(el("p", "", "Training item " + (idx + 1)));
+          var btns = el("div", "cat-btns");
+          categories.forEach(function (cat) {
+            var b = el("button", "cat-btn", cat);
+            b.type = "button";
+            b.addEventListener("click", function () {
+              if (screenPassed) return;
+              assignments[idx] = cat;
+              btns.querySelectorAll(".cat-btn").forEach(function (x) { x.classList.remove("picked"); });
+              b.classList.add("picked");
+            });
+            btns.appendChild(b);
+          });
+          item.appendChild(btns);
+          list.appendChild(item);
+        })(j);
+      }
+      root.appendChild(list);
+      var fb = el("div", "feedback", "");
+      fb.style.display = "none";
+      root.appendChild(fb);
+      var btnCheck = el("button", "btn btn-primary", "Train model");
+      btnCheck.type = "button";
+      btnCheck.style.marginTop = "12px";
+      btnCheck.addEventListener("click", function () {
+        if (screenPassed) return;
+        var labeled = 0, correct = 0;
+        for (var k = 0; k < count; k++) {
+          if (assignments[k]) {
+            labeled++;
+            if (assignments[k] === answers[k]) correct++;
+          }
+        }
+        if (labeled < count) {
+          fb.className = "feedback err";
+          fb.textContent = "Label every item before training.";
+          fb.style.display = "block";
+          return;
+        }
+        var score = correct / count;
+        var pct = Math.round(score * 100);
+        if (score >= threshold) {
+          screenPassed = true;
+          fb.className = "feedback ok";
+          fb.textContent = "Model accuracy: " + pct + "%. Model trained successfully!";
+          fb.style.display = "block";
+          showFooter(true, "Continue →");
+        } else {
+          fb.className = "feedback err";
+          fb.textContent = "Model accuracy: " + pct + "%. Needs more training data.";
+          fb.style.display = "block";
+        }
+      });
+      root.appendChild(btnCheck);
+      showFooter(false);
+    }
+
+    function renderChallenge(sc, root) {
+      var type = sc.challenge_type || "multiple_choice";
+      if (type === "multiple_choice") renderMcq(sc, root);
+      else if (type === "sorting") renderSorting(sc, root);
+      else if (type === "matching") renderMatching(sc, root);
+      else if (type === "short_answer") renderShortAnswer(sc, root);
+      else if (type === "hotspot") renderHotspot(sc, root);
+      else if (type === "multi_question") renderMultiQuestion(sc, root);
+      else {
+        root.appendChild(el("p", "", "Unsupported challenge type: " + esc(type)));
+        screenPassed = true;
+        showFooter(true, "Continue →");
+      }
+    }
+
+    function renderMcq(sc, root) {
+      var questions = sc.questions || (sc.q ? [{ q: sc.q, options: sc.options, answer: sc.answer }] : []);
+      var qIndex = 0;
+
+      function showQ() {
+        root.innerHTML = "";
+        if (qIndex >= questions.length) {
+          screenPassed = true;
+          showFooter(true, "Continue →");
+          return;
+        }
+        var q = questions[qIndex];
+        if (sc.title) root.appendChild(el("h2", "screen-title", esc(sc.title)));
+        root.appendChild(el("p", "instructions", esc(q.q)));
+        var fb = el("div", "feedback", "");
+        fb.style.display = "none";
+        (q.options || []).forEach(function (opt, oi) {
+          var btn = el("button", "mcq-option", esc(opt));
+          btn.type = "button";
+          btn.addEventListener("click", function () {
+            if (screenPassed) return;
+            if (oi === q.answer) {
+              btn.classList.add("correct");
+              qIndex++;
+              setTimeout(showQ, 500);
+            } else {
+              btn.classList.add("wrong");
+              fb.className = "feedback err";
+              fb.textContent = "Not quite. Try again.";
+              fb.style.display = "block";
+            }
+          });
+          root.appendChild(btn);
+        });
+        root.appendChild(fb);
+        showFooter(false);
+      }
+      showQ();
+    }
+
+    function renderSorting(sc, root) {
+      if (sc.title) root.appendChild(el("h2", "screen-title", esc(sc.title)));
+      var items = (sc.items || []).slice();
+      var order = items.map(function (_, i) { return i; });
+      var correct = sc.correct_order || order.slice();
+
+      function renderList() {
+        var listEl = root.querySelector(".sort-list");
+        if (!listEl) return;
+        listEl.innerHTML = "";
+        order.forEach(function (idx, pos) {
+          var row = el("div", "sort-item");
+          row.draggable = true;
+          row.dataset.pos = String(pos);
+          row.appendChild(el("span", "sort-handle", "☰"));
+          row.appendChild(document.createTextNode(items[idx]));
+          row.addEventListener("dragstart", function (e) {
+            e.dataTransfer.setData("text/plain", pos);
+          });
+          row.addEventListener("dragover", function (e) { e.preventDefault(); });
+          row.addEventListener("drop", function (e) {
+            e.preventDefault();
+            if (screenPassed) return;
+            var from = Number(e.dataTransfer.getData("text/plain"));
+            var to = pos;
+            var tmp = order[from];
+            order.splice(from, 1);
+            order.splice(to, 0, tmp);
+            renderList();
+          });
+          listEl.appendChild(row);
+        });
+      }
+
+      root.appendChild(el("div", "sort-list"));
+      renderList();
+      var fb = el("div", "feedback", "");
+      fb.style.display = "none";
+      root.appendChild(fb);
+      var btn = el("button", "btn btn-primary", "Check order");
+      btn.type = "button";
+      btn.addEventListener("click", function () {
+        var ok = order.every(function (v, i) { return v === correct[i]; });
+        if (ok) {
+          screenPassed = true;
+          fb.className = "feedback ok";
+          fb.textContent = "Correct sequence.";
+          fb.style.display = "block";
+          showFooter(true, "Continue →");
+        } else {
+          fb.className = "feedback err";
+          fb.textContent = "Order incorrect. Drag to reorder.";
+          fb.style.display = "block";
+        }
+      });
+      root.appendChild(btn);
+      showFooter(false);
+    }
+
+    function renderMatching(sc, root) {
+      if (sc.title) root.appendChild(el("h2", "screen-title", esc(sc.title)));
+      var pairs = sc.pairs || [];
+      var left = pairs.map(function (p) { return p[0]; });
+      var right = pairs.map(function (p) { return p[1]; }).sort(function () { return Math.random() - 0.5; });
+      var matched = {};
+      var selectedLeft = null;
+      var grid = el("div", "match-grid");
+      var colL = el("div");
+      colL.appendChild(el("h4", "", "Concept"));
+      var colR = el("div");
+      colR.appendChild(el("h4", "", "Match"));
+      var fb = el("div", "feedback", "");
+      fb.style.display = "none";
+
+      left.forEach(function (text, li) {
+        var btn = el("button", "match-btn", esc(text));
+        btn.type = "button";
+        btn.addEventListener("click", function () {
+          if (screenPassed || btn.classList.contains("matched")) return;
+          colL.querySelectorAll(".match-btn").forEach(function (b) { b.classList.remove("selected"); });
+          btn.classList.add("selected");
+          selectedLeft = li;
+        });
+        colL.appendChild(btn);
+      });
+
+      right.forEach(function (text) {
+        var btn = el("button", "match-btn", esc(text));
+        btn.type = "button";
+        btn.dataset.val = text;
+        btn.addEventListener("click", function () {
+          if (screenPassed || selectedLeft == null || btn.classList.contains("matched")) return;
+          var expected = pairs[selectedLeft][1];
+          if (text === expected) {
+            matched[selectedLeft] = true;
+            btn.classList.add("matched");
+            colL.querySelectorAll(".match-btn")[selectedLeft].classList.add("matched");
+            colL.querySelectorAll(".match-btn")[selectedLeft].classList.remove("selected");
+            selectedLeft = null;
+            if (Object.keys(matched).length >= pairs.length) {
+              screenPassed = true;
+              fb.className = "feedback ok";
+              fb.textContent = "All pairs matched.";
+              fb.style.display = "block";
+              showFooter(true, "Continue →");
+            }
+          } else {
+            fb.className = "feedback err";
+            fb.textContent = "That pairing is incorrect.";
+            fb.style.display = "block";
+          }
+        });
+        colR.appendChild(btn);
+      });
+
+      grid.appendChild(colL);
+      grid.appendChild(colR);
+      root.appendChild(grid);
+      root.appendChild(fb);
+      showFooter(false);
+    }
+
+    function renderShortAnswer(sc, root) {
+      if (sc.title) root.appendChild(el("h2", "screen-title", esc(sc.title)));
+      root.appendChild(el("p", "instructions", esc(sc.question || sc.q || "Your answer:")));
+      if (sc.stembot_hint) {
+        var hint = el("p", "instructions");
+        hint.textContent = "STEMbot: " + sc.stembot_hint;
+        root.appendChild(hint);
+      }
+      var ta = el("textarea");
+      root.appendChild(ta);
+      var fb = el("div", "feedback", "");
+      fb.style.display = "none";
+      root.appendChild(fb);
+      var btn = el("button", "btn btn-primary", "Submit");
+      btn.type = "button";
+      btn.addEventListener("click", function () {
+        var t = (ta.value || "").trim();
+        if (t.length >= 20) {
+          screenPassed = true;
+          fb.className = "feedback ok";
+          fb.textContent = "Response recorded. Open-ended answers accepted for review.";
+          fb.style.display = "block";
+          showFooter(true, "Continue →");
+        } else {
+          fb.className = "feedback err";
+          fb.textContent = "Write at least 20 characters.";
+          fb.style.display = "block";
+        }
+      });
+      root.appendChild(btn);
+      showFooter(false);
+    }
+
+    function renderHotspot(sc, root) {
+      if (sc.title) root.appendChild(el("h2", "screen-title", esc(sc.title)));
+      root.appendChild(el("p", "instructions", esc(sc.hotspot_instruction || sc.image_description || "Click the decision points.")));
+      var need = sc.correct_hotspots || 4;
+      var clicked = 0;
+      var grid = el("div", "hotspot-grid");
+      for (var i = 0; i < need + 2; i++) {
+        (function (idx) {
+          var isTarget = idx < need;
+          var spot = el("div", "hotspot", "◆ " + (idx + 1));
+          spot.addEventListener("click", function () {
+            if (screenPassed || spot.classList.contains("on")) return;
+            if (isTarget) {
+              spot.classList.add("on");
+              clicked++;
+              if (clicked >= need) {
+                screenPassed = true;
+                showFooter(true, "Continue →");
+              }
+            } else {
+              spot.style.borderColor = "var(--error)";
+            }
+          });
+          grid.appendChild(spot);
+        })(i);
+      }
+      root.appendChild(grid);
+      showFooter(false);
+    }
+
+    function renderMultiQuestion(sc, root) {
+      var questions = sc.questions || [];
+      var mix = sc.mix || [];
+      var qIndex = 0;
+
+      function showOne() {
+        root.innerHTML = "";
+        if (qIndex >= questions.length) {
+          screenPassed = true;
+          showFooter(true, "Continue →");
+          return;
+        }
+        var qText = questions[qIndex];
+        var kind = mix[qIndex] || "short_answer";
+        if (sc.title && qIndex === 0) root.appendChild(el("h2", "screen-title", esc(sc.title)));
+        if (kind === "multiple_choice") {
+          renderMcq({ title: "", questions: [{ q: qText, options: ["Processes patterns between input and output", "Stores files only", "Replaces all human jobs", "Provides battery power"], answer: 0 }] }, root);
+          var origAdvance = screenPassed;
+          var check = setInterval(function () {
+            if (screenPassed && qIndex < questions.length) {
+              clearInterval(check);
+              screenPassed = false;
+              qIndex++;
+              showOne();
+            }
+          }, 300);
+        } else {
+          renderShortAnswer({ title: "", question: qText }, root);
+        }
+      }
+      showOne();
+    }
+
+    function formatComp(s) {
+      return String(s || "").replace(/_/g, " ");
+    }
+
+    function esc(s) {
+      var d = document.createElement("div");
+      d.textContent = s == null ? "" : String(s);
+      return d.innerHTML;
+    }
+
+    function renderScreen() {
+      renderProgress();
+      var root = document.getElementById("screen-root");
+      root.innerHTML = "";
+      var inner = el("div", "screen-inner");
+      var sc = CONFIG.screens[screenIndex];
+      if (!sc) {
+        inner.appendChild(el("div", "error-screen", "No screen at index " + screenIndex));
+        root.appendChild(inner);
+        return;
+      }
+      var type = sc.type || "intro";
+      if (type === "intro") renderIntro(sc, inner);
+      else if (type === "circuit_builder") renderCircuit(sc, inner);
+      else if (type === "blocks") renderBlocks(sc, inner);
+      else if (type === "drag_drop") renderDragDrop(sc, inner);
+      else if (type === "challenge") renderChallenge(sc, inner);
+      else {
+        inner.appendChild(el("p", "", "Unknown screen type: " + esc(type)));
+        screenPassed = true;
+        showFooter(true, "Continue →");
+      }
+      root.appendChild(inner);
+    }
+
+    if (!parseConfig()) {
+      document.getElementById("screen-root").innerHTML =
+        '<div class="error-screen"><h2>Mission config missing</h2><p>No valid ?embed= parameter.</p></div>';
+    } else {
+      renderScreen();
+    }
+  })();
+  </script>
+</body>
+</html>

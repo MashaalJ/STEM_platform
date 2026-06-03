@@ -34,7 +34,7 @@ export interface ChallengeMeta {
 
 /** Base challenge record from API */
 export interface ChallengeRecord {
-  id: number;
+  id: string;
   title: string;
   type: ChallengeType;
   world?: string;

@@ -47,6 +47,19 @@
   --ca-header-height: 72px;
   --ca-container-max: 1440px;
   --ca-gutter: 24px;
+  --ca-bottom-nav-clearance: 8rem;
+}
+
+@media (max-width: 640px) {
+  :root {
+    --ca-gutter: 16px;
+    --ca-header-height: 64px;
+    --ca-bottom-nav-clearance: 7rem;
+  }
+}
+
+html {
+  overflow-x: hidden;
 }
 
 @theme {
@@ -152,7 +165,7 @@ h3 {
   padding-left: var(--ca-gutter);
   padding-right: var(--ca-gutter);
   padding-top: calc(var(--ca-header-height) + 32px);
-  padding-bottom: 8rem;
+  padding-bottom: var(--ca-bottom-nav-clearance);
 }
 
 /* --- Cosmic Amber components (design.md) --- */
@@ -629,6 +642,37 @@ h3 {
   color: #d1d5db !important;
 }
 
+/* Ensure semantic headings stay readable on dark surfaces */
+:where(
+  .bg-slate-950,
+  .bg-slate-900,
+  .bg-\[\#0d1c32\],
+  .bg-\[\#0A192F\],
+  .bg-\[\#0c1f3a\],
+  .ca-starfield,
+  .ca-galaxy-view
+) h1,
+:where(
+  .bg-slate-950,
+  .bg-slate-900,
+  .bg-\[\#0d1c32\],
+  .bg-\[\#0A192F\],
+  .bg-\[\#0c1f3a\],
+  .ca-starfield,
+  .ca-galaxy-view
+) h2,
+:where(
+  .bg-slate-950,
+  .bg-slate-900,
+  .bg-\[\#0d1c32\],
+  .bg-\[\#0A192F\],
+  .bg-\[\#0c1f3a\],
+  .ca-starfield,
+  .ca-galaxy-view
+) h3 {
+  color: #eff1f3 !important;
+}
+
 /* Challenge/assignment player readability on light surfaces */
 .assignment-play-surface {
   background: var(--ca-surface-container-lowest);
@@ -696,13 +740,7 @@ h3 {
   .border-slate-600 { border-color: #c5c6cd !important; }
   .border-brand-blue { border-color: #76849f !important; }
   .border-brand-yellow { border-color: #ffc933 !important; }
-  .text-slate-100 { color: #191c1e !important; }
-  .text-slate-200 { color: #44474d !important; }
-  .text-slate-300 { color: #51545a !important; }
-  .text-white { color: #eff1f3 !important; }
-  .text-white\/90 { color: rgba(239, 241, 243, 0.9) !important; }
-  .text-white\/80 { color: rgba(239, 241, 243, 0.8) !important; }
-  .text-white\/70 { color: rgba(239, 241, 243, 0.7) !important; }
+  /* Keep default Tailwind text colors so dark sections remain readable. */
   .placeholder\:text-slate-400::placeholder { color: rgb(100 116 139) !important; }
   /* Accent on light surfaces: amber / navy tint per Cosmic Amber */
   .text-cyan-300 { color: #515f78 !important; }
