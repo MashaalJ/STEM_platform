@@ -19,6 +19,7 @@ import {
   generateUniqueActivationCode,
   generateUniqueTeacherInviteCode,
   findSchoolByActivationCode,
+  findTeacherInviteByCode,
   normalizeActivationCode,
 } from "../../lib/schoolCodes";
 import { enrichUserWithSchool, getUserSchoolId } from "../../lib/schoolScope";
@@ -208,14 +209,20 @@ export default function createSchoolsRouter(deps: SchoolsRouterDeps): express.Ro
     requireRole(["teacher"]),
     asyncRoute(async (req, res) => {
       const sessionUser = getReqUser(req)!;
-      const code = String(req.body?.code || req.body?.invite_code || "")
-        .trim()
-        .toUpperCase();
-      if (!code) return res.status(400).json({ success: false, error: "Invite code is required" });
+      const code = normalizeActivationCode(String(req.body?.code || req.body?.invite_code || ""));
+      if (!code || code.length < 8) {
+        return res.status(400).json({
+          success: false,
+          error: "Enter the full 8-character teacher invite code from your principal (not the principal school code).",
+        });
+      }
 
-      const invite = await selectOne<DbRow>("teacher_invites", "*", { code });
-      if (!invite || invite.used) {
-        return res.status(404).json({ success: false, error: "Invalid or already used invite code" });
+      const invite = await findTeacherInviteByCode(code);
+      if (!invite) {
+        return res.status(404).json({
+          success: false,
+          error: "Invalid or already used invite code. Ask your principal for a new code from Teachers → Invite teacher.",
+        });
       }
 
       const schoolId = String(invite.school_id);

@@ -10,12 +10,42 @@ import { Rocket } from 'lucide-react';
 import FuturisticBackground from '../components/FuturisticBackground';
 import AddToHomeScreenPrompt from '../components/AddToHomeScreenPrompt';
 import { supabase } from '../../lib/supabaseClient';
-import { authFetch, safeFetch, SCHOOL_SUSPENDED_BANNER_KEY } from '../app/api';
+import { authFetch, getAccessToken, safeFetch, SCHOOL_SUSPENDED_BANNER_KEY } from '../app/api';
 import { STORY, STORY_LOGIN } from '../lib/story';
 
 async function studentHasClassMembership(studentId: string): Promise<boolean> {
   const classes = await safeFetch(`/api/students/${studentId}/classes`);
   return Array.isArray(classes) && classes.length > 0;
+}
+
+async function tryActivateTeacherInvite(
+  role: string | undefined,
+  rawCode: string,
+): Promise<{ ok: true; user?: Record<string, unknown> } | { ok: false; message: string }> {
+  if (role !== 'teacher') return { ok: true };
+  const code = rawCode.trim().replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  if (!code) return { ok: true };
+  if (code.length < 8) {
+    return { ok: false, message: 'Enter the full 8-character teacher invite code from your principal.' };
+  }
+  const token = await getAccessToken();
+  if (!token) {
+    return { ok: false, message: 'Sign in first, then enter your teacher invite code.' };
+  }
+  const res = await authFetch('/api/auth/activate-teacher-invite', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = String(data?.error || data?.message || '');
+    if (/no token/i.test(msg)) {
+      return { ok: false, message: 'Session expired. Sign in again, then enter your invite code.' };
+    }
+    return { ok: false, message: msg || 'Invalid or already used invite code.' };
+  }
+  return { ok: true, user: data?.user as Record<string, unknown> | undefined };
 }
 
 async function studentNeedsIndividualHold(studentId: string): Promise<boolean> {
@@ -141,12 +171,14 @@ const Login = ({ onLogin, mode }: { onLogin: (user: any) => void; mode: 'login' 
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [classJoinCode, setClassJoinCode] = useState('');
+  const [teacherInviteCode, setTeacherInviteCode] = useState('');
   const [error, setError] = useState('');
   const [signupNotice, setSignupNotice] = useState<string | null>(null);
   const isSignup = mode === 'signup';
   const [forgotStatus, setForgotStatus] = useState<string>('');
   const [sendingForgot, setSendingForgot] = useState(false);
   const [showClassCodeField, setShowClassCodeField] = useState(false);
+  const [showTeacherInviteField, setShowTeacherInviteField] = useState(false);
   const formCardRef = useRef<HTMLDivElement | null>(null);
   const [signupData, setSignupData] = useState({
     name: '',
@@ -269,8 +301,17 @@ const Login = ({ onLogin, mode }: { onLogin: (user: any) => void; mode: 'login' 
           refresh_token: String(data.refresh_token || data.access_token),
         });
       }
-      const user = data?.user;
+      let user = data?.user;
+      const meRes = await authFetch('/api/me');
+      const meData = await meRes.json().catch(() => ({}));
+      if (meRes.ok && meData?.user) user = meData.user;
       if (user) {
+        const inviteResult = await tryActivateTeacherInvite(user?.role, teacherInviteCode);
+        if (inviteResult.ok === false) {
+          setError(inviteResult.message);
+          return;
+        }
+        if (inviteResult.user) user = inviteResult.user;
         const joinResult = await tryJoinClassWithCode(user?.role, classJoinCode);
         if (!joinResult.ok) {
           setError(joinResult.message);
@@ -278,17 +319,7 @@ const Login = ({ onLogin, mode }: { onLogin: (user: any) => void; mode: 'login' 
         }
         await finishStudentLogin(user);
       } else {
-        const me = await safeFetch('/api/me');
-        if (me?.authenticated && me?.user) {
-          const joinResult = await tryJoinClassWithCode(me.user?.role, classJoinCode);
-          if (!joinResult.ok) {
-            setError(joinResult.message);
-            return;
-          }
-          await finishStudentLogin(me.user);
-        } else {
-          setError('Could not load account.');
-        }
+        setError('Could not load account.');
       }
     } catch {
       setError('Connection failed');
@@ -366,7 +397,17 @@ const Login = ({ onLogin, mode }: { onLogin: (user: any) => void; mode: 'login' 
         localStorage.removeItem('stemverse_access_token');
       }
       if (data?.user) {
-        await finishStudentLogin(data.user);
+        let user = data.user;
+        const meRes = await authFetch('/api/me');
+        const meData = await meRes.json().catch(() => ({}));
+        if (meRes.ok && meData?.user) user = meData.user;
+        const inviteResult = await tryActivateTeacherInvite(user?.role, teacherInviteCode);
+        if (inviteResult.ok === false) {
+          setError(inviteResult.message);
+          return;
+        }
+        if (inviteResult.user) user = inviteResult.user;
+        await finishStudentLogin(user);
       } else {
         await performLogin(signupData.email, signupData.password);
       }
@@ -534,7 +575,7 @@ const Login = ({ onLogin, mode }: { onLogin: (user: any) => void; mode: 'login' 
                   placeholder="••••••••"
                 />
               </motion.div>
-              <motion.div variants={item} className="flex items-center justify-between gap-3">
+              <motion.div variants={item} className="flex flex-wrap items-center justify-between gap-3">
                 <button
                   type="button"
                   onClick={() => setShowClassCodeField((v) => !v)}
@@ -542,7 +583,32 @@ const Login = ({ onLogin, mode }: { onLogin: (user: any) => void; mode: 'login' 
                 >
                   {showClassCodeField ? 'Hide class code' : 'I have a class code'}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTeacherInviteField((v) => !v)}
+                  className="text-xs font-semibold px-2.5 py-1.5 rounded-md text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 transition-colors"
+                >
+                  {showTeacherInviteField ? 'Hide teacher invite' : 'I have a teacher invite'}
+                </button>
               </motion.div>
+              {showTeacherInviteField && (
+              <motion.div variants={item} className="space-y-2">
+                <label className="cosmic-label" htmlFor="login-teacher-invite">Teacher invite code</label>
+                <input
+                  id="login-teacher-invite"
+                  type="text"
+                  value={teacherInviteCode}
+                  onChange={(e) => setTeacherInviteCode(e.target.value.toUpperCase())}
+                  className="cosmic-input font-mono text-sm tracking-widest"
+                  placeholder="XXXXXXXX"
+                  maxLength={8}
+                  autoComplete="off"
+                />
+                <p className="text-[10px] text-[var(--ca-on-surface-variant)]">
+                  From your principal (Teachers → Invite teacher), not the principal school code.
+                </p>
+              </motion.div>
+              )}
               {showClassCodeField && (
               <motion.div variants={item} className="space-y-2">
                 <label className="cosmic-label">Class Code (optional)</label>
@@ -629,6 +695,11 @@ const Login = ({ onLogin, mode }: { onLogin: (user: any) => void; mode: 'login' 
                     Individual signups join the STEMverse learning community automatically (like Duolingo). Use a class code at sign-in if your teacher gave you one.
                   </p>
                 )}
+                {signupData.role === 'teacher' && (
+                  <p className="text-[10px] text-[var(--ca-on-surface-variant)] leading-snug mt-1">
+                    After sign-up you can enter the invite code from your principal (Teachers → Invite teacher). This is not the principal school code.
+                  </p>
+                )}
               </div>
               <motion.div variants={item} className="space-y-2">
                 <label className="cosmic-label" htmlFor="signup-name">Display name</label>
@@ -669,6 +740,23 @@ const Login = ({ onLogin, mode }: { onLogin: (user: any) => void; mode: 'login' 
                   placeholder="••••••••"
                 />
               </motion.div>
+              {signupData.role === 'teacher' && (
+                <motion.div variants={item} className="space-y-2">
+                  <label className="cosmic-label" htmlFor="signup-teacher-invite">
+                    Teacher invite code (optional)
+                  </label>
+                  <input
+                    id="signup-teacher-invite"
+                    type="text"
+                    value={teacherInviteCode}
+                    onChange={(e) => setTeacherInviteCode(e.target.value.toUpperCase())}
+                    className="cosmic-input font-mono text-sm tracking-widest"
+                    placeholder="XXXXXXXX"
+                    maxLength={8}
+                    autoComplete="off"
+                  />
+                </motion.div>
+              )}
               {signupData.role === 'student' && (
                 <p className="text-[10px] text-[var(--ca-on-surface-variant)] leading-snug">
                   Students get a unique explorer handle automatically. Use a class code from your teacher to start learning.

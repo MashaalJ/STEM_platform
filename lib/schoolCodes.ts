@@ -64,3 +64,30 @@ export async function generateUniqueTeacherInviteCode(): Promise<string> {
   }
   throw new Error("Could not generate unique invite code");
 }
+
+/** Find unused teacher invite (exact match after normalize). */
+export async function findTeacherInviteByCode(rawCode: string): Promise<DbRow | null> {
+  const code = normalizeActivationCode(rawCode);
+  if (!code || code.length < 6) return null;
+
+  let invite = await selectOne<DbRow>("teacher_invites", "*", { code });
+  if (invite && !invite.used) return invite;
+
+  const { data, error } = await db()
+    .from("teacher_invites")
+    .select("*")
+    .eq("code", code)
+    .eq("used", false)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (data) return data as DbRow;
+
+  const { data: rows, error: listErr } = await db().from("teacher_invites").select("*").eq("used", false);
+  if (listErr) throw new Error(listErr.message);
+  for (const row of rows || []) {
+    const stored = normalizeActivationCode(String((row as DbRow).code || ""));
+    if (stored === code) return row as DbRow;
+  }
+  return null;
+}

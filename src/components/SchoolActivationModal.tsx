@@ -2,7 +2,7 @@
  * Post-signup school linking for principals and teachers.
  */
 import React, { useState } from 'react';
-import { authFetch } from '../app/api';
+import { authFetch, getAccessToken } from '../app/api';
 import type { Student } from '../app/types';
 
 export default function SchoolActivationModal({
@@ -17,7 +17,9 @@ export default function SchoolActivationModal({
   const [busy, setBusy] = useState(false);
 
   const isPrincipal = student.role === 'school_admin';
-  const needsActivation = isPrincipal ? student.needs_school_activation : student.needs_teacher_invite;
+  const needsActivation = isPrincipal
+    ? Boolean(student.needs_school_activation ?? !student.school_id)
+    : Boolean(student.needs_teacher_invite ?? !student.school_id);
   if (!needsActivation) return null;
 
   const submit = async (e: React.FormEvent) => {
@@ -25,6 +27,11 @@ export default function SchoolActivationModal({
     setBusy(true);
     setError(null);
     try {
+      const token = await getAccessToken();
+      if (!token) {
+        setError('You must be signed in first. Sign in as Teacher, then enter your invite code.');
+        return;
+      }
       const path = isPrincipal ? '/api/auth/activate-school' : '/api/auth/activate-teacher-invite';
       const body = isPrincipal ? { activation_code: code.trim() } : { code: code.trim() };
       const res = await authFetch(path, {
@@ -34,7 +41,12 @@ export default function SchoolActivationModal({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error || data.message || 'Invalid code');
+        const msg = String(data.error || data.message || 'Invalid code');
+        if (/no token/i.test(msg)) {
+          setError('Session expired. Sign in again, then re-enter your invite code.');
+        } else {
+          setError(msg);
+        }
         return;
       }
       if (data.user) onLinked(data.user as Student);

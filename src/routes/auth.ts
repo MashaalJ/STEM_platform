@@ -22,6 +22,7 @@ import {
   findStudentByEmailOrUsername,
 } from "../../lib/db";
 import * as SQ from "../../lib/serverQueries";
+import { enrichUserWithSchool } from "../../lib/schoolScope.ts";
 import { asyncRoute, V, getReqUser, type SessionUser } from "./_middleware.ts";
 
 type SignupProfilePayload = {
@@ -90,6 +91,13 @@ export default function createAuthRouter(deps: AuthRouterDeps): express.Router {
     return createClient(supabaseUrl, supabaseAnonKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
+  };
+
+  const publicUserForClient = async (userId: string, viewerRole?: string) => {
+    const user = await getStudentPublic(userId);
+    if (!user) return null;
+    const enriched = await enrichUserWithSchool(user);
+    return sanitizeUser(enriched, viewerRole);
   };
 
   const syncLocalStudentProfile = async (
@@ -317,16 +325,19 @@ export default function createAuthRouter(deps: AuthRouterDeps): express.Router {
         if (!existingSignIn.error && existingSignIn.data.user && existingSignIn.data.session?.access_token) {
           const existingMeta = (existingSignIn.data.user.user_metadata || {}) as Record<string, unknown>;
           const linked = await linkSupabaseUserToLocalStudent(existingSignIn.data.user, existingMeta);
-          const fullUser = linked ? await getStudentPublic(linked.id) : null;
-          if (linked && fullUser) {
+          if (linked) {
             await bumpLastActive(linked.id);
-            return res.json({
-              success: true,
-              already_exists: true,
-              message: "Account already existed. You are now signed in.",
-              access_token: existingSignIn.data.session.access_token,
-              user: sanitizeUser(fullUser, (fullUser as { role?: string }).role),
-            });
+            const enrichedUser = await publicUserForClient(linked.id, String(linked.role || role));
+            if (enrichedUser) {
+              return res.json({
+                success: true,
+                already_exists: true,
+                message: "Account already existed. You are now signed in.",
+                access_token: existingSignIn.data.session.access_token,
+                refresh_token: existingSignIn.data.session.refresh_token,
+                user: enrichedUser,
+              });
+            }
           }
         }
         return res.status(409).json({ success: false, message: "User already exists. Please sign in instead." });
@@ -363,17 +374,19 @@ export default function createAuthRouter(deps: AuthRouterDeps): express.Router {
         needs_email_confirmation: true,
         access_token: null,
         username: synced.username,
-        user: sanitizeUser(synced.user),
+        user: await publicUserForClient(sbNew.id, role),
         message: "Account created. Sign in with your email and password.",
       });
     }
 
     await bumpLastActive(sbNew.id);
+    const signupUser = await publicUserForClient(sbNew.id, role);
     return res.json({
       success: true,
       access_token: signIn.data.session.access_token,
+      refresh_token: signIn.data.session.refresh_token,
       username: synced.username,
-      user: sanitizeUser(synced.user),
+      user: signupUser,
     });
   }));
 
@@ -440,8 +453,8 @@ export default function createAuthRouter(deps: AuthRouterDeps): express.Router {
         await enrollStudentInDefaultClass(linked.id);
       }
 
-      const fullUser = await getStudentPublic(linked.id);
-      if (!fullUser) {
+      const loginUser = await publicUserForClient(linked.id, linkedRole);
+      if (!loginUser) {
         return res.status(500).json({ success: false, message: "Could not load user profile." });
       }
 
@@ -450,7 +463,7 @@ export default function createAuthRouter(deps: AuthRouterDeps): express.Router {
         success: true,
         access_token: signIn.data.session.access_token,
         refresh_token: signIn.data.session.refresh_token,
-        user: sanitizeUser(fullUser),
+        user: loginUser,
       });
     } catch (err) {
       console.error("[stemverse] /api/login:", err instanceof Error ? err.message : err);
@@ -472,10 +485,9 @@ export default function createAuthRouter(deps: AuthRouterDeps): express.Router {
     if (!user) {
       return res.status(401).json({ authenticated: false });
     }
-    const { enrichUserWithSchool } = await import("../../lib/schoolScope.ts");
     const enriched = await enrichUserWithSchool(user);
     await bumpLastActive(sessionUser.id);
-    res.json({ authenticated: true, user: enriched });
+    res.json({ authenticated: true, user: sanitizeUser(enriched, String(enriched.role || "")) });
   }));
 
   router.patch("/me", requireAuth, V.validateBody(V.patchMeSchema), asyncRoute(async (req, res) => {

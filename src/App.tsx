@@ -85,7 +85,10 @@ function AppShell() {
               </>
             )}
             {app.student &&
-              (app.student.needs_school_activation || app.student.needs_teacher_invite) && (
+              (app.student.needs_school_activation ||
+                app.student.needs_teacher_invite ||
+                (app.student.role === 'school_admin' && !app.student.school_id) ||
+                (app.student.role === 'teacher' && !app.student.school_id)) && (
               <SchoolActivationModal
                 student={app.student}
                 onLinked={(user) => {
