@@ -2,8 +2,25 @@
  * School accounts: principal dashboard, admin school management, activation.
  */
 import express from "express";
-import { db, selectOne, selectMany, insertOne, updateRow, deleteRows, countRows, isUuid, getStudentPublic, type DbRow } from "../../lib/db";
-import { generateUniqueActivationCode, generateUniqueTeacherInviteCode } from "../../lib/schoolCodes";
+import {
+  db,
+  selectOne,
+  selectMany,
+  insertOne,
+  updateRow,
+  deleteRows,
+  countRows,
+  isUuid,
+  getStudentPublic,
+  getStudentRole,
+  type DbRow,
+} from "../../lib/db";
+import {
+  generateUniqueActivationCode,
+  generateUniqueTeacherInviteCode,
+  findSchoolByActivationCode,
+  normalizeActivationCode,
+} from "../../lib/schoolCodes";
 import { enrichUserWithSchool, getUserSchoolId } from "../../lib/schoolScope";
 import { asyncRoute, getReqUser } from "./_middleware.ts";
 
@@ -143,13 +160,31 @@ export default function createSchoolsRouter(deps: SchoolsRouterDeps): express.Ro
     requireRole(["school_admin"]),
     asyncRoute(async (req, res) => {
       const sessionUser = getReqUser(req)!;
-      const code = String(req.body?.activation_code || "")
-        .trim()
-        .toUpperCase();
+      const code = normalizeActivationCode(String(req.body?.activation_code || ""));
       if (!code) return res.status(400).json({ success: false, error: "activation_code is required" });
+      if (code.length < 8) {
+        return res.status(400).json({
+          success: false,
+          error: "Enter the full 8-character principal code from Admin → Schools (not a teacher invite code).",
+        });
+      }
 
-      const school = await selectOne<DbRow>("schools", "*", { activation_code: code });
-      if (!school) return res.status(404).json({ success: false, error: "Invalid activation code" });
+      let role = (await getStudentRole(sessionUser.id)) || sessionUser.role;
+      if (role !== "school_admin") {
+        return res.status(403).json({
+          success: false,
+          error: "This account is not a Principal. Sign up with “I'm a Principal”, then enter the school code.",
+        });
+      }
+
+      const school = await findSchoolByActivationCode(code);
+      if (!school) {
+        return res.status(404).json({
+          success: false,
+          error:
+            "Invalid or already used code. Each code works once. In Admin → Schools, click Regenerate (↻) next to the school and copy the new code.",
+        });
+      }
 
       const existingAdmin = await selectOne("students", "id", {
         school_id: String(school.id),
@@ -481,7 +516,17 @@ export default function createSchoolsRouter(deps: SchoolsRouterDeps): express.Ro
     for (const s of schools) {
       const teachers = await countRows("students", { school_id: String(s.id), role: "teacher" });
       const students = await countRows("students", { school_id: String(s.id), role: "student" });
-      out.push({ ...s, teacher_count: teachers, student_count: students });
+      const principal = await selectOne("students", "id", {
+        school_id: String(s.id),
+        role: "school_admin",
+      });
+      out.push({
+        ...s,
+        teacher_count: teachers,
+        student_count: students,
+        has_principal: Boolean(principal),
+        principal_code_pending: Boolean(s.activation_code),
+      });
     }
     res.json(out);
   }));
@@ -537,9 +582,15 @@ export default function createSchoolsRouter(deps: SchoolsRouterDeps): express.Ro
   router.post("/admin/schools/:id/regenerate-code", requireAuth, requireRole(["admin"]), asyncRoute(async (req, res) => {
     const id = req.params.id;
     if (!isUuid(id)) return res.status(400).json({ success: false, error: "Invalid school id" });
+    const school = await selectOne<DbRow>("schools", "id, name", { id });
+    if (!school) return res.status(404).json({ success: false, error: "School not found" });
     const activation_code = await generateUniqueActivationCode();
     await updateRow("schools", { id }, { activation_code });
-    res.json({ success: true, activation_code });
+    res.json({
+      success: true,
+      activation_code,
+      message: "New principal code generated. Old codes no longer work. Share this code once with your principal.",
+    });
   }));
 
   router.post("/admin/schools/:id/suspend", requireAuth, requireRole(["admin"]), asyncRoute(async (req, res) => {

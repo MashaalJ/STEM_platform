@@ -54,8 +54,8 @@ export default function SchoolActivationModal({
         </h2>
         <p className="text-sm text-slate-600 mt-2">
           {isPrincipal
-            ? 'Enter the 8-character activation code STEMverse gave your school.'
-            : 'Enter the invite code from your principal.'}
+            ? 'Enter the 8-character principal code from Admin → Schools. Each code works once; if it fails, ask admin to click Regenerate (↻) and send the new code.'
+            : 'Enter the 8-character teacher invite code from your principal (not the principal school code).'}
         </p>
         <label htmlFor="school-activation-code" className="block mt-4 text-sm font-semibold text-slate-700">
           {isPrincipal ? 'School activation code' : 'Teacher invite code'}
@@ -72,7 +72,7 @@ export default function SchoolActivationModal({
         {error && <p className="mt-2 text-sm text-rose-600">{error}</p>}
         <button
           type="submit"
-          disabled={busy || code.trim().length < 6}
+          disabled={busy || code.trim().replace(/[^A-Za-z0-9]/g, '').length < 8}
           className="mt-4 w-full rounded-lg bg-indigo-700 py-2.5 text-sm font-bold text-white disabled:opacity-50"
         >
           {busy ? 'Verifying…' : 'Continue'}

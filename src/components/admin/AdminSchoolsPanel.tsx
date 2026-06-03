@@ -392,6 +392,7 @@ export default function AdminSchoolsPanel() {
                 <th className="p-3">Teachers</th>
                 <th className="p-3">Students</th>
                 <th className="p-3">Limits</th>
+                <th className="p-3">Principal code</th>
                 <th className="p-3">Expires</th>
                 <th className="p-3">Actions</th>
               </tr>
@@ -407,6 +408,35 @@ export default function AdminSchoolsPanel() {
                   <td className="p-3">{s.student_count ?? 0}</td>
                   <td className="p-3 text-xs text-slate-600">
                     {s.max_teachers ?? '—'} teachers · {s.max_students ?? '—'} students max
+                  </td>
+                  <td className="p-3">
+                    {(s as School & { activation_code?: string | null; has_principal?: boolean }).activation_code ? (
+                      <div className="flex items-center gap-1">
+                        <span className="font-mono text-xs font-bold text-indigo-800">
+                          {String((s as School & { activation_code?: string }).activation_code)}
+                        </span>
+                        <button
+                          type="button"
+                          title="Copy principal code"
+                          onClick={() =>
+                            void copy(String((s as School & { activation_code?: string }).activation_code))
+                          }
+                          className="p-1 rounded border text-[10px]"
+                        >
+                          <Copy className="size-3" />
+                        </button>
+                      </div>
+                    ) : (s as School & { has_principal?: boolean }).has_principal ? (
+                      <span className="text-xs text-emerald-700 font-semibold">Principal linked</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void regenerateCode(s.id, s.name)}
+                        className="text-xs text-amber-700 font-semibold underline"
+                      >
+                        Generate code
+                      </button>
+                    )}
                   </td>
                   <td className="p-3 text-xs">
                     {s.subscription_expires_at
