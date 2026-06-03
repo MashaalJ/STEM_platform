@@ -66,8 +66,20 @@ export default function AdminSchoolsPanel() {
     void load();
   }, [load]);
 
-  const apiError = (data: Record<string, unknown>, fallback: string) =>
-    String(data.message || data.error || fallback);
+  const apiError = (data: Record<string, unknown>, fallback: string, status?: number) => {
+    if (status === 401) {
+      return 'Session expired. Sign out, log in again as admin, then retry.';
+    }
+    if (status === 502) {
+      return 'Server is waking up or restarting (502). Wait 30 seconds, refresh, then try again.';
+    }
+    if (status === 503) {
+      const detail = String(data.message || data.error || '');
+      if (/auth not configured|school tables/i.test(detail)) return detail;
+      return detail || 'Service unavailable (503). Check Render deploy logs and Supabase env vars.';
+    }
+    return String(data.message || data.error || fallback);
+  };
 
   const ensureToken = async (): Promise<boolean> => {
     const token = await getAccessToken();
@@ -89,7 +101,7 @@ export default function AdminSchoolsPanel() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setMessage(apiError(data, 'Could not create school'));
+      setMessage(apiError(data, 'Could not create school', res.status));
       return;
     }
     setNewCodeModal({ schoolName: form.name, code: String(data.activation_code || '') });
@@ -108,7 +120,7 @@ export default function AdminSchoolsPanel() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setMessage(apiError(data, 'Could not update school'));
+      setMessage(apiError(data, 'Could not update school', res.status));
       return;
     }
     setEditingId(null);

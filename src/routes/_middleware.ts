@@ -172,7 +172,10 @@ export function createAuthMiddleware(linkSupabaseUserToLocalStudent: LinkSupabas
 
   const requireAuth: express.RequestHandler = asyncRoute(async (req, res, next) => {
     if (!hasSupabaseAdmin || !supabaseAdmin) {
-      return res.status(503).json({ error: "Auth not configured" });
+      return res.status(503).json({
+        error: "Auth not configured",
+        message: "Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on Render, then redeploy.",
+      });
     }
     const token = req.headers.authorization?.split("Bearer ")[1];
     if (!token) {

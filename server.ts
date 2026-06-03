@@ -739,6 +739,28 @@ async function startServer() {
     return { ok: true, message: "" } as const;
   };
 
+  const enrollStudentInDefaultClass = async (studentId: string): Promise<void> => {
+    try {
+      const defaultClass = await Curriculum.findClassByName(Curriculum.STEMVERSE_DEFAULT_CLASS_NAME);
+      if (!defaultClass) return;
+      await insertIgnore(
+        "class_students",
+        { class_id: String(defaultClass.id), student_id: studentId },
+        "class_id,student_id",
+      );
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const attachStudentToDefaultSchool = async (studentId: string): Promise<void> => {
+    try {
+      await attachStudentToDefaultIndividualSchool(studentId);
+    } catch {
+      /* ignore */
+    }
+  };
+
   /** Upsert students row keyed by auth user UUID (students.id = auth.users.id). */
   const linkSupabaseUserToLocalStudent = async (
     sbUser: { id: string; email?: string | null },
@@ -821,28 +843,6 @@ async function startServer() {
   app.use(globalRateLimit);
 
   const ensureStudentUsername = () => generateUniqueStudentUsername(usernameExists);
-
-  const enrollStudentInDefaultClass = async (studentId: string): Promise<void> => {
-    try {
-      const defaultClass = await Curriculum.findClassByName(Curriculum.STEMVERSE_DEFAULT_CLASS_NAME);
-      if (!defaultClass) return;
-      await insertIgnore(
-        "class_students",
-        { class_id: String(defaultClass.id), student_id: studentId },
-        "class_id,student_id",
-      );
-    } catch {
-      /* ignore */
-    }
-  };
-
-  const attachStudentToDefaultSchool = async (studentId: string): Promise<void> => {
-    try {
-      await attachStudentToDefaultIndividualSchool(studentId);
-    } catch {
-      /* ignore */
-    }
-  };
 
   const isMissingColumnError = (msg: string) =>
     /could not find the .* column|column .* does not exist/i.test(msg);
@@ -1078,8 +1078,6 @@ async function startServer() {
       );
     }
   };
-
-  await ensureBuiltinTestAccounts();
 
   app.get("/favicon.ico", (_req, res) => {
     res.redirect(302, "/icons/icon-192x192.svg");
@@ -1484,6 +1482,12 @@ Create the quiz now.`;
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[stemverse] Server running at http://localhost:${PORT}`);
+    void ensureBuiltinTestAccounts().catch((err) => {
+      console.warn(
+        "[stemverse] Test account sync (background):",
+        err instanceof Error ? err.message : err,
+      );
+    });
     if (hasSupabaseAdmin) {
       void checkSupabaseHost().then((check) => {
         if (!check.ok) {

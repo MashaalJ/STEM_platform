@@ -490,20 +490,32 @@ export default function createSchoolsRouter(deps: SchoolsRouterDeps): express.Ro
     const sessionUser = getReqUser(req)!;
     const name = String(req.body?.name || "").trim();
     if (!name) return res.status(400).json({ success: false, error: "School name is required" });
-    const activation_code = await generateUniqueActivationCode();
-    const row = await insertOne("schools", {
-      name,
-      city: String(req.body?.city || "").trim() || null,
-      country: String(req.body?.country || "Pakistan").trim() || "Pakistan",
-      tier: String(req.body?.tier || "explorer").trim() || "explorer",
-      subscription_status: String(req.body?.subscription_status || "trial").trim() || "trial",
-      subscription_expires_at: req.body?.subscription_expires_at || null,
-      max_teachers: Number.isFinite(Number(req.body?.max_teachers)) ? Number(req.body.max_teachers) : 2,
-      max_students: Number.isFinite(Number(req.body?.max_students)) ? Number(req.body.max_students) : 50,
-      activation_code,
-      created_by: sessionUser.id,
-    });
-    res.json({ success: true, school: row, activation_code });
+    try {
+      const activation_code = await generateUniqueActivationCode();
+      const row = await insertOne("schools", {
+        name,
+        city: String(req.body?.city || "").trim() || null,
+        country: String(req.body?.country || "Pakistan").trim() || "Pakistan",
+        tier: String(req.body?.tier || "explorer").trim() || "explorer",
+        subscription_status: String(req.body?.subscription_status || "trial").trim() || "trial",
+        subscription_expires_at: req.body?.subscription_expires_at || null,
+        max_teachers: Number.isFinite(Number(req.body?.max_teachers)) ? Number(req.body.max_teachers) : 2,
+        max_students: Number.isFinite(Number(req.body?.max_students)) ? Number(req.body.max_students) : 50,
+        activation_code,
+        created_by: sessionUser.id,
+      });
+      res.json({ success: true, school: row, activation_code });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/schools|teacher_invites|relation.*does not exist|schema cache/i.test(msg)) {
+        return res.status(503).json({
+          success: false,
+          error:
+            "School tables are missing. In Supabase SQL Editor, run migrations 029_schools.sql (and 001–031 if needed), then try again.",
+        });
+      }
+      throw err;
+    }
   }));
 
   router.patch("/admin/schools/:id", requireAuth, requireRole(["admin"]), asyncRoute(async (req, res) => {
