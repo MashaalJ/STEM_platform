@@ -20,6 +20,10 @@ import {
   generateUniqueTeacherInviteCode,
   findSchoolByActivationCode,
   findTeacherInviteByCode,
+  findSchoolByTeacherJoinCode,
+  findUsedTeacherInviteByCode,
+  ensureSchoolTeacherJoinCode,
+  generateUniqueTeacherJoinCode,
   normalizeActivationCode,
 } from "../../lib/schoolCodes";
 import { enrichUserWithSchool, getUserSchoolId } from "../../lib/schoolScope";
@@ -196,7 +200,8 @@ export default function createSchoolsRouter(deps: SchoolsRouterDeps): express.Ro
       }
 
       await updateRow("students", { id: sessionUser.id }, { school_id: String(school.id), role: "school_admin" });
-      await updateRow("schools", { id: String(school.id) }, { activation_code: null });
+      const teacherJoinCode = await ensureSchoolTeacherJoinCode(String(school.id));
+      await updateRow("schools", { id: String(school.id) }, { activation_code: null, teacher_join_code: teacherJoinCode });
       const user = await getStudentPublic(sessionUser.id);
       const enriched = user ? await enrichUserWithSchool(user) : null;
       res.json({ success: true, user: sanitizeUser(enriched, "school_admin") });
@@ -217,15 +222,36 @@ export default function createSchoolsRouter(deps: SchoolsRouterDeps): express.Ro
         });
       }
 
-      const invite = await findTeacherInviteByCode(code);
-      if (!invite) {
-        return res.status(404).json({
-          success: false,
-          error: "Invalid or already used invite code. Ask your principal for a new code from Teachers → Invite teacher.",
-        });
+      const existingSchoolId = await getUserSchoolId(sessionUser.id);
+      if (existingSchoolId) {
+        const user = await getStudentPublic(sessionUser.id);
+        const enriched = user ? await enrichUserWithSchool(user) : null;
+        return res.json({ success: true, user: sanitizeUser(enriched, "teacher") });
       }
 
-      const schoolId = String(invite.school_id);
+      let schoolId: string | null = null;
+      const invite = await findTeacherInviteByCode(code);
+      if (invite) {
+        schoolId = String(invite.school_id);
+      } else {
+        const schoolByJoin = await findSchoolByTeacherJoinCode(code);
+        if (schoolByJoin) {
+          schoolId = String(schoolByJoin.id);
+        } else if (await findUsedTeacherInviteByCode(code)) {
+          return res.status(404).json({
+            success: false,
+            error:
+              "That one-time invite was already used. Ask your principal for the shared school teacher code (Teachers tab) or click Invite teacher for a new single-use code.",
+          });
+        } else {
+          return res.status(404).json({
+            success: false,
+            error:
+              "Invalid code. Use the shared school teacher code or a one-time invite from your principal (not the principal school activation code).",
+          });
+        }
+      }
+
       const school = await selectOne<{ max_teachers: number }>("schools", "max_teachers", { id: schoolId });
       const teacherCount = await countRows("students", { school_id: schoolId, role: "teacher" });
       if (school && teacherCount >= Number(school.max_teachers || 2)) {
@@ -233,7 +259,9 @@ export default function createSchoolsRouter(deps: SchoolsRouterDeps): express.Ro
       }
 
       await updateRow("students", { id: sessionUser.id }, { school_id: schoolId });
-      await updateRow("teacher_invites", { id: String(invite.id) }, { used: true, used_by: sessionUser.id });
+      if (invite) {
+        await updateRow("teacher_invites", { id: String(invite.id) }, { used: true, used_by: sessionUser.id });
+      }
 
       const user = await getStudentPublic(sessionUser.id);
       const enriched = user ? await enrichUserWithSchool(user) : null;
@@ -253,6 +281,10 @@ export default function createSchoolsRouter(deps: SchoolsRouterDeps): express.Ro
       if (!school) return res.status(404).json({ success: false, error: "School not found" });
       if (sessionUser.role === "student") {
         return res.json({ id: school.id, name: school.name });
+      }
+      if (sessionUser.role === "school_admin") {
+        const teacher_join_code = await ensureSchoolTeacherJoinCode(schoolId);
+        return res.json({ ...school, teacher_join_code });
       }
       res.json(school);
     }),
@@ -544,6 +576,7 @@ export default function createSchoolsRouter(deps: SchoolsRouterDeps): express.Ro
     if (!name) return res.status(400).json({ success: false, error: "School name is required" });
     try {
       const activation_code = await generateUniqueActivationCode();
+      const teacher_join_code = await generateUniqueTeacherJoinCode();
       const row = await insertOne("schools", {
         name,
         city: String(req.body?.city || "").trim() || null,
@@ -554,6 +587,7 @@ export default function createSchoolsRouter(deps: SchoolsRouterDeps): express.Ro
         max_teachers: Number.isFinite(Number(req.body?.max_teachers)) ? Number(req.body.max_teachers) : 2,
         max_students: Number.isFinite(Number(req.body?.max_students)) ? Number(req.body.max_students) : 50,
         activation_code,
+        teacher_join_code,
         created_by: sessionUser.id,
       });
       res.json({ success: true, school: row, activation_code });

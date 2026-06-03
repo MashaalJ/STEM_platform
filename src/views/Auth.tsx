@@ -605,7 +605,7 @@ const Login = ({ onLogin, mode }: { onLogin: (user: any) => void; mode: 'login' 
                   autoComplete="off"
                 />
                 <p className="text-[10px] text-[var(--ca-on-surface-variant)]">
-                  From your principal (Teachers → Invite teacher), not the principal school code.
+                  Shared school teacher code or one-time invite from principal (Teachers tab).
                 </p>
               </motion.div>
               )}
@@ -697,7 +697,7 @@ const Login = ({ onLogin, mode }: { onLogin: (user: any) => void; mode: 'login' 
                 )}
                 {signupData.role === 'teacher' && (
                   <p className="text-[10px] text-[var(--ca-on-surface-variant)] leading-snug mt-1">
-                    After sign-up you can enter the invite code from your principal (Teachers → Invite teacher). This is not the principal school code.
+                    Use the shared school teacher code from your principal (Teachers tab), or a one-time invite. Not the principal activation code.
                   </p>
                 )}
               </div>

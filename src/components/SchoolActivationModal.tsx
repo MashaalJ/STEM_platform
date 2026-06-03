@@ -67,7 +67,7 @@ export default function SchoolActivationModal({
         <p className="text-sm text-slate-600 mt-2">
           {isPrincipal
             ? 'Enter the 8-character principal code from Admin → Schools. Each code works once; if it fails, ask admin to click Regenerate (↻) and send the new code.'
-            : 'Enter the 8-character teacher invite code from your principal (not the principal school code).'}
+            : 'Enter the shared school teacher code or a one-time invite from your principal (Teachers tab). Not the principal school activation code.'}
         </p>
         <label htmlFor="school-activation-code" className="block mt-4 text-sm font-semibold text-slate-700">
           {isPrincipal ? 'School activation code' : 'Teacher invite code'}

@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Users, GraduationCap, BookOpen, BarChart3, Settings,
   Plus, Copy, CheckCircle2, Download, Trash2,
 } from 'lucide-react';
-import { safeFetch, fetchWithAuth } from '../app/api';
+import { safeFetch, authFetch, getAccessToken } from '../app/api';
 import type { Student } from '../app/types';
 
 type Tab = 'overview' | 'teachers' | 'students' | 'classes' | 'reports' | 'settings';
@@ -147,12 +147,12 @@ export default function PrincipalDashboard({ student }: { student: Student }) {
 
   const removeTeacher = async (id: string) => {
     if (!confirm('Remove this teacher from your school? Their classes will be unassigned.')) return;
-    await fetchWithAuth(`/api/school/teachers/${id}`, { method: 'DELETE' });
+    await authFetch(`/api/school/teachers/${id}`, { method: 'DELETE' });
     void load();
   };
 
   const saveSettings = async () => {
-    const res = await fetchWithAuth('/api/school', {
+    const res = await authFetch('/api/school', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settingsDraft),
@@ -301,6 +301,25 @@ export default function PrincipalDashboard({ student }: { student: Student }) {
 
         {tab === 'teachers' && (
           <div className="space-y-4">
+            {(school?.teacher_join_code as string) && (
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4">
+                <p className="text-xs font-bold uppercase text-indigo-900 mb-1">Shared teacher code (all teachers)</p>
+                <p className="text-sm text-indigo-950 mb-3">
+                  Every teacher at your school can use this same code when they sign up or sign in. You do not need a new
+                  code for each teacher unless you want a one-time invite below.
+                </p>
+                <div className="inline-flex items-center gap-2 rounded-lg bg-white border border-indigo-200 px-3 py-2 font-mono text-lg tracking-widest">
+                  {String(school.teacher_join_code)}
+                  <button
+                    type="button"
+                    onClick={() => void copyText(String(school.teacher_join_code))}
+                    aria-label="Copy shared teacher code"
+                  >
+                    <Copy className="size-4 text-indigo-700" />
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="flex flex-wrap gap-2 items-end">
               <label className="text-sm min-w-[200px]">
                 <span className="block font-semibold text-slate-700 mb-1">Teacher email (optional)</span>
@@ -321,9 +340,13 @@ export default function PrincipalDashboard({ student }: { student: Student }) {
                 Invite teacher
               </button>
             </div>
+            <p className="text-xs text-slate-600">
+              <strong>Invite teacher</strong> creates an extra one-time code (for one teacher only). Prefer the shared
+              code above for multiple teachers.
+            </p>
             {invites.length > 0 && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                <p className="text-xs font-bold uppercase text-amber-900 mb-2">Pending invites</p>
+                <p className="text-xs font-bold uppercase text-amber-900 mb-2">One-time invites (single teacher each)</p>
                 <div className="flex flex-wrap gap-2">
                   {invites.map((inv) => (
                     <span
