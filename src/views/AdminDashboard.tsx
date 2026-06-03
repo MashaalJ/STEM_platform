@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   Rocket, Users, School, Activity, Award, Plus, BarChart3, PieChart, ClipboardList, Zap, X, ChevronDown, Copy, Sparkles, Download, LogIn, Layers, LayoutGrid, AlertTriangle, KeyRound, ShieldCheck, Share2, Printer, CheckCircle2, TrendingUp, ChevronRight, Terminal, LayoutDashboard, Database, Shield, ArrowLeft, Play, Search, Bell, Flame, Lock, User, Settings, Map as MapIcon, Trophy, ChevronLeft,
 } from 'lucide-react';
-import { safeFetch, fetchWithAuth } from '../app/api';
+import { safeFetch, fetchWithAuth, authFetch } from '../app/api';
 import CurriculumEditor from '../components/curriculum/CurriculumEditor';
 import ContentManager from '../components/admin/ContentManager';
 import AdminSchoolsPanel from '../components/admin/AdminSchoolsPanel';
@@ -23,14 +23,25 @@ const slidePanelMotion = {
   transition: { type: 'spring' as const, stiffness: 300, damping: 30 },
 };
 
+const GENDER_OPTIONS = [
+  { value: '', label: 'Not set' },
+  { value: 'female', label: 'Female' },
+  { value: 'male', label: 'Male' },
+  { value: 'non_binary', label: 'Non-binary' },
+  { value: 'prefer_not_say', label: 'Prefer not to say' },
+  { value: 'other', label: 'Other' },
+] as const;
+
 const AdminBillingModal = ({
   user,
   onClose,
   onSaved,
+  onDeleted,
 }: {
   user: Student;
   onClose: () => void;
   onSaved: () => void;
+  onDeleted: () => void;
 }) => {
   const [draft, setDraft] = useState({
     subscription_status: (user.subscription_status || 'free').toLowerCase(),
@@ -91,19 +102,50 @@ const AdminBillingModal = ({
     }
   };
 
+  const [deleting, setDeleting] = useState(false);
+
+  const deleteAccount = async () => {
+    if (
+      !confirm(
+        `Permanently delete "${user.name}" (${user.email || user.id})? This removes their login and profile.`,
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    setErr(null);
+    try {
+      const res = await authFetch(`/api/admin/students/${user.id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErr(String(data.message || data.error || 'Delete failed'));
+        return;
+      }
+      onDeleted();
+      onClose();
+    } catch {
+      setErr('Network error');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[300] flex justify-end">
-      <button type="button" className="absolute inset-0 bg-black/50" aria-label="Close" onClick={() => !saving && onClose()} />
+      <button type="button" className="absolute inset-0 bg-black/50" aria-label="Close" onClick={() => !saving && !deleting && onClose()} />
       <motion.div
         {...slidePanelMotion}
         className="relative bg-white h-full w-full max-w-lg shadow-2xl border-l border-slate-200 p-6 overflow-y-auto"
       >
         <h3 className="font-bold text-lg text-[#0D1C32] mb-1">Account & billing</h3>
-        <p className="text-sm text-slate-500 mb-4">{user.name} · ID {user.id}</p>
+        <p className="text-sm text-slate-500 mb-4">
+          {user.name} · {user.role} · {user.email || `ID ${user.id}`}
+        </p>
         {err && <p className="text-sm text-red-600 mb-3">{err}</p>}
         <div className="space-y-3 text-sm">
           <label className="block">
-            <span className="text-slate-600">Subscription status</span>
+            <span className="text-slate-600 font-medium">Subscription status</span>
+            <span className="block text-xs text-slate-400 mt-0.5">Whether this account can use paid features</span>
             <select
               className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2"
               value={draft.subscription_status}
@@ -117,7 +159,8 @@ const AdminBillingModal = ({
             </select>
           </label>
           <label className="block">
-            <span className="text-slate-600">Plan label</span>
+            <span className="text-slate-600 font-medium">Plan name</span>
+            <span className="block text-xs text-slate-400 mt-0.5">Display label (e.g. free, pro, school)</span>
             <input
               className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2"
               value={draft.subscription_plan}
@@ -125,7 +168,7 @@ const AdminBillingModal = ({
             />
           </label>
           <label className="block">
-            <span className="text-slate-600">Billing provider</span>
+            <span className="text-slate-600 font-medium">Billing provider</span>
             <select
               className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2"
               value={draft.billing_provider}
@@ -139,7 +182,8 @@ const AdminBillingModal = ({
             </select>
           </label>
           <label className="block">
-            <span className="text-slate-600">MRR (cents)</span>
+            <span className="text-slate-600 font-medium">Monthly revenue (cents)</span>
+            <span className="block text-xs text-slate-400 mt-0.5">MRR in cents — e.g. 2999 = $29.99/mo</span>
             <input
               type="number"
               min={0}
@@ -149,7 +193,8 @@ const AdminBillingModal = ({
             />
           </label>
           <label className="block">
-            <span className="text-slate-600">LTV (cents)</span>
+            <span className="text-slate-600 font-medium">Lifetime value (cents)</span>
+            <span className="block text-xs text-slate-400 mt-0.5">Total revenue attributed to this account, in cents</span>
             <input
               type="number"
               min={0}
@@ -159,16 +204,22 @@ const AdminBillingModal = ({
             />
           </label>
           <label className="block">
-            <span className="text-slate-600">Gender (optional)</span>
-            <input
+            <span className="text-slate-600 font-medium">Gender (optional)</span>
+            <select
               className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2"
-              placeholder="female, male, non_binary, prefer_not_say, other"
               value={draft.gender}
               onChange={(e) => setDraft((d) => ({ ...d, gender: e.target.value }))}
-            />
+            >
+              {GENDER_OPTIONS.map((g) => (
+                <option key={g.value || 'unset'} value={g.value}>
+                  {g.label}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="block">
-            <span className="text-slate-600">Country code (ISO2)</span>
+            <span className="text-slate-600 font-medium">Country code</span>
+            <span className="block text-xs text-slate-400 mt-0.5">Two-letter ISO code (e.g. US, PK, CA)</span>
             <input
               className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2"
               placeholder="US"
@@ -178,9 +229,10 @@ const AdminBillingModal = ({
             />
           </label>
           <label className="block">
-            <span className="text-slate-600">Region</span>
+            <span className="text-slate-600 font-medium">Region / state</span>
             <input
               className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2"
+              placeholder="e.g. Ontario, CA"
               value={draft.region}
               onChange={(e) => setDraft((d) => ({ ...d, region: e.target.value }))}
             />
@@ -197,13 +249,21 @@ const AdminBillingModal = ({
           </button>
           <button
             type="button"
-            disabled={saving}
+            disabled={saving || deleting}
             onClick={() => void save()}
             className="flex-1 py-2 rounded-lg bg-amber-500 text-slate-900 font-bold"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
+        <button
+          type="button"
+          disabled={saving || deleting}
+          onClick={() => void deleteAccount()}
+          className="mt-4 w-full py-2 rounded-lg border border-rose-300 text-rose-700 text-sm font-bold hover:bg-rose-50"
+        >
+          {deleting ? 'Deleting…' : 'Delete account permanently'}
+        </button>
       </motion.div>
     </div>
   );
@@ -1032,6 +1092,7 @@ const AdminDashboard = () => {
             user={billingUser}
             onClose={() => setBillingUser(null)}
             onSaved={() => void refreshData()}
+            onDeleted={() => void refreshData()}
           />
         </AnimatePresence>
       )}

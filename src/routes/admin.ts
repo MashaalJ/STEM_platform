@@ -4,7 +4,8 @@
  */
 
 import express from "express";
-import { db, selectOne, selectMany, updateRow, countRows, isUuid, getStudentPublic, type DbRow } from "../../lib/db";
+import { db, selectOne, selectMany, updateRow, deleteRows, countRows, isUuid, getStudentPublic, type DbRow } from "../../lib/db";
+import { hasSupabaseAdmin, supabaseAdmin } from "../../lib/supabaseAdmin";
 import * as SQ from "../../lib/serverQueries";
 import { asyncRoute, getReqUser } from "./_middleware.ts";
 
@@ -120,6 +121,31 @@ export default function createAdminRouter(deps: AdminRouterDeps): express.Router
     const user = await getStudentPublic(id);
     res.json({ success: true, user: sanitizeUser(user) });
   });
+
+  router.delete("/admin/students/:id", requireAuth, requireRole(["admin"]), asyncRoute(async (req, res) => {
+    const sessionUser = getReqUser(req)!;
+    const id = String(req.params.id || "").trim();
+    if (!isUuid(id)) return res.status(400).json({ success: false, message: "Invalid user id" });
+    if (id === sessionUser.id) {
+      return res.status(400).json({ success: false, message: "You cannot delete your own admin account." });
+    }
+    const row = await selectOne("students", "id, role", { id });
+    if (!row) return res.status(404).json({ success: false, message: "User not found" });
+
+    await updateRow("students", { id }, { school_id: null });
+    await updateRow("classes", { teacher_id: id }, { teacher_id: null });
+    await deleteRows("class_students", { student_id: id });
+
+    if (hasSupabaseAdmin && supabaseAdmin) {
+      const removed = await supabaseAdmin.auth.admin.deleteUser(id);
+      if (removed.error && !/not found/i.test(removed.error.message)) {
+        console.warn("[stemverse] auth delete:", removed.error.message);
+      }
+    }
+
+    await deleteRows("students", { id });
+    res.json({ success: true });
+  }));
 
   router.get("/teacher/quiz-reviews/pending", requireAuth, requireRole(["teacher", "admin"]), async (req, res) => {
     const sessionUser = getReqUser(req)!;

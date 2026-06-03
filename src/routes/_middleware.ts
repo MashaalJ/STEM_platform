@@ -175,7 +175,12 @@ export function createAuthMiddleware(linkSupabaseUserToLocalStudent: LinkSupabas
       return res.status(503).json({ error: "Auth not configured" });
     }
     const token = req.headers.authorization?.split("Bearer ")[1];
-    if (!token) return res.status(401).json({ error: "No token" });
+    if (!token) {
+      return res.status(401).json({
+        error: "No token",
+        message: "Missing Authorization header. Sign in again.",
+      });
+    }
     const { data, error } = await supabaseAdmin.auth.getUser(token);
     if (error || !data?.user) return res.status(401).json({ error: "Invalid token" });
     const authReq = req as AuthRequest;
@@ -197,7 +202,10 @@ export function createAuthMiddleware(linkSupabaseUserToLocalStudent: LinkSupabas
     return asyncRoute(async (req, res, next) => {
       const authUser = (req as AuthRequest).user;
       if (!authUser) {
-        return res.status(401).json({ error: "No token" });
+        return res.status(401).json({
+          error: "No token",
+          message: "Missing Authorization header. Sign in again.",
+        });
       }
       let role = (await getStudentRole(authUser.id)) || getReqUser(req)?.role;
       if ((!role || !roles.includes(role)) && roles.includes("parent")) {

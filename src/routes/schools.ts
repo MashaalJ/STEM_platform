@@ -2,7 +2,7 @@
  * School accounts: principal dashboard, admin school management, activation.
  */
 import express from "express";
-import { db, selectOne, selectMany, insertOne, updateRow, countRows, isUuid, getStudentPublic, type DbRow } from "../../lib/db";
+import { db, selectOne, selectMany, insertOne, updateRow, deleteRows, countRows, isUuid, getStudentPublic, type DbRow } from "../../lib/db";
 import { generateUniqueActivationCode, generateUniqueTeacherInviteCode } from "../../lib/schoolCodes";
 import { enrichUserWithSchool, getUserSchoolId } from "../../lib/schoolScope";
 import { asyncRoute, getReqUser } from "./_middleware.ts";
@@ -534,6 +534,25 @@ export default function createSchoolsRouter(deps: SchoolsRouterDeps): express.Ro
     const id = req.params.id;
     if (!isUuid(id)) return res.status(400).json({ success: false, error: "Invalid school id" });
     await updateRow("schools", { id }, { subscription_status: "suspended" });
+    res.json({ success: true });
+  }));
+
+  router.post("/admin/schools/:id/unsuspend", requireAuth, requireRole(["admin"]), asyncRoute(async (req, res) => {
+    const id = req.params.id;
+    if (!isUuid(id)) return res.status(400).json({ success: false, error: "Invalid school id" });
+    const status = String(req.body?.subscription_status || "trial").trim() || "trial";
+    await updateRow("schools", { id }, { subscription_status: status });
+    res.json({ success: true });
+  }));
+
+  router.delete("/admin/schools/:id", requireAuth, requireRole(["admin"]), asyncRoute(async (req, res) => {
+    const id = req.params.id;
+    if (!isUuid(id)) return res.status(400).json({ success: false, error: "Invalid school id" });
+    const school = await selectOne("schools", "id", { id });
+    if (!school) return res.status(404).json({ success: false, error: "School not found" });
+    await updateRow("students", { school_id: id }, { school_id: null });
+    await updateRow("classes", { school_id: id }, { school_id: null });
+    await deleteRows("schools", { id });
     res.json({ success: true });
   }));
 

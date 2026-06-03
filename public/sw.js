@@ -56,7 +56,11 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(async () => {
           const cached = await caches.match('/index.html');
-          return cached || Response.error();
+          if (cached) return cached;
+          return new Response(
+            '<!DOCTYPE html><html><body><p>STEMverse is offline or waking up. Refresh in a moment.</p></body></html>',
+            { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+          );
         })
     );
     return;

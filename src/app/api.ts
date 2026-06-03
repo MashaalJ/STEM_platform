@@ -5,10 +5,12 @@
 
 import { supabase } from '../../lib/supabaseClient';
 
-/** Resolve JWT for API calls: localStorage first, then valid Supabase session, then refresh. */
+/** Resolve JWT for API calls. Prefer stemverse_access_token from /api/login, then Supabase session. */
 export async function getAccessToken(): Promise<string | null> {
   const stored = localStorage.getItem('stemverse_access_token')?.trim() || null;
-  if (!supabase) return stored;
+  if (stored) return stored;
+
+  if (!supabase) return null;
 
   const { data } = await supabase.auth.getSession();
   const session = data.session;
@@ -18,8 +20,6 @@ export async function getAccessToken(): Promise<string | null> {
       return session.access_token;
     }
   }
-
-  if (stored) return stored;
 
   try {
     const { data: refreshed } = await supabase.auth.refreshSession();
@@ -32,7 +32,7 @@ export async function getAccessToken(): Promise<string | null> {
     /* ignore */
   }
 
-  return stored;
+  return null;
 }
 
 const devBypassHeader = (): Record<string, string> => {
@@ -76,9 +76,17 @@ const fetchWithOptionalBearerRetry = async (input: RequestInfo | URL, init?: Req
   if (token) headers.set('Authorization', `Bearer ${token}`);
   const res = await fetch(input, { ...init, headers, credentials: init?.credentials ?? 'include' });
   if (res.status === 401) {
-    localStorage.removeItem('stemverse_access_token');
-    if (supabase) {
-      await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+    try {
+      const body = await res.clone().json() as { error?: string; message?: string };
+      const detail = String(body?.error || body?.message || '');
+      if (/invalid token/i.test(detail)) {
+        localStorage.removeItem('stemverse_access_token');
+        if (supabase) {
+          await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+        }
+      }
+    } catch {
+      /* keep token for transient 401s */
     }
   } else {
     await handleSchoolSuspendedResponse(res);

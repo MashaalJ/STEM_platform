@@ -5,7 +5,14 @@
 
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
-import { supabaseAdmin, hasSupabaseAdmin, supabaseAnonKey } from "../../lib/supabaseAdmin";
+import {
+  supabaseAdmin,
+  hasSupabaseAdmin,
+  supabaseAnonKey,
+  resolvedSupabaseUrl,
+  classifyServiceRoleKey,
+  supabaseUrlsMisaligned,
+} from "../../lib/supabaseAdmin";
 import {
   selectOne,
   insertOne,
@@ -47,6 +54,7 @@ export type AuthRouterDeps = {
   hashPassword: (plain: string) => string;
   ensureStudentUsername: () => Promise<string>;
   enrollStudentInDefaultClass: (studentId: string) => Promise<void>;
+  attachStudentToDefaultIndividualSchool: (studentId: string) => Promise<void>;
   bumpLastActive: (userId: string) => Promise<void>;
   normalizeGender: (raw: unknown) => string | null;
   normalizeCountryCode: (raw: unknown) => string | null;
@@ -67,6 +75,7 @@ export default function createAuthRouter(deps: AuthRouterDeps): express.Router {
     hashPassword,
     ensureStudentUsername,
     enrollStudentInDefaultClass,
+    attachStudentToDefaultIndividualSchool,
     bumpLastActive,
     normalizeGender,
     normalizeCountryCode,
@@ -137,6 +146,7 @@ export default function createAuthRouter(deps: AuthRouterDeps): express.Router {
     if (!user) return null;
     await bumpLastActive(supabaseUserId);
     if (role === "student") {
+      await attachStudentToDefaultIndividualSchool(supabaseUserId);
       await enrollStudentInDefaultClass(supabaseUserId);
     }
     // school_admin and teacher link to school via activation / invite codes after signup
@@ -154,18 +164,28 @@ export default function createAuthRouter(deps: AuthRouterDeps): express.Router {
   const router = express.Router();
 
   router.get("/auth/health", (_req, res) => {
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+    const supabaseUrl = resolvedSupabaseUrl;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+    let supabaseHost = "";
+    try {
+      if (supabaseUrl) supabaseHost = new URL(supabaseUrl).hostname;
+    } catch {
+      supabaseHost = "invalid_url";
+    }
     res.json({
       success: true,
       auth: {
         mode: hasSupabaseAdmin ? "supabase_bearer" : "unconfigured",
         has_supabase_admin: hasSupabaseAdmin,
         has_supabase_url: Boolean(supabaseUrl),
+        supabase_host: supabaseHost,
+        supabase_urls_misaligned: supabaseUrlsMisaligned(),
+        service_role_key_kind: classifyServiceRoleKey(serviceRoleKey),
         has_supabase_anon_key: Boolean(supabaseAnonKey),
+        has_supabase_service_role_key: Boolean(serviceRoleKey),
         ...(isProduction
           ? {}
           : {
-              has_supabase_service_role_key: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
               allow_local_auth_fallback: ALLOW_LOCAL_AUTH_FALLBACK,
               enable_test_accounts: ENABLE_TEST_ACCOUNTS,
             }),
@@ -380,10 +400,13 @@ export default function createAuthRouter(deps: AuthRouterDeps): express.Router {
       }
       const signIn = await supabaseAdmin.auth.signInWithPassword({ email: emailForAuth, password });
       if (signIn.error || !signIn.data.user || !signIn.data.session?.access_token) {
-        return res.status(401).json({
-          success: false,
-          message: signIn.error?.message || "Invalid credentials",
-        });
+        const rawMsg = signIn.error?.message || "Invalid credentials";
+        const message = /invalid api key/i.test(rawMsg)
+          ? isProduction
+            ? "Server Supabase credentials are wrong. In Render, set SUPABASE_URL to your project URL and SUPABASE_SERVICE_ROLE_KEY to the service_role or secret key from the same project (no extra spaces). Redeploy, then check /api/auth/health."
+            : `${rawMsg} — check SUPABASE_URL matches SUPABASE_SERVICE_ROLE_KEY's project and use the service_role/secret key, not anon/publishable.`
+          : rawMsg;
+        return res.status(401).json({ success: false, message });
       }
       const sbUser = signIn.data.user;
       const meta = (sbUser.user_metadata || {}) as Record<string, unknown>;
@@ -409,6 +432,12 @@ export default function createAuthRouter(deps: AuthRouterDeps): express.Router {
         });
       } catch (profileErr) {
         console.warn("[stemverse] login profile patch:", profileErr);
+      }
+
+      const linkedRole = String(linked.role || meta.role || "student").toLowerCase();
+      if (linkedRole === "student") {
+        await attachStudentToDefaultIndividualSchool(linked.id);
+        await enrollStudentInDefaultClass(linked.id);
       }
 
       const fullUser = await getStudentPublic(linked.id);

@@ -26,6 +26,10 @@ import {
   type DbRow,
 } from "./lib/db";
 import * as Curriculum from "./lib/curriculum.ts";
+import {
+  attachStudentToDefaultIndividualSchool,
+  ensureStemverseIndividualHubClass,
+} from "./lib/defaultSchool.ts";
 import * as SQ from "./lib/serverQueries";
 import {
   encodeToolActivityEmbed,
@@ -447,6 +451,14 @@ async function bootstrapData() {
   } catch {
     /* ignore */
   }
+    try {
+      await ensureStemverseIndividualHubClass(ensureUniqueJoinCode);
+    } catch (hubErr) {
+      console.warn(
+        "[stemverse] STEMverse individual hub setup:",
+        hubErr instanceof Error ? hubErr.message : hubErr,
+      );
+    }
   } catch (err) {
     console.warn(
       "[stemverse] Data bootstrap failed (is the schema applied in Supabase?):",
@@ -794,6 +806,11 @@ async function startServer() {
       }
     }
 
+    if (desiredRole === "student") {
+      await attachStudentToDefaultSchool(sbUser.id);
+      await enrollStudentInDefaultClass(sbUser.id);
+    }
+
     const row = await selectOne<SessionUser>("students", "id, name, role", { id: sbUser.id });
     return row ?? undefined;
   };
@@ -814,6 +831,14 @@ async function startServer() {
         { class_id: String(defaultClass.id), student_id: studentId },
         "class_id,student_id",
       );
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const attachStudentToDefaultSchool = async (studentId: string): Promise<void> => {
+    try {
+      await attachStudentToDefaultIndividualSchool(studentId);
     } catch {
       /* ignore */
     }
@@ -1073,6 +1098,7 @@ async function startServer() {
       hashPassword,
       ensureStudentUsername,
       enrollStudentInDefaultClass,
+      attachStudentToDefaultIndividualSchool: attachStudentToDefaultSchool,
       bumpLastActive,
       normalizeGender,
       normalizeCountryCode,

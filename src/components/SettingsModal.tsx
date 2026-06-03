@@ -172,8 +172,9 @@ const SettingsModal = ({
                 </p>
               )}
               <div>
-                <label className="cosmic-label">Display name</label>
+                <label className="cosmic-label" htmlFor="settings-display-name">Display name</label>
                 <input
+                  id="settings-display-name"
                   value={profileForm.name}
                   onChange={e => setProfileForm({ ...profileForm, name: e.target.value })}
                   className="cosmic-input text-sm"
@@ -181,20 +182,28 @@ const SettingsModal = ({
                 />
               </div>
               <div>
-                <label className="cosmic-label">Avatar URL</label>
+                <label className="cosmic-label" htmlFor="settings-avatar-url">Profile photo URL</label>
                 <input
+                  id="settings-avatar-url"
                   value={profileForm.avatar_url}
                   onChange={e => setProfileForm({ ...profileForm, avatar_url: e.target.value })}
                   className="cosmic-input text-sm"
                   placeholder="https://..."
                 />
               </div>
+              {isTeacher && student.school_record_name && (
+                <div>
+                  <span className="cosmic-label">Linked school</span>
+                  <p className="mt-1 text-sm text-[var(--ca-on-surface)]">{student.school_record_name}</p>
+                </div>
+              )}
               {!isTeacher && (
               <>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="cosmic-label">Age</label>
+                  <label className="cosmic-label" htmlFor="settings-age">Age</label>
                   <input
+                    id="settings-age"
                     type="number"
                     value={profileForm.age}
                     onChange={e => setProfileForm({ ...profileForm, age: e.target.value })}
@@ -202,8 +211,9 @@ const SettingsModal = ({
                   />
                 </div>
                 <div>
-                  <label className="cosmic-label">Grade</label>
+                  <label className="cosmic-label" htmlFor="settings-grade">Grade level</label>
                   <input
+                    id="settings-grade"
                     value={profileForm.grade}
                     onChange={e => setProfileForm({ ...profileForm, grade: e.target.value })}
                     className="cosmic-input text-sm"
@@ -211,11 +221,12 @@ const SettingsModal = ({
                 </div>
               </div>
               <div>
-                <label className="cosmic-label">School</label>
+                <label className="cosmic-label" htmlFor="settings-school">School name (free text)</label>
                 {student.school_record_name ? (
                   <p className="mt-1 text-sm text-slate-300 font-medium">{student.school_record_name}</p>
                 ) : (
                 <input
+                  id="settings-school"
                   value={profileForm.school}
                   onChange={e => setProfileForm({ ...profileForm, school: e.target.value })}
                   className="cosmic-input text-sm"
@@ -231,8 +242,9 @@ const SettingsModal = ({
                 />
               </div>
               <div>
-                <label className="cosmic-label">Email</label>
+                <label className="cosmic-label" htmlFor="settings-email">Email address</label>
                 <input
+                  id="settings-email"
                   type="email"
                   value={profileForm.email}
                   onChange={e => setProfileForm({ ...profileForm, email: e.target.value })}
@@ -240,8 +252,9 @@ const SettingsModal = ({
                 />
               </div>
               <div>
-                <label className="cosmic-label">Parent / Guardian email</label>
+                <label className="cosmic-label" htmlFor="settings-parent-email">Parent / guardian email</label>
                 <input
+                  id="settings-parent-email"
                   type="email"
                   value={profileForm.parent_email}
                   onChange={e => setProfileForm({ ...profileForm, parent_email: e.target.value })}
@@ -249,8 +262,9 @@ const SettingsModal = ({
                 />
               </div>
               <div>
-                <label className="cosmic-label">Contact number</label>
+                <label className="cosmic-label" htmlFor="settings-contact">Contact phone</label>
                 <input
+                  id="settings-contact"
                   value={profileForm.contact_number}
                   onChange={e => setProfileForm({ ...profileForm, contact_number: e.target.value })}
                   className="cosmic-input text-sm"
@@ -275,8 +289,9 @@ const SettingsModal = ({
                 </p>
               )}
               <div>
-                <label className="cosmic-label">Current password</label>
+                <label className="cosmic-label" htmlFor="settings-current-password">Current password</label>
                 <input
+                  id="settings-current-password"
                   type="password"
                   value={passwordForm.current}
                   onChange={e => setPasswordForm({ ...passwordForm, current: e.target.value })}
@@ -285,8 +300,9 @@ const SettingsModal = ({
                 />
               </div>
               <div>
-                <label className="cosmic-label">New password</label>
+                <label className="cosmic-label" htmlFor="settings-new-password">New password</label>
                 <input
+                  id="settings-new-password"
                   type="password"
                   value={passwordForm.new}
                   onChange={e => setPasswordForm({ ...passwordForm, new: e.target.value })}
@@ -296,8 +312,9 @@ const SettingsModal = ({
                 />
               </div>
               <div>
-                <label className="cosmic-label">Confirm new password</label>
+                <label className="cosmic-label" htmlFor="settings-confirm-password">Confirm new password</label>
                 <input
+                  id="settings-confirm-password"
                   type="password"
                   value={passwordForm.confirm}
                   onChange={e => setPasswordForm({ ...passwordForm, confirm: e.target.value })}

@@ -14,7 +14,9 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      # Required in Render Dashboard → Environment:
-      # SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
-      # VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY (same values as above)
+      # Required in Render Dashboard → Environment (then redeploy):
+      # SUPABASE_URL — project URL (Settings → API)
+      # SUPABASE_SERVICE_ROLE_KEY — service_role secret (login/signup fail with 503 if missing)
+      # SUPABASE_ANON_KEY — anon public key
+      # VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY — same as above (build-time for the SPA)
       # Optional: FRONTEND_URL=https://your-service.onrender.com

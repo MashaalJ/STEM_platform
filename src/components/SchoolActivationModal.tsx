@@ -57,12 +57,17 @@ export default function SchoolActivationModal({
             ? 'Enter the 8-character activation code STEMverse gave your school.'
             : 'Enter the invite code from your principal.'}
         </p>
+        <label htmlFor="school-activation-code" className="block mt-4 text-sm font-semibold text-slate-700">
+          {isPrincipal ? 'School activation code' : 'Teacher invite code'}
+        </label>
         <input
+          id="school-activation-code"
           value={code}
           onChange={(e) => setCode(e.target.value.toUpperCase())}
           placeholder="XXXXXXXX"
           maxLength={8}
-          className="mt-4 w-full rounded-lg border border-slate-300 px-3 py-2 text-center font-mono text-lg tracking-widest uppercase"
+          autoComplete="off"
+          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-center font-mono text-lg tracking-widest uppercase"
         />
         {error && <p className="mt-2 text-sm text-rose-600">{error}</p>}
         <button

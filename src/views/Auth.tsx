@@ -28,10 +28,12 @@ async function studentNeedsIndividualHold(studentId: string): Promise<boolean> {
 
 function IndividualAccessHold({
   user,
+  inStemverseHub,
   onContinue,
   onSignOut,
 }: {
   user: { id: string; name?: string };
+  inStemverseHub?: boolean;
   onContinue: () => void;
   onSignOut: () => void;
 }) {
@@ -75,12 +77,16 @@ function IndividualAccessHold({
   return (
     <div className="fixed inset-0 z-[210] flex min-h-screen items-center justify-center bg-[#0A192F] p-6">
       <div className="w-full max-w-md rounded-2xl border border-slate-600/80 bg-[#0d2137] p-8 shadow-2xl text-center">
-        <h1 className="text-2xl font-black text-white tracking-tight">You are on the list</h1>
+        <h1 className="text-2xl font-black text-white tracking-tight">
+          {inStemverseHub ? 'Your STEMverse path is almost ready' : 'You are on the list'}
+        </h1>
         <p className="mt-4 text-sm text-slate-300 leading-relaxed">
-          STEMverse is currently available through schools and classes. Individual access is coming soon.
+          {inStemverseHub
+            ? 'You are in the STEMverse learning community. We are still publishing the first missions for solo explorers — check back soon or join a teacher class with a code.'
+            : 'STEMverse needs a school hub and published missions before solo sign-in can start. Ask an admin to create the STEMverse school in the dashboard.'}
         </p>
         <p className="mt-3 text-sm text-slate-400 leading-relaxed">
-          If your school uses STEMverse, ask your teacher for a class join code.
+          Have a camp or classroom code? Enter it below to start right away.
         </p>
         {user.name && (
           <p className="mt-4 text-xs text-teal-300/90 font-semibold">Signed in as {user.name}</p>
@@ -148,7 +154,7 @@ const Login = ({ onLogin, mode }: { onLogin: (user: any) => void; mode: 'login' 
     email: '',
     role: 'student' as 'student' | 'teacher' | 'parent' | 'school_admin',
   });
-  const [holdStudent, setHoldStudent] = useState<{ id: string; name?: string } | null>(null);
+  const [holdStudent, setHoldStudent] = useState<{ id: string; name?: string; inStemverseHub?: boolean } | null>(null);
   const [schoolSuspendedBanner, setSchoolSuspendedBanner] = useState<string | null>(null);
 
   useEffect(() => {
@@ -184,7 +190,11 @@ const Login = ({ onLogin, mode }: { onLogin: (user: any) => void; mode: 'login' 
     if (user?.role === 'student' && user.id) {
       const needsHold = await studentNeedsIndividualHold(String(user.id));
       if (needsHold) {
-        setHoldStudent({ id: String(user.id), name: user.name });
+        setHoldStudent({
+          id: String(user.id),
+          name: user.name,
+          inStemverseHub: Boolean((user as { school_id?: string | null }).school_id),
+        });
         return;
       }
     }
@@ -226,7 +236,19 @@ const Login = ({ onLogin, mode }: { onLogin: (user: any) => void; mode: 'login' 
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.success) {
+        if (res.status === 503) {
+          setError(
+            'Sign-in is unavailable: the server is missing Supabase credentials. On Render, set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (service_role key from Supabase → Settings → API), then redeploy.',
+          );
+          return;
+        }
         const msg = String(data?.message || 'Invalid credentials');
+        if (/invalid api key/i.test(msg)) {
+          setError(
+            'Supabase rejected the server API key. In Render: use the same Project URL for SUPABASE_URL and VITE_SUPABASE_URL, put the service_role or secret key (not anon) in SUPABASE_SERVICE_ROLE_KEY, and the anon/publishable key in VITE_SUPABASE_ANON_KEY. Save and redeploy, then open /api/auth/health on your site.',
+          );
+          return;
+        }
         if (/email.*not.*confirm|confirm.*email|email.*verify/i.test(msg)) {
           setError('Please verify your email first, then sign in. Check your inbox/spam for the Supabase confirmation email.');
         } else if (/invalid credentials/i.test(msg) && identifier.includes('@')) {
@@ -400,6 +422,7 @@ const Login = ({ onLogin, mode }: { onLogin: (user: any) => void; mode: 'login' 
     return (
       <IndividualAccessHold
         user={holdStudent}
+        inStemverseHub={holdStudent.inStemverseHub}
         onContinue={() => {
           const u = holdStudent;
           setHoldStudent(null);
@@ -603,7 +626,7 @@ const Login = ({ onLogin, mode }: { onLogin: (user: any) => void; mode: 'login' 
                 </div>
                 {signupData.role === 'student' && (
                   <p className="text-[10px] text-[var(--ca-on-surface-variant)] leading-snug mt-1">
-                    Joining a class? Select Student and use your class code.
+                    Individual signups join the STEMverse learning community automatically (like Duolingo). Use a class code at sign-in if your teacher gave you one.
                   </p>
                 )}
               </div>

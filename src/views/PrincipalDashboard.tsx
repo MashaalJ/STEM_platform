@@ -302,12 +302,16 @@ export default function PrincipalDashboard({ student }: { student: Student }) {
         {tab === 'teachers' && (
           <div className="space-y-4">
             <div className="flex flex-wrap gap-2 items-end">
-              <input
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder="Teacher email (optional)"
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm min-w-[200px]"
-              />
+              <label className="text-sm min-w-[200px]">
+                <span className="block font-semibold text-slate-700 mb-1">Teacher email (optional)</span>
+                <input
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  type="email"
+                  placeholder="instructor@school.edu"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </label>
               <button
                 type="button"
                 onClick={() => void inviteTeacher()}
