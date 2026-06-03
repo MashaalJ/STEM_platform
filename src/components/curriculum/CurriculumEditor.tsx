@@ -23,6 +23,10 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical, Save, CheckCircle2, Sparkles, RotateCcw } from 'lucide-react';
 import { fetchWithAuth } from '../../app/api';
+import {
+  normalizeCurriculumTrack,
+  CURRICULUM_TRACK_LABELS,
+} from '../../../lib/rosterCredentials';
 
 export type CurriculumMissionRow = {
   id: string;
@@ -51,6 +55,7 @@ type Props = {
   mode?: 'class' | 'default' | 'advanced';
   title?: string;
   subtitle?: string;
+  onTrackSaved?: (track: string) => void;
 };
 
 function SortableMissionRow({
@@ -165,6 +170,7 @@ export default function CurriculumEditor({
   mode = 'class',
   title = 'Class curriculum',
   subtitle = 'Choose which missions appear and in what order for this class.',
+  onTrackSaved,
 }: Props) {
   const [sectors, setSectors] = useState<CurriculumSectorBlock[]>([]);
   const [loading, setLoading] = useState(true);
@@ -253,10 +259,10 @@ export default function CurriculumEditor({
         const res = await fetchWithAuth('/api/classes');
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !alive) return;
-        const classes = Array.isArray(data?.classes) ? data.classes : [];
+        const classes = Array.isArray(data) ? data : Array.isArray(data?.classes) ? data.classes : [];
         const current = classes.find((c: { id: string; curriculum_track?: string | null }) => String(c.id) === String(classId));
         if (current?.curriculum_track && alive) {
-          setCurriculumTrack(String(current.curriculum_track));
+          setCurriculumTrack(normalizeCurriculumTrack(current.curriculum_track));
         }
       } catch {
         // Non-blocking: editor still works without this metadata.
@@ -364,6 +370,9 @@ export default function CurriculumEditor({
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || data.message || 'Could not save curriculum track');
       }
+      onTrackSaved?.(curriculumTrack);
+      setDirty({});
+      await load();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -372,6 +381,13 @@ export default function CurriculumEditor({
       setTrackSaving(false);
     }
   };
+
+  const trackHelp =
+    curriculumTrack === 'core_stem'
+      ? 'Uses the global Core STEM mission preset (same baseline for all classes on this track).'
+      : curriculumTrack === 'advanced'
+        ? 'Uses the STEMverse Advanced preset. Save track to reload missions.'
+        : 'Uses missions you enable and order for this class only.';
 
   const runDiagnostics = async () => {
     if (mode !== 'class' || !classId) return;
@@ -475,13 +491,14 @@ export default function CurriculumEditor({
             Curriculum track
             <select
               value={curriculumTrack}
-              onChange={(e) => setCurriculumTrack(e.target.value)}
+              onChange={(e) => setCurriculumTrack(normalizeCurriculumTrack(e.target.value))}
               className="mt-1 block rounded-lg border border-[#1B2B44] bg-[#0D1C32] text-white text-xs px-3 py-2 min-w-[160px]"
             >
-              <option value="core_stem">Core STEM</option>
-              <option value="advanced">Advanced</option>
-              <option value="custom">Custom</option>
+              <option value="core_stem">{CURRICULUM_TRACK_LABELS.core_stem}</option>
+              <option value="advanced">{CURRICULUM_TRACK_LABELS.advanced}</option>
+              <option value="custom">{CURRICULUM_TRACK_LABELS.custom}</option>
             </select>
+            <p className="mt-1 text-[10px] text-slate-400 max-w-xs leading-snug">{trackHelp}</p>
           </label>
           {mode === 'class' && classId && (
             <button

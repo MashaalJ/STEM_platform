@@ -18,12 +18,14 @@ import {
   optionalUuid,
   provisionRosterStudent,
   enrollStudentInClass,
+  getStudentPublic,
   type DbRow,
 } from "../../lib/db";
 import * as Curriculum from "../../lib/curriculum";
 import * as SQ from "../../lib/serverQueries";
 import { xpToLevel } from "../../lib/xp.ts";
 import { assertSchoolStudentCapacity } from "../../lib/schoolLimits.ts";
+import { generateRosterPassword, type RosterCredentialRow } from "../../lib/rosterCredentials.ts";
 import { findSectorByName } from "../../lib/db";
 import { asyncRoute, V, getReqUser } from "./_middleware.ts";
 
@@ -118,7 +120,7 @@ export default function createClassesRouter(deps: ClassesRouterDeps): express.Ro
         return true;
       });
 
-      const defaultPassword = hashPassword("password123");
+      const credentials: RosterCredentialRow[] = [];
       const created: string[] = [];
       let added = 0;
       const sessionUser = getReqUser(req)!;
@@ -131,7 +133,12 @@ export default function createClassesRouter(deps: ClassesRouterDeps): express.Ro
 
       for (const name of uniqueNames) {
         let row = await findStudentByName(name);
+        let plainPassword = "";
+        let isNew = false;
+
         if (!row) {
+          isNew = true;
+          plainPassword = generateRosterPassword(10);
           const avatarSeed = encodeURIComponent(name.toLowerCase().replace(/\s+/g, "-"));
           const avatar_url = `https://picsum.photos/seed/${avatarSeed}/200`;
           const username = await ensureUniqueUsername(name);
@@ -143,7 +150,7 @@ export default function createClassesRouter(deps: ClassesRouterDeps): express.Ro
               const syntheticEmail = makeSyntheticEmail(username);
               const authCreated = await supabaseAdmin.auth.admin.createUser({
                 email: syntheticEmail,
-                password: "password123",
+                password: plainPassword,
                 email_confirm: true,
                 user_metadata: {
                   role: "student",
@@ -167,23 +174,49 @@ export default function createClassesRouter(deps: ClassesRouterDeps): express.Ro
             id: authUserId,
             name,
             username,
-            password: defaultPassword,
+            password: hashPassword(plainPassword),
             avatar_url,
             email: generatedEmail,
           });
           if (teacherSchool?.school_id) {
             await updateRow("students", { id: authUserId }, { school_id: String(teacherSchool.school_id) });
           }
-          row = { id: authUserId };
+          row = { id: authUserId, username, name };
           created.push(name);
+        } else {
+          const existing = await selectOne<{ username?: string | null; name?: string }>(
+            "students",
+            "username, name",
+            { id: String(row.id) },
+          );
+          plainPassword = "";
+          credentials.push({
+            name: String(existing?.name || name),
+            username: String(existing?.username || "").trim() || "(no username)",
+            password: "",
+            is_new: false,
+            student_id: String(row.id),
+          });
         }
+
         const before = await countRows("class_students", { class_id: classId, student_id: String(row.id) });
         await enrollStudentInClass(classId, String(row.id));
         const after = await countRows("class_students", { class_id: classId, student_id: String(row.id) });
         if (after > before) added += 1;
+
+        if (isNew) {
+          const username = String((row as { username?: string }).username || "");
+          credentials.push({
+            name,
+            username,
+            password: plainPassword,
+            is_new: true,
+            student_id: String(row.id),
+          });
+        }
       }
 
-      res.json({ success: true, created, added });
+      res.json({ success: true, created, added, credentials });
     } catch (e: unknown) {
       const err = e as Error;
       console.error("by-names error:", e);
@@ -249,7 +282,10 @@ export default function createClassesRouter(deps: ClassesRouterDeps): express.Ro
     try {
       const sessionUser = getReqUser(req)!;
       const { getUserSchoolId } = await import("../../lib/schoolScope.ts");
-      const schoolId = sessionUser.role === "admin" ? null : await getUserSchoolId(sessionUser.id);
+      const schoolId =
+        sessionUser.role === "admin" || sessionUser.role === "teacher"
+          ? null
+          : await getUserSchoolId(sessionUser.id);
       const classes = await SQ.listClassesWithMeta(
         sessionUser.role === "teacher" ? sessionUser.id : undefined,
         schoolId,
@@ -343,7 +379,7 @@ export default function createClassesRouter(deps: ClassesRouterDeps): express.Ro
       if (!(await ensureClassAccess(req, res, classId)).ok) return;
       const cls = await selectOne("classes", "id", { id: classId });
       if (!cls) return res.status(404).json({ success: false, error: "Class not found" });
-      const curriculumTrack = String(req.body?.curriculum_track || "").trim();
+      const curriculumTrack = normalizeCurriculumTrack(String(req.body?.curriculum_track || ""));
       if (!curriculumTrack) return res.status(400).json({ success: false, error: "curriculum_track is required" });
       await updateRow("classes", { id: classId }, { curriculum_track: curriculumTrack });
       res.json({ success: true, curriculum_track: curriculumTrack });
@@ -579,6 +615,66 @@ export default function createClassesRouter(deps: ClassesRouterDeps): express.Ro
     requireRole(["teacher", "admin"]),
     V.validateBody(V.addStudentsByNamesSchema),
     asyncRoute(handleAddStudentsByNames),
+  );
+
+  router.get(
+    "/classes/:id/students",
+    requireAuth,
+    requireRole(["teacher", "admin", "school_admin"]),
+    asyncRoute(async (req, res) => {
+      const classId = req.params.id;
+      if (!isUuid(classId)) return res.status(400).json({ success: false, error: "Invalid class id" });
+      if (!(await ensureClassAccess(req, res, classId)).ok) return;
+      const members = await selectMany<{ student_id: string }>("class_students", "student_id", { class_id: classId });
+      const out = [];
+      for (const m of members) {
+        const s = await getStudentPublic(String(m.student_id));
+        if (s) out.push(s);
+      }
+      out.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+      res.json(out);
+    }),
+  );
+
+  /** Students in this teacher's other classes who are not yet in the selected class. */
+  router.get(
+    "/classes/:id/available-students",
+    requireAuth,
+    requireRole(["teacher", "admin"]),
+    asyncRoute(async (req, res) => {
+      const classId = req.params.id;
+      if (!isUuid(classId)) return res.status(400).json({ success: false, error: "Invalid class id" });
+      if (!(await ensureClassAccess(req, res, classId)).ok) return;
+      const cls = await selectOne<{ teacher_id: string | null }>("classes", "teacher_id", { id: classId });
+      if (!cls?.teacher_id) return res.json([]);
+      const teacherId = String(cls.teacher_id);
+      const teacherClasses = await selectMany<{ id: string }>("classes", "id", { teacher_id: teacherId });
+      const otherClassIds = teacherClasses.map((c) => String(c.id)).filter((id) => id !== classId);
+      if (!otherClassIds.length) return res.json([]);
+
+      const { data: memberRows, error } = await db()
+        .from("class_students")
+        .select("student_id")
+        .in("class_id", otherClassIds);
+      if (error) return res.status(500).json({ success: false, error: error.message });
+
+      const inThisClass = await selectMany<{ student_id: string }>("class_students", "student_id", {
+        class_id: classId,
+      });
+      const inThisSet = new Set(inThisClass.map((m) => String(m.student_id)));
+
+      const candidateIds = [...new Set((memberRows || []).map((r) => String((r as { student_id: string }).student_id)))].filter(
+        (sid) => !inThisSet.has(sid),
+      );
+
+      const out = [];
+      for (const sid of candidateIds) {
+        const s = await getStudentPublic(sid);
+        if (s && String(s.role || "") === "student") out.push(s);
+      }
+      out.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+      res.json(out);
+    }),
   );
 
   router.post(

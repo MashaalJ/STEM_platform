@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users, BarChart3, ClipboardList, Layers, LayoutGrid,
 } from 'lucide-react';
@@ -75,20 +75,27 @@ const TeacherHub = ({ sectors, students, student, refetchStudents, setStudent, i
     }
   };
 
-  useEffect(() => {
-    safeFetch('/api/classes').then(data => {
-      if (data) {
-        const teacherClasses = data.filter((c: Class) => c.teacher_id === student.id);
-        setClasses(teacherClasses);
-        if (initialClassId) {
-          const match = teacherClasses.find((c: Class) => String(c.id) === initialClassId);
-          if (match) setSelectedClassId(match.id);
-        } else if (teacherClasses.length > 0 && !selectedClassId) {
-          setSelectedClassId(teacherClasses[0].id);
-        }
+  const loadTeacherClasses = useCallback(async (preferClassId?: string | null) => {
+    const res = await fetchWithAuth('/api/classes');
+    if (!res.ok) return;
+    const data = await res.json().catch(() => null);
+    if (!Array.isArray(data)) return;
+    const teacherClasses = (data as Class[]).filter((c) => String(c.teacher_id) === String(student.id));
+    setClasses(teacherClasses);
+    setSelectedClassId((prev) => {
+      if (preferClassId && teacherClasses.some((c) => String(c.id) === String(preferClassId))) {
+        return String(preferClassId);
       }
+      if (prev && teacherClasses.some((c) => String(c.id) === String(prev))) {
+        return prev;
+      }
+      return teacherClasses[0] ? String(teacherClasses[0].id) : null;
     });
-  }, [student.id, initialClassId]);
+  }, [student.id]);
+
+  useEffect(() => {
+    void loadTeacherClasses(initialClassId ?? null);
+  }, [student.id, initialClassId, loadTeacherClasses]);
 
   const selectedClass = classes.find(c => c.id === selectedClassId) || null;
 
@@ -154,7 +161,10 @@ const TeacherHub = ({ sectors, students, student, refetchStudents, setStudent, i
           <span className="text-[10px] font-black text-[var(--ca-on-surface-variant)] uppercase tracking-[0.14em]">Viewing class</span>
           <select
             value={selectedClassId ?? ''}
-            onChange={e => setSelectedClassId(e.target.value ? e.target.value : null)}
+            onChange={e => {
+              const id = e.target.value ? e.target.value : null;
+              setSelectedClassId(id);
+            }}
             className="min-w-[170px] bg-[var(--ca-surface-container-lowest)] border border-[var(--ca-outline-variant)] rounded-xl px-4 py-2 text-sm font-black text-[var(--ca-on-surface)] uppercase tracking-tight outline-none focus:border-[var(--ca-secondary-container)]"
           >
             <option value="">Select a class…</option>
@@ -266,6 +276,9 @@ const TeacherHub = ({ sectors, students, student, refetchStudents, setStudent, i
         <ClassroomManager
           teacherId={student.id}
           students={students}
+          syncClassId={selectedClassId}
+          onClassSelectionChange={setSelectedClassId}
+          onClassesUpdated={(classId) => void loadTeacherClasses(classId ?? selectedClassId)}
           onStudentsAdded={refetchStudents}
           onNavigateToActivityBank={() => setActiveTab('activitybank')}
           onNavigateToCurriculum={() => setActiveTab('curriculum')}
@@ -278,6 +291,7 @@ const TeacherHub = ({ sectors, students, student, refetchStudents, setStudent, i
             classId={selectedClassId != null ? String(selectedClassId) : null}
             className={selectedClass?.name}
             wrapped
+            onTrackSaved={() => void loadTeacherClasses(selectedClassId)}
           />
           {!selectedClass && (
             <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">

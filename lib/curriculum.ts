@@ -9,6 +9,7 @@ import {
   upsertRow,
   type DbRow,
 } from "./db";
+import { normalizeCurriculumTrack } from "./rosterCredentials.ts";
 
 export const STEMVERSE_DEFAULT_CLASS_NAME = "STEMverse Default";
 export const STEMVERSE_ADVANCED_CLASS_NAME = "STEMverse Advanced";
@@ -164,7 +165,7 @@ export async function buildCurriculumForClass(classId: string) {
   const sectors = await loadSectorsForCurriculum();
   const allMissions = await loadMissionsForCurriculum();
   const cls = await selectOne<{ curriculum_track?: string | null }>("classes", "curriculum_track", { id: classId });
-  const track = String(cls?.curriculum_track || "custom").trim().toLowerCase();
+  const track = normalizeCurriculumTrack(cls?.curriculum_track);
 
   let overrides = new Map<string, CurriculumOverrideRow>();
   if (track === "core_stem") {

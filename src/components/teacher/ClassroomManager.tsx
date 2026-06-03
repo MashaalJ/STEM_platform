@@ -5,9 +5,14 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  Users, Shield, ChevronRight, Copy, CheckCircle2,
+  Users, Shield, ChevronRight, Copy, CheckCircle2, Download,
 } from 'lucide-react';
 import { safeFetch, fetchWithAuth } from '../../app/api';
+import {
+  normalizeCurriculumTrack,
+  CURRICULUM_TRACK_LABELS,
+  type RosterCredentialRow,
+} from '../../../lib/rosterCredentials';
 import HoverCard from '../motion/HoverCard';
 import TeacherCurriculumEditor from './CurriculumEditor';
 import ClassLearningPathGuide from './ClassLearningPathGuide';
@@ -19,12 +24,19 @@ export default function ClassroomManager({
   onStudentsAdded,
   onNavigateToActivityBank,
   onNavigateToCurriculum,
+  syncClassId,
+  onClassSelectionChange,
+  onClassesUpdated,
 }: {
   teacherId: string;
   students: Student[];
   onStudentsAdded?: () => void;
   onNavigateToActivityBank?: () => void;
   onNavigateToCurriculum?: () => void;
+  /** Keeps sidebar selection in sync with TeacherHub “Viewing class” picker */
+  syncClassId?: string | null;
+  onClassSelectionChange?: (classId: string | null) => void;
+  onClassesUpdated?: (classId?: string) => void;
 }) {
   const [classes, setClasses] = useState<Class[]>([]);
   const [newClassName, setNewClassName] = useState('');
@@ -36,30 +48,51 @@ export default function ClassroomManager({
   const [copyCodeFeedback, setCopyCodeFeedback] = useState(false);
   const [pasteNames, setPasteNames] = useState('');
   const [importingRoster, setImportingRoster] = useState(false);
-  const [pasteResult, setPasteResult] = useState<{ added: number; created: string[]; error?: string } | null>(null);
+  const [pasteResult, setPasteResult] = useState<{
+    added: number;
+    created: string[];
+    error?: string;
+    credentials?: RosterCredentialRow[];
+  } | null>(null);
+  const [rosterCredentials, setRosterCredentials] = useState<RosterCredentialRow[]>([]);
   const [pasteLoading, setPasteLoading] = useState(false);
   const [generateCodeLoading, setGenerateCodeLoading] = useState(false);
   const [generateCodeError, setGenerateCodeError] = useState<string | null>(null);
   const [classesLoadError, setClassesLoadError] = useState<string | null>(null);
-  const [curriculumDraft, setCurriculumDraft] = useState('');
-  const [savingCurriculum, setSavingCurriculum] = useState(false);
-  const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [classViewTab, setClassViewTab] = useState<'overview' | 'curriculum'>('overview');
+  const [classMemberIds, setClassMemberIds] = useState<Set<string>>(new Set());
+  const [classMembers, setClassMembers] = useState<Student[]>([]);
+  const [availableToAdd, setAvailableToAdd] = useState<Student[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
 
-  const CURRICULUM_TRACK_OPTIONS = [
-    'Robotics',
-    'AI',
-    'Science',
-    'Mathematics',
-    '3D Modelling and Printing',
-    'Electricity and Electronics',
-    'FinTech',
-    'Space Tech',
-    'Health Tech',
-    'Game Dev',
-    'Web Dev',
-    'App Dev',
-  ];
+  const exportRosterCsv = (rows: RosterCredentialRow[], className: string) => {
+    const header = 'display_name,username,password,new_account,login_note\n';
+    const body = rows
+      .map((r) => {
+        const loginNote = r.is_new
+          ? 'Sign in with username + password below'
+          : 'Existing account — student keeps their password';
+        const pw = r.password ? r.password : '';
+        return `"${String(r.name).replace(/"/g, '""')}","${r.username}","${pw}",${r.is_new ? 'yes' : 'no'},"${loginNote}"`;
+      })
+      .join('\n');
+    const blob = new Blob([header + body], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${className.replace(/[^a-z0-9]+/gi, '_') || 'class'}_student_logins.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const mergeCredentials = (incoming: RosterCredentialRow[] | undefined) => {
+    if (!incoming?.length) return;
+    setRosterCredentials((prev) => {
+      const byId = new Map(prev.map((r) => [r.student_id, r]));
+      for (const row of incoming) byId.set(row.student_id, row);
+      return [...byId.values()];
+    });
+  };
 
   const fetchClasses = async (): Promise<Class[]> => {
     setClassesLoadError(null);
@@ -80,6 +113,55 @@ export default function ClassroomManager({
   useEffect(() => {
     fetchClasses();
   }, []);
+
+  const refreshClassMembers = async (classId: string) => {
+    setLoadingMembers(true);
+    try {
+      const [membersRes, availableRes] = await Promise.all([
+        fetchWithAuth(`/api/classes/${classId}/students`),
+        fetchWithAuth(`/api/classes/${classId}/available-students`),
+      ]);
+      if (!membersRes.ok) {
+        setClassMembers([]);
+        setClassMemberIds(new Set());
+      } else {
+        const data = await membersRes.json().catch(() => []);
+        const list = Array.isArray(data) ? (data as Student[]) : [];
+        setClassMembers(list);
+        setClassMemberIds(new Set(list.map((s) => String(s.id))));
+      }
+      if (availableRes.ok) {
+        const avail = await availableRes.json().catch(() => []);
+        setAvailableToAdd(Array.isArray(avail) ? (avail as Student[]) : []);
+      } else {
+        setAvailableToAdd([]);
+      }
+    } finally {
+      setLoadingMembers(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedClass?.id) {
+      setClassMembers([]);
+      setClassMemberIds(new Set());
+      return;
+    }
+    void refreshClassMembers(String(selectedClass.id));
+  }, [selectedClass?.id]);
+
+  useEffect(() => {
+    if (!syncClassId || !classes.length) return;
+    const match = classes.find((c) => String(c.id) === String(syncClassId));
+    if (match && String(selectedClass?.id) !== String(match.id)) {
+      setSelectedClass(match);
+    }
+  }, [syncClassId, classes, selectedClass?.id]);
+
+  const selectClass = (c: Class) => {
+    setSelectedClass(c);
+    onClassSelectionChange?.(String(c.id));
+  };
 
   // When a class is selected, ensure we have join_code (fetch or generate)
   useEffect(() => {
@@ -104,9 +186,9 @@ export default function ClassroomManager({
   }, [selectedClass?.id]);
 
   useEffect(() => {
-    setCurriculumDraft(selectedClass?.curriculum_track || '');
-    setAssignmentError(null);
-  }, [selectedClass?.id, selectedClass?.curriculum_track]);
+    setRosterCredentials([]);
+    setPasteResult(null);
+  }, [selectedClass?.id]);
 
   const createClass = async () => {
     if (!newClassName.trim()) return;
@@ -136,6 +218,8 @@ export default function ClassroomManager({
         student_count: 0,
       };
       setSelectedClass(newClass);
+      onClassSelectionChange?.(String(newClass.id));
+      onClassesUpdated?.(String(newClass.id));
     } finally {
       setCreating(false);
     }
@@ -187,10 +271,17 @@ export default function ClassroomManager({
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        setPasteResult({ added: data.added ?? 0, created: data.created ?? [] });
+        setPasteResult({
+          added: data.added ?? 0,
+          created: data.created ?? [],
+          credentials: data.credentials ?? [],
+        });
+        mergeCredentials(data.credentials);
         setPasteNames('');
         await fetchClasses();
+        if (selectedClass?.id) await refreshClassMembers(String(selectedClass.id));
         onStudentsAdded?.();
+        onClassesUpdated?.(selectedClass ? String(selectedClass.id) : undefined);
       } else {
         setPasteResult({ added: 0, created: [], error: data.error || data.message || `Request failed (${res.status})` });
       }
@@ -243,9 +334,16 @@ export default function ClassroomManager({
         setPasteResult({ added: 0, created: [], error: data.error || data.message || `Request failed (${res.status})` });
         return;
       }
-      setPasteResult({ added: data.added ?? 0, created: data.created ?? [] });
+      setPasteResult({
+        added: data.added ?? 0,
+        created: data.created ?? [],
+        credentials: data.credentials ?? [],
+      });
+      mergeCredentials(data.credentials);
       await fetchClasses();
+      if (selectedClass?.id) await refreshClassMembers(String(selectedClass.id));
       onStudentsAdded?.();
+      onClassesUpdated?.(selectedClass ? String(selectedClass.id) : undefined);
     } catch (e: any) {
       setPasteResult({ added: 0, created: [], error: e?.message || 'Could not parse file.' });
     } finally {
@@ -270,6 +368,8 @@ export default function ClassroomManager({
       setSyncFeedback({ studentId, message: 'Added!' });
       setTimeout(() => setSyncFeedback(null), 2000);
       await fetchClasses();
+      if (selectedClass?.id) await refreshClassMembers(String(selectedClass.id));
+      onClassesUpdated?.(String(selectedClass.id));
     } catch {
       setSyncFeedback({ studentId, message: 'Network error' });
     }
@@ -278,28 +378,6 @@ export default function ClassroomManager({
 
 
 
-
-  const saveCurriculumTrack = async () => {
-    if (!selectedClass || !curriculumDraft.trim()) return;
-    setSavingCurriculum(true);
-    setAssignmentError(null);
-    try {
-      const res = await fetchWithAuth(`/api/classes/${selectedClass.id}/curriculum-track`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ curriculum_track: curriculumDraft.trim() }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setAssignmentError(data.error || data.message || 'Could not save curriculum track.');
-        return;
-      }
-      setClasses((prev) => prev.map((c) => (c.id === selectedClass.id ? { ...c, curriculum_track: curriculumDraft.trim() } : c)));
-      setSelectedClass((prev) => (prev && prev.id === selectedClass.id ? { ...prev, curriculum_track: curriculumDraft.trim() } : prev));
-    } finally {
-      setSavingCurriculum(false);
-    }
-  };
 
 
   return (
@@ -364,7 +442,7 @@ export default function ClassroomManager({
                 <button
                   key={c.id}
                   type="button"
-                  onClick={() => setSelectedClass(c)}
+                  onClick={() => selectClass(c)}
                   className={`w-full flex items-center justify-between p-4 rounded-lg border transition-all relative overflow-hidden group ${
                     selectedClass?.id === c.id
                       ? 'bg-slate-900 text-amber-500 border-slate-900 shadow-md'
@@ -425,40 +503,43 @@ export default function ClassroomManager({
               <TeacherCurriculumEditor
                 classId={String(currentClass.id)}
                 className={currentClass.name}
+                onTrackSaved={(track) => {
+                  setClasses((prev) =>
+                    prev.map((c) => (c.id === currentClass.id ? { ...c, curriculum_track: track } : c)),
+                  );
+                  setSelectedClass((prev) =>
+                    prev && prev.id === currentClass.id ? { ...prev, curriculum_track: track } : prev,
+                  );
+                  onClassesUpdated?.(String(currentClass.id));
+                }}
               />
             ) : (
             <>
+            {(() => {
+              const trackKey = normalizeCurriculumTrack(currentClass.curriculum_track);
+              const trackLabel = CURRICULUM_TRACK_LABELS[trackKey];
+              return (
             <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
-              <p className="text-[10px] font-black text-indigo-700 uppercase tracking-widest mb-2">Curriculum track (required before deployment)</p>
-              <div className="flex items-center gap-3 flex-wrap">
-                <select
-                  value={curriculumDraft}
-                  onChange={(e) => setCurriculumDraft(e.target.value)}
-                  className="min-w-[260px] bg-white border border-indigo-200 rounded px-3 py-2 text-sm text-slate-800"
-                >
-                  <option value="">Select a curriculum track</option>
-                  {CURRICULUM_TRACK_OPTIONS.map((track) => (
-                    <option key={track} value={track}>
-                      {track}
-                    </option>
-                  ))}
-                </select>
+              <p className="text-[10px] font-black text-indigo-700 uppercase tracking-widest mb-2">Curriculum track</p>
+              <p className="text-sm text-indigo-950 mb-3">
+                Use the <strong>Curriculum</strong> tab to choose <strong>Core STEM</strong>, <strong>Advanced</strong>, or{' '}
+                <strong>Custom</strong> and edit missions. That is separate from subject labels like Robotics.
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs font-bold text-indigo-800 bg-white border border-indigo-200 rounded-lg px-3 py-1.5">
+                  Active: {currentClass.curriculum_track ? trackLabel : 'Not set — open Curriculum tab'}
+                </span>
                 <button
                   type="button"
-                  onClick={saveCurriculumTrack}
-                  disabled={savingCurriculum || !curriculumDraft.trim()}
-                  className="px-4 py-2 rounded-xl bg-indigo-700 text-white font-black text-xs uppercase tracking-widest disabled:opacity-60"
+                  onClick={() => setClassViewTab('curriculum')}
+                  className="px-4 py-2 rounded-xl bg-indigo-700 text-white font-black text-xs uppercase tracking-widest"
                 >
-                  {savingCurriculum ? 'Saving…' : 'Set Track'}
+                  Open Curriculum tab
                 </button>
-                {currentClass.curriculum_track && (
-                  <span className="text-[11px] font-black text-indigo-700 uppercase tracking-wider">
-                    Active: {currentClass.curriculum_track}
-                  </span>
-                )}
               </div>
-              <p className="text-slate-600 text-xs mt-2">Deployment unlocks after a curriculum track is selected.</p>
             </div>
+              );
+            })()}
 
             {/* Class join code – always visible, never masked */}
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
@@ -521,7 +602,9 @@ export default function ClassroomManager({
             {/* Add many students by pasting names (one per line); create accounts if needed */}
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
               <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Add students by name list</p>
-              <p className="text-slate-500 text-xs mb-3">Paste one name per line. New accounts are created for any name that doesn’t exist (default password: password123).</p>
+              <p className="text-slate-500 text-xs mb-3">
+                Paste one name per line. New accounts get a generated username and password—shown in the login table below (download CSV to share).
+              </p>
               <textarea
                 value={pasteNames}
                 onChange={e => { setPasteNames(e.target.value); setPasteResult(null); }}
@@ -546,7 +629,7 @@ export default function ClassroomManager({
                       <>
                         <span className="text-amber-700 font-black">Added {pasteResult.added} to class</span>
                         {pasteResult.created.length > 0 && (
-                          <span className="text-slate-600 ml-2"> · Created {pasteResult.created.length} new account(s); default password: password123</span>
+                          <span className="text-slate-600 ml-2"> · Created {pasteResult.created.length} new account(s) — see login table below</span>
                         )}
                       </>
                     )}
@@ -575,11 +658,83 @@ export default function ClassroomManager({
               </div>
             </div>
 
-                <h3 className="text-xl font-semibold text-slate-900 mb-2">
-              Add Students: {currentClass.name}
+            {rosterCredentials.length > 0 && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                  <p className="text-[10px] font-black text-amber-900 uppercase tracking-widest">
+                    Student login credentials
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => exportRosterCsv(rosterCredentials, currentClass.name)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-amber-400 text-[10px] font-black uppercase tracking-widest"
+                  >
+                    <Download className="size-3.5" />
+                    Download CSV
+                  </button>
+                </div>
+                <p className="text-xs text-amber-950 mb-3">
+                  Students sign in at the login page with <strong>username</strong> and <strong>password</strong> (not email).
+                  Save this file now—passwords cannot be retrieved later.
+                </p>
+                <div className="overflow-x-auto rounded-lg border border-amber-200 bg-white">
+                  <table className="w-full text-sm text-left">
+                    <thead>
+                      <tr className="text-[10px] uppercase tracking-widest text-slate-500 border-b">
+                        <th className="p-2">Name</th>
+                        <th className="p-2">Username</th>
+                        <th className="p-2">Password</th>
+                        <th className="p-2">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rosterCredentials.map((r) => (
+                        <tr key={r.student_id} className="border-b border-slate-100 last:border-0">
+                          <td className="p-2 font-semibold text-slate-900">{r.name}</td>
+                          <td className="p-2 font-mono text-xs">{r.username}</td>
+                          <td className="p-2 font-mono text-xs">{r.password || '—'}</td>
+                          <td className="p-2 text-xs">{r.is_new ? 'New account' : 'Existing'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-5">
+              <p className="text-[10px] font-black text-emerald-800 uppercase tracking-widest mb-2">
+                In this class ({classMembers.length})
+              </p>
+              {loadingMembers ? (
+                <p className="text-sm text-slate-600">Loading roster…</p>
+              ) : classMembers.length === 0 ? (
+                <p className="text-sm text-slate-600">No students yet — paste names above or add from your school list below.</p>
+              ) : (
+                <ul className="space-y-2 max-h-40 overflow-y-auto pr-2">
+                  {classMembers.map((s) => (
+                    <li key={s.id} className="flex items-center gap-3 text-sm text-slate-800">
+                      <img src={s.avatar_url} alt="" className="size-8 rounded-lg object-cover border border-slate-200" referrerPolicy="no-referrer" />
+                      <span className="font-semibold">{s.name}</span>
+                      {s.username && (
+                        <span className="text-[10px] font-mono text-slate-500">@{s.username}</span>
+                      )}
+                      <span className="text-[10px] uppercase text-slate-500 font-bold">Lvl {s.level}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+                <h3 className="text-xl font-semibold text-slate-900 mb-1">
+              Move students from your other classes
             </h3>
+            <p className="text-xs text-slate-500 mb-3">
+              Only students already in another class you teach are listed here—not every student in the school.
+              To add someone new, use the name list above.
+            </p>
             <div className="space-y-3 max-h-[260px] overflow-y-auto pr-4 custom-scrollbar">
-              {students.filter(s => s.role === 'student').map(s => {
+              {availableToAdd.map((s) => {
                 const feedback = syncFeedback?.studentId === s.id ? syncFeedback.message : null;
                 return (
                 <div key={s.id} className="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl group hover:border-amber-300 transition-all">
@@ -605,15 +760,22 @@ export default function ClassroomManager({
                   </div>
                 </div>
               );})}
+              {!loadingMembers && availableToAdd.length === 0 && (
+                  <p className="text-sm text-slate-500 py-4 text-center">
+                    No students from your other classes to add. Paste names above to create new accounts for this class.
+                  </p>
+                )}
             </div>
 
             <ClassLearningPathGuide
               className={currentClass.name}
-              hasCurriculumTrack={Boolean(currentClass.curriculum_track)}
+              hasCurriculumTrack={Boolean(String(currentClass.curriculum_track || '').trim())}
               onGoToActivityBank={onNavigateToActivityBank}
-              onGoToCurriculum={onNavigateToCurriculum}
+              onGoToCurriculum={() => {
+                setClassViewTab('curriculum');
+                onNavigateToCurriculum?.();
+              }}
             />
-            {assignmentError && <p className="text-rose-500 text-xs font-semibold">{assignmentError}</p>}
             </>
             )}
           </HoverCard>

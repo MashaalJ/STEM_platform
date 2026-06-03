@@ -11,11 +11,13 @@ export default function TeacherCurriculumEditor({
   className,
   wrapped = false,
   subtitle,
+  onTrackSaved,
 }: {
   classId: string | null;
   className?: string;
   wrapped?: boolean;
   subtitle?: string;
+  onTrackSaved?: (track: string) => void;
 }) {
   const title = className ? `${className} — curriculum` : 'Class curriculum';
   const editorSubtitle =
@@ -30,6 +32,7 @@ export default function TeacherCurriculumEditor({
       mode="class"
       title={wrapped ? 'Class curriculum' : title}
       subtitle={editorSubtitle}
+      onTrackSaved={onTrackSaved}
     />
   );
 
